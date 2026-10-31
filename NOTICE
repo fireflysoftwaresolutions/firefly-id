@@ -8,8 +8,8 @@ This distribution integrates with Keycloak, an independent upstream project.
 Keycloak is licensed under the Apache License, Version 2.0.
 The login field macros derive from Keycloak 26.8.1, with password visibility
 controls removed and the remaining upstream field behavior retained. The shared
-login template derives from the same release and adds an advance access-policy
-notice before forms and uniform login-error presentation. Credential-field errors
+login template derives from the same release and adds uniform login-error
+presentation. Credential-field errors
 are presented in that shared alert. Upstream protocol and form actions are retained.
 Manrope is distributed under the SIL Open Font License, Version 1.1;
 the font's license is included alongside the font.

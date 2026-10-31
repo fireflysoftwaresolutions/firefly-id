@@ -143,7 +143,6 @@ input::placeholder { color: var(--ffid-muted); opacity: 1; }
 .ffid-footer { display: flex; flex-direction: column; gap: 3px; padding: 24px 20px; text-align: center; color: var(--ffid-muted); font-size: 12px; }
 .ffid-footer span:first-child { color: var(--ffid-ink); font-weight: 700; }
 .pf-v5-c-alert { border-radius: 8px; }
-.ffid-access-policy { margin: 0 0 24px; color: var(--ffid-muted); font-size: 13px; line-height: 1.6; }
 #kc-error-message { color: var(--ffid-muted); font-size: 16px; line-height: 1.65; }
 #kc-error-message .instruction { margin: 0 0 20px; }
 #kc-error-message #traceId { border-top: 1px solid var(--ffid-line); padding-top: 16px; font-size: 13px; }

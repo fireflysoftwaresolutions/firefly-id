@@ -33,13 +33,10 @@ class ThemePackagingTest(unittest.TestCase):
             self.assertEqual({messages[key] for key in errors}, {messages["invalidUserMessage"]})
             self.assertNotRegex(messages["invalidUserMessage"], r"\d|\{\d+\}")
 
-    def test_advance_notice_preserves_the_exact_upstream_protocol_template(self):
+    def test_generic_error_presentation_preserves_the_exact_upstream_protocol_template(self):
         template = (ROOT / "themes/firefly-id/login/template.ftl").read_text()
         header, body = template.split('\n', 1)
         self.assertIn('Keycloak 26.8.1', header)
-        notice = '        <p id="ffid-access-policy" class="ffid-access-policy">${msg("ffidPermanentLockWarning")}</p>\n'
-        self.assertEqual(body.count(notice), 1)
-        self.assertLess(body.index(notice), body.index('<#nested "form">'))
         generic_branch = '''        <#if pageId == "login" && ((message?? && message.type == 'error') || messagesPerField.existsError('username','password'))>
             <div class="${properties.kcAlertClass!} pf-m-danger" role="alert" id="ffid-signin-error">
                 <div class="${properties.kcAlertIconClass!}">
@@ -49,7 +46,7 @@ class ThemePackagingTest(unittest.TestCase):
             </div>
         <#elseif displayMessage'''
         self.assertEqual(body.count(generic_branch), 1)
-        upstream = body.replace(notice, '').replace(generic_branch, '        <#if displayMessage')
+        upstream = body.replace(generic_branch, '        <#if displayMessage')
         upstream = upstream.replace('kc-login-tooltip" type="button"\n', 'kc-login-tooltip" type="button" \n')
         self.assertEqual(hashlib.sha256(upstream.encode()).hexdigest(),
                          '6221a3176c73a3fd67abc97076deb9cef112378ce157735a78bd865800315b37')

@@ -56,7 +56,6 @@ try {
       await page.locator('#username').waitFor();
       await assertLocale(page, locale);
       assert.equal(await page.locator('#login-select-toggle option').count(), 2);
-      await page.locator('#ffid-access-policy').waitFor({ state: 'visible' });
       await page.screenshot({ path: `${directory}/${locale}-login-desktop-light.png`, fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });
       await page.emulateMedia({ colorScheme: 'dark' });

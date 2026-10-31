@@ -1,4 +1,4 @@
-<#-- Derived from Keycloak 26.8.1 under Apache-2.0. Adds advance notice and normalizes login error presentation; upstream protocol and form actions are retained. -->
+<#-- Derived from Keycloak 26.8.1 under Apache-2.0. Normalizes login error presentation; upstream protocol and form actions are retained. -->
 <#import "field.ftl" as field>
 <#import "footer.ftl" as loginFooter>
 <#import "theme-resources.ftl" as themeResourceTags>
@@ -199,7 +199,6 @@
         </#if>
       </div>
       <div class="${properties.kcLoginMainBody!}">
-        <p id="ffid-access-policy" class="ffid-access-policy">${msg("ffidPermanentLockWarning")}</p>
         <#if !(auth?has_content && auth.showUsername() && !auth.showResetCredentials())>
             <#if displayRequiredFields>
                 <div class="${properties.kcContentWrapperClass!}">

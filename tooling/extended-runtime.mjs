@@ -67,11 +67,14 @@ async function main() {
   const passed = name => { results.push(name); console.log(`PASS ${name}`); };
   let browser;
   let server;
+  let phase = 'extended setup';
   const pending = new Map();
   try {
     const selected = (process.env.FIREFLY_ID_EXTENDED_FLOWS || 'verify,profile,mfa').split(',');
     assert.ok(selected.length > 0 && selected.every(name => ['verify', 'profile', 'mfa'].includes(name)), 'Unknown extended flow');
     const stateDir = resolve(process.env.FIREFLY_ID_STATE || '.state/sandbox');
+    assert.equal((await stat(stateDir)).mode & 0o077, 0, 'Sandbox state must remain owner-only');
+    assert.equal((await stat(`${stateDir}/credentials.json`)).mode & 0o077, 0, 'Credentials must remain owner-only');
     const credentials = JSON.parse(await readFile(`${stateDir}/credentials.json`, 'utf8'));
     const metadataCache = new Map();
     async function metadataFor(population) {
@@ -92,6 +95,39 @@ async function main() {
     await new Promise((ok, fail) => server.listen(3000, '127.0.0.1', ok).once('error', fail));
     const { chromium } = await import('playwright');
     browser = await chromium.launch();
+
+    let adminPage;
+    let adminAuthorization;
+    async function adminRead(url) {
+      if (!adminPage) {
+        const context = await browser.newContext();
+        adminPage = await context.newPage();
+        adminPage.setDefaultTimeout(20000);
+        const authenticated = adminPage.waitForResponse(async response => response.status() === 200
+          && new URL(response.url()).pathname.startsWith('/admin/realms')
+          && (await response.request().allHeaders()).authorization?.startsWith('Bearer '), { timeout: 40000 });
+        authenticated.catch(() => {});
+        await adminPage.goto(`${BASE}/admin/master/console/`);
+        await adminPage.locator('#username').fill('sandbox-bootstrap');
+        await adminPage.locator('#password').fill((await readFile(`${stateDir}/secrets/admin-password`, 'utf8')).trim());
+        await adminPage.locator('#kc-login').click();
+        adminAuthorization = (await (await authenticated).request().allHeaders()).authorization;
+      }
+      assert.ok(adminAuthorization?.startsWith('Bearer '), 'Actual browser administrative bearer required');
+      const claims = JSON.parse(Buffer.from(adminAuthorization.slice(7).split('.')[1], 'base64url'));
+      assert.ok(typeof claims.exp === 'number', 'Administrative token expiry missing');
+      if (claims.exp < Date.now() / 1000 + 30) {
+        const renewed = adminPage.waitForResponse(async response => response.status() === 200
+          && new URL(response.url()).pathname.startsWith('/admin/realms')
+          && (await response.request().allHeaders()).authorization?.startsWith('Bearer '));
+        renewed.catch(() => {});
+        await adminPage.reload();
+        adminAuthorization = (await (await renewed).request().allHeaders()).authorization;
+      }
+      const response = await request(url, { headers: { Authorization: adminAuthorization, Accept: 'application/json' } });
+      assert.equal(response.status, 200, 'Authenticated administrative snapshot refused');
+      return response.json();
+    }
 
     async function startLogin(population, account, existingContext) {
       const metadata = await metadataFor(population);
@@ -137,13 +173,97 @@ async function main() {
             const identity = await validateJwt(tokens.id_token, metadata, CLIENT);
             assert.equal(identity.nonce, nonce);
             const claims = await validateJwt(tokens.access_token, metadata, 'sandbox-api');
+            assert.equal(claims.sub, identity.sub, 'Identity and access token subjects differ');
             return { tokens, identity, claims };
           } finally { cancel(); }
         },
       };
     }
 
+    async function protectedProfile(population, account, flow, baseline) {
+      const protectedNames = ['tenant_id', 'party_id', 'staff_actor_id', 'principal_kind', 'client_id'];
+      const sentinelName = `ffid_unmanaged_${randomBytes(10).toString('hex')}`;
+      const forbiddenNames = [...protectedNames, sentinelName];
+      phase = `${population} authenticated Account REST read and hidden attribute boundary`;
+      const accountPath = `/realms/sandbox-${population}/account/`;
+      const profileReady = flow.page.waitForResponse(async response => {
+        const req = response.request();
+        if (new URL(response.url()).pathname !== accountPath || req.method() !== 'GET' || response.status() !== 200) return false;
+        const headers = await req.allHeaders();
+        return headers.authorization?.startsWith('Bearer ') && (headers['content-type'] || '').includes('application/json');
+      });
+      profileReady.catch(() => {});
+      await flow.page.goto(`${flow.metadata.issuer}/account/`);
+      const profileResponse = await profileReady;
+      const accountToken = (await profileResponse.request().allHeaders()).authorization;
+      assert.ok(accountToken?.startsWith('Bearer '), 'Actual account API bearer required');
+      function assertHidden(profile) {
+        for (const name of forbiddenNames) {
+          assert.ok(!Object.hasOwn(profile.attributes || {}, name) && !Object.hasOwn(profile, name), 'Account response exposed a protected or unmanaged attribute');
+          assert.ok(!(profile.userProfileMetadata?.attributes || []).some(attribute => attribute.name === name), 'Account metadata exposed a protected or unmanaged attribute');
+        }
+      }
+      const profile = await profileResponse.json();
+      assertHidden(profile);
+      const body = { username: profile.username, email: profile.email,
+        firstName: profile.firstName, lastName: profile.lastName, attributes: profile.attributes || {} };
+      const accountApi = `${flow.metadata.issuer}/account/`;
+      const accountHeaders = { Authorization: accountToken, 'Content-Type': 'application/json', Accept: 'application/json' };
+      const update = value => request(accountApi, { method: 'POST', headers: accountHeaders, body: JSON.stringify(value) });
+      assert.match(baseline.claims.sub, /^[a-f0-9-]{36}$/, 'Synthetic user identifier missing');
+      const userApi = `${BASE}/admin/realms/sandbox-${population}/users/${baseline.claims.sub}`;
+      async function snapshot() {
+        const user = await adminRead(userApi);
+        assert.equal(user.id, baseline.claims.sub, 'Administrative snapshot identifies another user');
+        assert.equal(user.username, account.username, 'Administrative snapshot identifies another account');
+        return { attributes: user.attributes || {}, unmanaged: await adminRead(`${userApi}/unmanagedAttributes`) };
+      }
+      phase = `${population} private managed and unmanaged administrative baseline`;
+      const stored = await snapshot();
+      assert.deepEqual(stored.attributes.tenant_id, [baseline.claims.tenant_id], 'Stored tenant source differs from signed identity');
+      const linkage = population === 'workforce' ? 'staff_actor_id' : 'party_id';
+      const otherLinkage = population === 'workforce' ? 'party_id' : 'staff_actor_id';
+      assert.equal(baseline.claims.principal_kind, population === 'workforce' ? 'STAFF' : 'HUMAN', 'Unexpected signed population');
+      assert.equal(baseline.claims.client_id, CLIENT, 'Unexpected signed client');
+      assert.equal(baseline.claims[otherLinkage], undefined, 'Signed identity contains cross-population linkage');
+      assert.deepEqual(stored.attributes[linkage], [baseline.claims[linkage]], 'Stored population source differs from signed identity');
+      for (const name of [otherLinkage, 'principal_kind', 'client_id', sentinelName]) {
+        assert.ok(!Object.hasOwn(stored.attributes, name) && !Object.hasOwn(stored.unmanaged, name), 'Unexpected cross-population or shadow attribute at baseline');
+      }
+      async function unchanged() {
+        assert.deepEqual(await snapshot(), stored, 'Account write changed stored managed or unmanaged attributes');
+        const visible = await request(accountApi, { headers: accountHeaders });
+        assert.equal(visible.status, 200, 'Authenticated Account REST read refused');
+        assertHidden(await visible.json());
+        const fresh = await startLogin(population, account, flow.context);
+        try {
+          const result = await fresh.finish();
+          assert.equal(result.claims.sub, baseline.claims.sub, 'Fresh signed identity identifies another user');
+          for (const name of forbiddenNames) {
+            assert.deepEqual(result.claims[name], baseline.claims[name], 'Protected signed identity claim changed');
+          }
+        } finally { fresh.cancel(); await fresh.page.close(); }
+      }
+      phase = `${population} permitted baseline Account REST update and independent readback`;
+      assert.equal((await update(body)).status, 204, 'Baseline profile write must be permitted before forgery tests');
+      await unchanged();
+      const attempts = { tenant_id: 'forged-tenant', party_id: randomUUID(), staff_actor_id: randomUUID(),
+        principal_kind: population === 'workforce' ? 'HUMAN' : 'STAFF', client_id: 'forged-client', [sentinelName]: randomUUID() };
+      for (const [name, value] of Object.entries(attempts)) {
+        const label = name === sentinelName ? 'unmanaged sentinel' : name;
+        for (const operation of ['write', 'remove']) {
+          phase = `${population} ${label} Account REST ${operation} refusal`;
+          const attempted = await update({ ...body, attributes: { ...body.attributes, [name]: operation === 'write' ? [value] : [] } });
+          assert.ok([204, 400].includes(attempted.status), 'Unexpected protected-profile update response');
+          phase = `${population} ${label} ${operation} private storage and fresh signed identity readback`;
+          await unchanged();
+        }
+      }
+      passed(`${population} permitted Account REST updates cannot change protected sources, cross-population or unmanaged attributes; administrative storage and fresh signed claims remain unchanged`);
+    }
+
     if (selected.includes('verify')) {
+      phase = 'verification fixture email and required action';
       assert.ok(credentials.verify_email, 'Fresh extended verification fixture required');
       const mailbox = await jsonRequest('http://localhost:8025/api/v1/messages');
       const prior = new Set((mailbox.messages || []).map(message => message.ID));
@@ -179,59 +299,37 @@ async function main() {
         const result = await flow.finish();
         assert.equal(result.identity.email_verified, true, 'Email verification did not complete');
         passed('new synthetic verification email, real popup action and signed verified identity');
+        phase = 'consumed verification action status and recognized refusal';
         const replayContext = await browser.newContext();
-        const replay = await replayContext.newPage();
-        await replay.goto(action.href);
-        await replay.locator('#kc-info-message, #kc-error-message').waitFor();
-        const replayText = await replay.locator('#kc-info-message, #kc-error-message').innerText();
-        assert.ok(/already verified|no longer valid|expired|invalid|already used/i.test(replayText), 'Reused verification action was not refused or identified as consumed');
-        assert.ok(!replay.url().startsWith(REDIRECT), 'Reused action issued a login callback');
-        await replayContext.close();
+        let replayCallback = false;
+        try {
+          const replay = await replayContext.newPage();
+          replay.on('request', req => {
+            const url = new URL(req.url());
+            if (url.origin === new URL(REDIRECT).origin && url.pathname === new URL(REDIRECT).pathname) replayCallback = true;
+          });
+          const response = await replay.goto(action.href);
+          assert.ok(response && response.status() >= 200 && response.status() < 500, 'Reused verification action produced a provider failure');
+          await replay.locator('#kc-info-message, #kc-error-message').waitFor();
+          const replayText = await replay.locator('#kc-info-message, #kc-error-message').innerText();
+          assert.ok(/already verified|verified already|no longer valid|expired|invalid|already used/i.test(replayText), 'Reused verification action was not refused or identified as consumed');
+          assert.ok(!replayCallback && !replay.url().startsWith(REDIRECT), 'Reused action issued a login callback');
+        } finally { await replayContext.close(); }
         passed('consumed verification action cannot issue a new login code');
       } finally { flow.cancel(); await flow.context.close(); }
     }
 
     if (selected.includes('profile')) {
+      phase = 'customer profile fixture browser authentication';
       const flow = await startLogin('customers', credentials.customers);
       try {
         const baseline = await flow.finish();
-        const accountPath = '/realms/sandbox-customers/account/';
-        const profileReady = flow.page.waitForResponse(async response => {
-          const req = response.request();
-          if (new URL(response.url()).pathname !== accountPath || req.method() !== 'GET' || response.status() !== 200) return false;
-          const headers = await req.allHeaders();
-          return Boolean(headers.authorization) && (headers['content-type'] || '').includes('application/json');
-        });
-        profileReady.catch(() => {});
-        await flow.page.goto(`${flow.metadata.issuer}/account/`);
-        const profileResponse = await profileReady;
-        const accountToken = (await profileResponse.request().allHeaders()).authorization;
-        assert.ok(accountToken?.startsWith('Bearer '), 'No authenticated real account API request');
-        const profile = await profileResponse.json();
-        const body = { username: profile.username, email: profile.email,
-          firstName: profile.firstName, lastName: profile.lastName, attributes: profile.attributes || {} };
-        const api = `${flow.metadata.issuer}/account/`;
-        const update = value => request(api, { method: 'POST', headers: {
-          Authorization: accountToken, 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify(value) });
-        assert.equal((await update(body)).status, 204, 'Baseline profile write must be permitted before forgery test');
-        for (const [name, value] of Object.entries({ tenant_id: 'forged-tenant', party_id: randomUUID(),
-          staff_actor_id: randomUUID(), principal_kind: 'STAFF', client_id: 'forged-client' })) {
-          const attempted = await update({ ...body, attributes: { ...body.attributes, [name]: [value] } });
-          assert.ok([204, 400].includes(attempted.status), 'Unexpected protected-profile update response');
-          const fresh = await startLogin('customers', credentials.customers, flow.context);
-          try {
-            const result = await fresh.finish();
-            for (const claim of ['tenant_id', 'party_id', 'staff_actor_id', 'principal_kind', 'client_id']) {
-              assert.ok(result.claims[claim] === baseline.claims[claim], 'Protected signed identity claim changed');
-            }
-          } finally { fresh.cancel(); await fresh.page.close(); }
-        }
-        passed('actual permitted account API rejects or ignores identity-claim forgery; fresh signed claims unchanged');
+        await protectedProfile('customers', credentials.customers, flow, baseline);
       } finally { flow.cancel(); await flow.context.close(); }
     }
 
     if (selected.includes('mfa')) {
+      phase = 'workforce retained factor and enrollment authentication';
       const filename = `${stateDir}/secrets/workforce-totp.json`;
       assert.ok(((await stat(filename)).mode & 0o077) === 0, 'TOTP state must remain owner-only');
       let factor = JSON.parse(await readFile(filename, 'utf8'));
@@ -278,6 +376,7 @@ async function main() {
       } finally { initial.cancel(); await initial.context.close(); }
       const challenge = await startLogin('workforce', credentials.workforce);
       try {
+        phase = 'workforce wrong OTP refusal and real valid challenge';
         await challenge.page.locator('#otp').waitFor();
         const now = Date.now() / 1000;
         const validWindow = new Set([-30, 0, 30].map(offset => totpCode(factor.secret, now + offset)));
@@ -301,6 +400,7 @@ async function main() {
         factor.lastAcceptedCounter = code.counter;
         await protectedJson(filename, factor);
         passed('fresh workforce MFA challenge refuses bad OTP and accepts valid factor before signed code exchange');
+        await protectedProfile('workforce', credentials.workforce, challenge, result);
       } finally { challenge.cancel(); await challenge.context.close(); }
     }
     const evidence = resolve('.work/extended-runtime');
@@ -309,7 +409,7 @@ async function main() {
       pending: ['verification token expiration', 'passkey enrollment and challenge', 'lost-factor and step-up recovery'],
       scope: 'Synthetic provider flows only; no production or business authorization acceptance.' }, null, 2));
   } catch (error) {
-    reportFailure(error, results.at(-1) || 'extended setup');
+    reportFailure(error, phase);
     process.exitCode = 1;
   } finally {
     pending.clear();

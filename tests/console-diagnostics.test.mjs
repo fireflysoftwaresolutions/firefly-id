@@ -15,12 +15,13 @@ test('console failure categories never retain credential-bearing URL or exceptio
   }
 });
 
-test('account bearer diagnostics retain booleans only even for credential-bearing payloads', () => {
+test('account bearer diagnostics retain safe structural fields without credential-bearing payloads', () => {
   const payload = { sub: 'PRIVATE_SENTINEL', azp: 'account-console', aud: ['account'],
     iss: 'http://id.firefly.test:8180/realms/sandbox-customers', exp: Date.now() / 1000 + 60,
     resource_access: { account: { roles: ['manage-account', 'PRIVATE_SENTINEL'] } } };
   const shape = accountBearerShape(`Bearer header.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.signature`);
-  assert.ok(Object.values(shape).every(value => typeof value === 'boolean'));
+  assert.ok(Object.entries(shape).every(([key, value]) => key === 'audienceType' ? ['string', 'array', 'other'].includes(value)
+    : key === 'audienceCount' ? Number.isInteger(value) && value >= 0 : typeof value === 'boolean'));
   assert.ok(shape.subjectPresent && shape.audienceHasAccount && shape.manageAccountRolePresent);
   assert.ok(!JSON.stringify(shape).includes('PRIVATE_SENTINEL'));
   assert.deepEqual(accountBearerShape('Bearer undefined'), { bearerPresent: true, bearerJwtParseable: false });

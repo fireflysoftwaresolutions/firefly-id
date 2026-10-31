@@ -56,7 +56,7 @@ async function assertMaskedPasswordControls(page) {
       || ['current-password', 'new-password'].includes(input.autocomplete));
     const controls = [...document.querySelectorAll('button, [role="button"]')].filter(button =>
       button.hasAttribute('data-password-toggle')
-      || /(?:show|hide|reveal) password/i.test(button.getAttribute('aria-label') || ''));
+      || /(?:show|hide|reveal) password|(?:mostrar|ocultar).*contraseña/i.test(button.getAttribute('aria-label') || ''));
     return passwords.length > 0 && passwords.every(input => input.type === 'password')
       && controls.every(button => !visible(button) && (button.disabled || button.tabIndex < 0));
   });
@@ -229,9 +229,6 @@ async function main() {
       try {
         await page.goto(url.href);
         await page.locator('#username').waitFor();
-        await page.locator('#ffid-access-policy').waitFor({ state: 'visible' });
-        assert.ok(await page.evaluate(() => document.querySelector('#ffid-access-policy').getBoundingClientRect().bottom
-          <= document.querySelector('#username').getBoundingClientRect().top), 'Advance warning must precede credential entry');
         await assertMaskedPasswordControls(page);
       } catch (error) { pending.delete(state); await context.close(); throw error; }
       return { context, page, get callback() { return callbackUrl; },
@@ -416,15 +413,18 @@ async function main() {
       if (result.sub !== undefined) assert.equal(result.sub, issuedAccess.sub);
       return result;
     }
-    phase = 'pre-block native confidential-client introspection';
+    phase = 'wrong-audience confidential introspection refusal';
     assert.equal((await introspectPreviouslyIssuedAccess('sandbox-backend', credentials.customers.backend_client_secret)).active,
       false, 'Introspection accepted a confidential client outside the issued audience');
+    phase = 'pre-block audience-matched confidential introspection';
     assert.equal((await introspectPreviouslyIssuedAccess()).active, true, 'Fresh browser-issued access token is not active');
+    phase = 'introspection receiver cannot issue machine credentials';
     const receiverGrant = await request(metadataCache.get('customers').token_endpoint, {
       method: 'POST', body: new URLSearchParams({ grant_type: 'client_credentials', client_id: 'sandbox-api',
         client_secret: credentials.customers.introspection_client_secret }),
     });
-    assert.equal(receiverGrant.status, 400, 'Introspection receiver unexpectedly issued a machine token');
+    assert.equal(receiverGrant.status, 401, 'Introspection receiver unexpectedly issued a machine token');
+    assert.equal((await receiverGrant.json()).error, 'unauthorized_client');
     phase = 'recovery fixture exact third-failure blocking';
     for (let attempt = 0; attempt < 3; attempt++) assert.deepEqual(await refused(recovery), baseline);
     const recoveryUserUrl = api('customers', `/users/${recovery.id}`);

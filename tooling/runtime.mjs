@@ -61,9 +61,6 @@ async function login({ capture = false, checkReplay = false } = {}) {
     phase = 'login authorization page';
     await page.goto(authorization({ challenge, state, nonce }));
     if (await page.locator('#username').isVisible()) {
-      await page.locator('#ffid-access-policy').waitFor({ state: 'visible' });
-      assert.ok(await page.evaluate(() => document.querySelector('#ffid-access-policy').getBoundingClientRect().bottom
-        <= document.querySelector('#username').getBoundingClientRect().top), 'Advance warning must precede the credential fields');
       if (capture) {
         phase = 'login desktop presentation';
         await page.setViewportSize({ width: 1440, height: 1000 });
@@ -169,6 +166,10 @@ try {
     populationMatches: claims.principal_kind === 'HUMAN', clientMatches: claims.client_id === clientId,
     hasStaffLink: claims.staff_actor_id !== undefined, partyLinkPresent: typeof claims.party_id === 'string',
     exp: typeof claims.exp, nbf: typeof claims.nbf,
+    audienceType: Array.isArray(claims.aud) ? 'array' : typeof claims.aud,
+    audienceCount: [claims.aud].flat().length,
+    audienceHasResource: [claims.aud].flat().includes('sandbox-api'),
+    audienceHasAccount: [claims.aud].flat().includes('account'),
   })}`);
   phase = 'signed tenant namespace';
   assert.equal(claims.tenant_id, 'synthetic-tenant');
@@ -212,6 +213,7 @@ try {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.screenshot({ path: `${evidence}/account-mobile-dark.png`, fullPage: true });
   passed('real account console and self-hosted Manrope');
+  await captureAccountDiagnostics(evidence, 'account', { failure: false });
   captureConsoleFailure = undefined;
   phase = 'RP initiated logout';
   const logout = new URL(metadata.end_session_endpoint);

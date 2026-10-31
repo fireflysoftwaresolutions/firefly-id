@@ -31,6 +31,9 @@ export function accountBearerShape(authorization) {
       issuerMatchesCustomers: claims.iss === 'http://id.firefly.test:8180/realms/sandbox-customers',
       authorizedPartyIsAccountConsole: claims.azp === 'account-console',
       audienceHasAccount: [claims.aud].flat().includes('account'),
+      audienceType: Array.isArray(claims.aud) ? 'array' : typeof claims.aud === 'string' ? 'string' : 'other',
+      audienceCount: Array.isArray(claims.aud) ? claims.aud.length : typeof claims.aud === 'string' ? 1 : 0,
+      audienceHasResource: [claims.aud].flat().includes('sandbox-api'),
       accountRolesPresent: Array.isArray(claims.resource_access?.account?.roles),
       manageAccountRolePresent: claims.resource_access?.account?.roles?.includes('manage-account') === true,
       expiryFresh: typeof claims.exp === 'number' && claims.exp > Date.now() / 1000,
@@ -53,17 +56,17 @@ export function observeConsole(page) {
     if (response.status() >= 400 && failures.length < 30) {
       failures.push({ group: consoleResourceGroup(response.url()), status: response.status() });
     }
-    if (consoleResourceGroup(response.url()) === 'account-api' && response.status() === 401 && accountRequests.length < 4) {
+    if (consoleResourceGroup(response.url()) === 'account-api' && accountRequests.length < 4) {
       try {
         const headers = await response.request().allHeaders();
-        accountRequests.push(accountBearerShape(headers.authorization));
+        if (headers.authorization?.startsWith('Bearer ')) accountRequests.push(accountBearerShape(headers.authorization));
       } catch { accountRequests.push({ unavailable: true }); }
     }
   });
   page.on('requestfailed', request => {
     if (failures.length < 30) failures.push({ group: consoleResourceGroup(request.url()), status: 'network-failure' });
   });
-  return async (directory, surface) => {
+  return async (directory, surface, { failure = true } = {}) => {
     if (!['account', 'admin'].includes(surface)) throw new Error('Unknown console surface');
     const structure = await page.evaluate(() => ({
       surface: ['account', 'admin'].includes(document.body?.dataset.pageId) ? document.body.dataset.pageId : 'other',
@@ -80,7 +83,7 @@ export function observeConsole(page) {
     await writeFile(`${directory}/${surface}-diagnostics.json`, JSON.stringify({ structure, errors, failures, accountRequests }, null, 2));
     // Never capture credential, action-token, OTP enrollment or arbitrary error pages.
     const location = new URL(page.url());
-    if (structure.surface === surface && location.origin === 'http://id.firefly.test:8180'
+    if (failure && structure.surface === surface && location.origin === 'http://id.firefly.test:8180'
       && !location.search && !location.hash
       && ['/realms/sandbox-customers/account/', '/admin/master/console/'].includes(location.pathname)) {
       await page.screenshot({ path: `${directory}/${surface}-failure.png`, fullPage: true });

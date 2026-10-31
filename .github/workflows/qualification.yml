@@ -76,6 +76,9 @@ jobs:
       - name: Authentication policy and population isolation
         if: ${{ !cancelled() && steps.owned-runtime.outcome == 'success' && steps.browser-tools.outcome == 'success' }}
         run: node tooling/policy-runtime.mjs
+      - name: Interactive client receiver audience shapes
+        if: ${{ !cancelled() && steps.owned-runtime.outcome == 'success' && steps.browser-tools.outcome == 'success' }}
+        run: node tooling/receiver-audience-runtime.mjs
       - name: English and Spanish identity journeys
         if: ${{ !cancelled() && steps.owned-runtime.outcome == 'success' && steps.browser-tools.outcome == 'success' }}
         run: node tooling/localization-runtime.mjs
@@ -91,6 +94,7 @@ jobs:
             .work/runtime/*-diagnostics.json
             .work/extended-runtime/summary.json
             .work/policy-runtime/summary.json
+            .work/receiver-audiences/summary.json
             .work/localization-runtime/*.png
             .work/localization-runtime/summary.json
           if-no-files-found: ignore
