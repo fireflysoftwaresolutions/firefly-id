@@ -74,7 +74,7 @@ Use **Manrope everywhere**, including layouts, forms, labels and all interface s
 
 ## Layout
 
-Use a 4 px spacing unit and the 4/8/12/16/24/32/48/64/96 scale. Authentication is an operational task: prioritize focused forms, readable labels and one primary action. The repository banner is a deliberate 1280 × 400 composition with the approved family signature and its adjacent protection emblem. It contains no subtitle or upstream attribution. Its tagline connects identity to the ecosystem: “Identity at the heart of every connection.”
+Use a 4 px spacing unit and the 4/8/12/16/24/32/48/64/96 scale. Authentication is an operational task: use a balanced two-column desktop composition with the approved signature and canonical isometric identity scene on the left, and a 480 px focused form on the right. At 900 px and below, use a single column and a reduced, quiet isometric background behind the opaque form. Labels, recovery paths, keyboard focus and primary actions remain clear in every journey. The repository banner is a deliberate 1280 × 400 composition with the approved family signature and its adjacent protection emblem. It contains no subtitle or upstream attribution. Its tagline connects identity to the ecosystem: “Identity at the heart of every connection.”
 
 ## Elevation & Depth
 

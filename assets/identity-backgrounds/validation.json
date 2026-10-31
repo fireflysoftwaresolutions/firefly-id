@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "engineVersion": "1.4.0",
+  "method": "Canonical build() uses projected-volume overlap constraints and a deterministic topological depthOrder() before SVG emission. Full checkScene() covers structural support, interpenetration, occlusion, pipe intersection/clearance/overdraw/hidden runs and bounds.",
+  "matrix": [
+    {
+      "file": "authentication-light.svg",
+      "theme": "light",
+      "mobile": false,
+      "pieceCount": 9,
+      "shapeCount": 286,
+      "canvas": [
+        993.688,
+        440.17
+      ],
+      "structuralFindings": [],
+      "sceneFindings": [],
+      "canonicalOutputMatches": true,
+      "sha256": "a32cfed2fb1f128e42e45bbb8ddf0c1e95f99d7576467dffa72f80ba21e7b9fa"
+    },
+    {
+      "file": "authentication-mobile-light.svg",
+      "theme": "light",
+      "mobile": true,
+      "pieceCount": 3,
+      "shapeCount": 150,
+      "canvas": [
+        504.852,
+        424.17
+      ],
+      "structuralFindings": [],
+      "sceneFindings": [],
+      "canonicalOutputMatches": true,
+      "sha256": "1cf06ad71d330c178878465e267ead6bd5e29b1b86bb11746ff08e3a254bebf0"
+    },
+    {
+      "file": "authentication-dark.svg",
+      "theme": "dark",
+      "mobile": false,
+      "pieceCount": 9,
+      "shapeCount": 286,
+      "canvas": [
+        993.688,
+        440.17
+      ],
+      "structuralFindings": [],
+      "sceneFindings": [],
+      "canonicalOutputMatches": true,
+      "sha256": "9a03c975cc720a62cd4264c19e2e4c7858f62b90786881092a89a09d9423dd9c"
+    },
+    {
+      "file": "authentication-mobile-dark.svg",
+      "theme": "dark",
+      "mobile": true,
+      "pieceCount": 3,
+      "shapeCount": 150,
+      "canvas": [
+        504.852,
+        424.17
+      ],
+      "structuralFindings": [],
+      "sceneFindings": [],
+      "canonicalOutputMatches": true,
+      "sha256": "aea04bb6387d9ccb4653977623b858ee37c4c58b99db7b824aeb1ded7004ba74"
+    }
+  ],
+  "pipeChecks": {
+    "adapterPortCentre": [
+      1.96,
+      10,
+      0.85
+    ],
+    "adapterApproachAxis": "x",
+    "gatewayServiceFace": {
+      "y": 4.96
+    },
+    "gatewayChannelFace": {
+      "x": 7.96
+    },
+    "applicationEntryFace": {
+      "x": 11.96
+    },
+    "tapRadius": 0.1,
+    "builtInUnusedPort": false,
+    "redundantCaps": false,
+    "redundantSockets": false,
+    "orthogonalRoutes": true
+  },
+  "directReview": {
+    "desktop": 1440,
+    "mobile": 390,
+    "enlargedTopologyWidth": 1988,
+    "lightAndDark": true,
+    "formArtworkSeparated": true,
+    "scope": "Artwork and composition reference only; live Keycloak journeys are validated separately."
+  }
+}

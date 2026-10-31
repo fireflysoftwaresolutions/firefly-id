@@ -26,6 +26,14 @@ jobs:
         run: |
           python3 scripts/generate.py --mode sandbox --output .state/source-check
           docker compose -f .state/source-check/compose.json config --quiet
+      - name: Preserve reproducible theme package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firefly-identity-theme
+          path: |
+            dist/firefly-id-theme.jar
+            dist/SHA256SUMS
+          retention-days: 14
 
   provider:
     runs-on: ubuntu-24.04
@@ -59,6 +67,8 @@ jobs:
         env:
           FIREFLY_ID_TOKEN_FILE: ${{ github.workspace }}/.state/sandbox/runtime-token.txt
         run: mvn -B -ntp -f examples/jafly/pom.xml test
+      - name: Verification, protected profile and workforce MFA
+        run: node tooling/extended-runtime.mjs
       - name: Preserve redacted visual and result evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -68,6 +78,7 @@ jobs:
             .work/runtime/*.png
             .work/runtime/summary.json
             .work/runtime/layout.json
+            .work/extended-runtime/summary.json
           if-no-files-found: ignore
           retention-days: 7
       - name: Stop only the owned runtime

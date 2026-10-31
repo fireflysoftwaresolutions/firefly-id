@@ -64,6 +64,10 @@ async function login({ capture = false } = {}) {
         await page.emulateMedia({ colorScheme: 'light' });
         await page.evaluate(() => document.fonts.ready);
         assert.ok(await page.evaluate(() => document.fonts.check('16px Manrope')));
+        assert.ok(await page.evaluate(() => {
+          const width = document.querySelector('main').getBoundingClientRect().width;
+          return width >= 440 && width <= 500;
+        }), 'Desktop form measure is outside the reviewed composition');
         await page.screenshot({ path: `${evidence}/login-desktop-light.png`, fullPage: true });
         await page.setViewportSize({ width: 390, height: 844 });
         await page.emulateMedia({ colorScheme: 'dark' });
@@ -106,15 +110,27 @@ async function validateJwt(token, audience) {
   const [header, payload, signature] = token.split('.');
   const decodedHeader = JSON.parse(Buffer.from(header, 'base64url'));
   const claims = JSON.parse(Buffer.from(payload, 'base64url'));
+  console.log(`JWT validation shape: ${JSON.stringify({
+    purpose: audience === clientId ? 'identity' : 'api', algorithmAllowed: decodedHeader.alg === 'RS256',
+    audienceMatches: [claims.aud].flat().includes(audience), issuerMatches: claims.iss === issuer,
+    expiryFresh: claims.exp > Date.now() / 1000, subjectPresent: Boolean(claims.sub),
+  })}`);
+  phase = 'JWT declared algorithm';
   assert.equal(decodedHeader.alg, 'RS256');
   const { keys } = await (await fetch(metadata.jwks_uri)).json();
   const jwk = keys.find(key => key.kid === decodedHeader.kid && key.use === 'sig');
+  phase = 'JWT signing key resolution';
   assert.ok(jwk);
+  phase = 'JWT cryptographic signature';
   assert.ok(verify('RSA-SHA256', Buffer.from(`${header}.${payload}`),
     createPublicKey({ key: jwk, format: 'jwk' }), Buffer.from(signature, 'base64url')));
+  phase = 'JWT exact issuer';
   assert.equal(claims.iss, issuer);
+  phase = 'JWT receiver audience';
   assert.ok([claims.aud].flat().includes(audience));
+  phase = 'JWT expiry';
   assert.ok(claims.exp > Date.now() / 1000);
+  phase = 'JWT nonempty subject';
   assert.ok(claims.sub);
   return claims;
 }
@@ -140,10 +156,21 @@ try {
   let tokens = await login({ capture: true });
   phase = 'customer access token signature and profile';
   const claims = await validateJwt(tokens.access_token, 'sandbox-api');
+  console.log(`Provider claim shape: ${JSON.stringify({
+    tenantMatches: claims.tenant_id === 'synthetic-tenant',
+    populationMatches: claims.principal_kind === 'HUMAN', clientMatches: claims.client_id === clientId,
+    hasStaffLink: claims.staff_actor_id !== undefined, partyLinkPresent: typeof claims.party_id === 'string',
+    exp: typeof claims.exp, nbf: typeof claims.nbf,
+  })}`);
+  phase = 'signed tenant namespace';
   assert.equal(claims.tenant_id, 'synthetic-tenant');
+  phase = 'signed human population';
   assert.equal(claims.principal_kind, 'HUMAN');
+  phase = 'signed client identity';
   assert.equal(claims.client_id, clientId);
+  phase = 'absence of workforce identity';
   assert.equal(claims.staff_actor_id, undefined);
+  phase = 'synthetic party identity format';
   assert.match(claims.party_id, /^[a-f0-9-]{36}$/);
   await writeFile(`${stateDir}/runtime-token.txt`, tokens.access_token, { mode: 0o600 });
   passed('real code PKCE, state, nonce, JWKS, signed claims, code replay');

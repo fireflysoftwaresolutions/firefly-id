@@ -78,7 +78,7 @@ def client(client_id, port, kind, secret=None):
     return result
 
 
-def realm(kind, password, backend_secret):
+def realm(kind, password, backend_secret, verification_password=None):
     name = 'sandbox-' + kind
     attrs = {'tenant_id': ['synthetic-tenant']}
     if kind == 'workforce':
@@ -86,7 +86,7 @@ def realm(kind, password, backend_secret):
     else:
         attrs['party_id'] = [str(uuid.uuid4())]
     result = {
-        'realm': name, 'displayName': 'Firefly ID · ' + kind + ' sandbox',
+        'realm': name, 'displayName': 'Firefly Identity · ' + kind + ' sandbox',
         'enabled': True, 'sslRequired': 'none',
         'registrationAllowed': False, 'registrationEmailAsUsername': False,
         'editUsernameAllowed': False, 'resetPasswordAllowed': True,
@@ -104,7 +104,7 @@ def realm(kind, password, backend_secret):
         'eventsEnabled': True, 'eventsExpiration': 604800,
         'adminEventsEnabled': True, 'adminEventsDetailsEnabled': False,
         'smtpServer': {'host': 'mailpit', 'port': '1025', 'from': 'identity@example.invalid',
-                       'fromDisplayName': 'Firefly ID Sandbox', 'auth': 'false',
+                       'fromDisplayName': 'Firefly Identity Sandbox', 'auth': 'false',
                        'ssl': 'false', 'starttls': 'false'},
         'components': {PROFILE_TYPE: [{'providerId': 'declarative-user-profile',
                                      'config': {'kc.user.profile.config': [json.dumps(profile())]}}]},
@@ -114,6 +114,19 @@ def realm(kind, password, backend_secret):
                    'lastName': kind.capitalize(), 'attributes': attrs,
                    'credentials': [{'type': 'password', 'value': password, 'temporary': False}]}],
     }
+    if kind == 'workforce':
+        result.update({'otpPolicyType': 'totp', 'otpPolicyAlgorithm': 'HmacSHA1',
+                       'otpPolicyDigits': 6, 'otpPolicyPeriod': 30,
+                       'otpPolicyLookAheadWindow': 1, 'otpPolicyCodeReusable': False})
+        result['users'][0]['requiredActions'] = ['CONFIGURE_TOTP']
+    if kind == 'customers' and verification_password is not None:
+        result['users'].append({
+            'username': 'synthetic-verify-email', 'email': 'verify-email@example.invalid',
+            'enabled': True, 'emailVerified': False, 'firstName': 'Synthetic',
+            'lastName': 'Verification', 'requiredActions': ['VERIFY_EMAIL'],
+            'attributes': {'tenant_id': ['synthetic-tenant'], 'party_id': [str(uuid.uuid4())]},
+            'credentials': [{'type': 'password', 'value': verification_password, 'temporary': False}],
+        })
     return result
 
 
@@ -194,12 +207,16 @@ def main():
     project = 'firefly-id-sandbox-' + uuid.uuid4().hex[:10]
     for name in ('postgres-admin-password', 'db-password', 'admin-password'):
         write(output / 'secrets' / name, secrets.token_urlsafe(36) + '\n')
-    credentials = {}
+    verification_password = 'Aa1' + secrets.token_urlsafe(36)
+    credentials = {'verify_email': {'username': 'synthetic-verify-email',
+                                    'password': verification_password}}
+    write(output / 'secrets/workforce-totp.json',
+          json.dumps({'status': 'pending-enrollment'}) + '\n', 0o600)
     for kind in ('customers', 'workforce', 'institutions'):
         password = 'Aa1' + secrets.token_urlsafe(36)
         backend_secret = secrets.token_urlsafe(36)
         write(output / 'realms' / ('sandbox-' + kind + '-realm.json'),
-              json.dumps(realm(kind, password, backend_secret), indent=2) + '\n')
+              json.dumps(realm(kind, password, backend_secret, verification_password), indent=2) + '\n')
         credentials[kind] = {'username': 'synthetic-' + kind, 'password': password,
                              'backend_client_secret': backend_secret}
     # Files are mounted read-only and readable by container UID 1000. Parent directories

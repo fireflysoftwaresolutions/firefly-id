@@ -25,7 +25,7 @@ Generation creates random local credentials and separate synthetic realms. It re
 
 ## A consistent identity experience
 
-The Firefly theme uses self-hosted Manrope, canonical Firefly colors, responsive forms, visible keyboard focus, and light/dark presentation. It extends the upstream authentication screens so server-owned credential and session mechanisms remain intact.
+The Firefly theme uses self-hosted Manrope, canonical Firefly colors and isometric artwork, responsive forms, visible keyboard focus, and light/dark presentation. It extends the upstream authentication screens so server-owned credential and session mechanisms remain intact.
 
 - Sign-in, account selection, registration, logout, and session-expiry screens.
 - Password recovery, email verification, profile actions, and errors.

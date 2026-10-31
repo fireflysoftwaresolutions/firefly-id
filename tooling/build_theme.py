@@ -24,6 +24,9 @@ def build(output: Path) -> Path:
         entries[prefix + "fonts/manrope.woff2"] = (ROOT / "assets/brand/fonts/manrope-latin-wght-normal.woff2").read_bytes()
         entries[prefix + "fonts/OFL.txt"] = (ROOT / "assets/brand/fonts/OFL.txt").read_bytes()
     entries["META-INF/keycloak-themes.json"] = (json.dumps({"themes": [{"name": "firefly-id", "types": list(KINDS)}]}, indent=2) + "\n").encode()
+    for variant in ("light", "dark", "mobile-light", "mobile-dark"):
+        entries[f"theme/firefly-id/login/resources/img/authentication-{variant}.svg"] = (
+            ROOT / f"assets/identity-backgrounds/authentication-{variant}.svg").read_bytes()
     output.mkdir(parents=True, exist_ok=True)
     target = output / "firefly-id-theme.jar"
     with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:

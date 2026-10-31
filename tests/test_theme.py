@@ -31,6 +31,8 @@ class ThemePackagingTest(unittest.TestCase):
                     self.assertIn(f"theme/firefly-id/{kind}/resources/img/wordmark-light.svg", names)
                     self.assertIn(f"theme/firefly-id/{kind}/resources/fonts/manrope.woff2", names)
                 self.assertNotIn(".env", names)
+                for variant in ("light", "dark", "mobile-light", "mobile-dark"):
+                    self.assertIn(f"theme/firefly-id/login/resources/img/authentication-{variant}.svg", names)
                 self.assertEqual(archive.testzip(), None)
 
     def test_email_layout_preserves_nested_server_generated_action(self):

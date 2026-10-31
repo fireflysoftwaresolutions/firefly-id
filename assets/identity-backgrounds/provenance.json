@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "created": "2026-10-31",
+  "product": "Firefly Identity",
+  "purpose": "Editable isometric artwork for shared authentication journeys.",
+  "sources": [
+    {
+      "repository": "fireflysoftwaresolutions/firefly-software-website",
+      "revision": "795a80c1b11250630bd0e399a3c5c8763f3c9864",
+      "engineVersion": "1.4.0",
+      "verifiedCurrentRemoteBlobs": {
+        "scripts/brand/system/pieces.mjs": "b0f94355dcdf96b4ebb4f18fa6d11af2daf40e49",
+        "scripts/brand/system/pieces.json": "950c9c1d456de7ce5daa2517b81660d9ed4cd607",
+        "scripts/brand/system/tokens.json": "e547ae20c974c4f4728800c9a25e4e159e1037c2",
+        "scripts/brand/system/architecture.json": "5435fd80684077e5d6f4967f0a8de6ff50165219",
+        "scripts/brand/system/colour.mjs": "cff64bf6e75c204208cebd98a1e2502539092938",
+        "scripts/brand/system/scene-check.mjs": "42de39d5b7847943c7fe0b6ecd26b87678700159"
+      },
+      "use": "Actual current canonical piece geometry, projection, materials, lighting, depth ordering and scene checks. Private renderer code is not redistributed."
+    },
+    {
+      "repository": "fireflysoftwaresolutions/brand-kit",
+      "revision": "eb8f3fae894c517c5d39c3d4ffc07547f8e17a1b",
+      "visibility": "private",
+      "paths": [
+        "data/diagram-system.json",
+        "data/design-system/tokens.json",
+        "docs/graphic-language.md",
+        "NOTICE.md"
+      ],
+      "use": "Canonical isometric rules, semantic material families, exact shared palette and face recipes, composition rules and rights."
+    },
+    {
+      "url": "https://fireflysoftware.io/",
+      "use": "Live typography, palette and restrained brand composition; directly viewed and captured."
+    },
+    {
+      "url": "https://fireflysoftware.io/openplatform/architecture/",
+      "use": "Actual rendered isometric layer assembly and connected service reference; directly viewed and captured."
+    }
+  ],
+  "originalWork": "Identity gateway composition and its specific piece layout, connections and responsive reduction.",
+  "rights": {
+    "artwork": "Reserved Firefly brand artwork; software licensing does not grant trademark or private-kit rights.",
+    "privateSource": "Only necessary rendered outputs and original declarative composition included; no proprietary generator source or unrelated private assets.",
+    "font": "Preview references Manrope under existing SIL OFL1.1 license in ../brand/fonts/OFL.txt."
+  },
+  "validation": "validation.json",
+  "visualReview": {
+    "desktopWidth": 1440,
+    "mobileWidth": 390,
+    "enlargedPipeReviewWidth": 1988,
+    "lightAndDark": true,
+    "allImagesLoaded": true,
+    "manropeLoaded": true,
+    "horizontalOverflowAt390": false,
+    "scope": "Artwork and composition reference; actual Keycloak journey integration remains separate."
+  },
+  "files": {
+    "NOTICE.md": {
+      "sha256": "60f05534959fd67428d509fa44c4847b534316b00ad289d427481056d4518b2c"
+    },
+    "authentication-dark.svg": {
+      "sha256": "9a03c975cc720a62cd4264c19e2e4c7858f62b90786881092a89a09d9423dd9c"
+    },
+    "authentication-light.svg": {
+      "sha256": "a32cfed2fb1f128e42e45bbb8ddf0c1e95f99d7576467dffa72f80ba21e7b9fa"
+    },
+    "authentication-mobile-dark.svg": {
+      "sha256": "aea04bb6387d9ccb4653977623b858ee37c4c58b99db7b824aeb1ded7004ba74"
+    },
+    "authentication-mobile-light.svg": {
+      "sha256": "1cf06ad71d330c178878465e267ead6bd5e29b1b86bb11746ff08e3a254bebf0"
+    },
+    "composition.json": {
+      "sha256": "a85fe8feede3040676c0ee725eafa84522bb8d6e545750e685a77c3b92e0aa31"
+    },
+    "index.html": {
+      "sha256": "cf7ec93a859dc64dfb39d3f08745bfc221cbb89e4a720a53b331573e45082ab0"
+    },
+    "validation.json": {
+      "sha256": "c873cec92a0a64f1687278369b96f71a9d3eb20e075303c2d864eef684e48ca6"
+    }
+  }
+}

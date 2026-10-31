@@ -26,4 +26,6 @@ Edit presentation under `themes/`, shared console CSS in `themes/console.css`, a
 
 Review desktop and narrow layouts in both color schemes, keyboard focus, real errors, long names and recovery strings. Confirm fonts/assets finish loading before screenshots. Test the actual identity server rather than treating standalone preview HTML as flow acceptance. Keep server theme caches enabled in production; use an immutable new artifact/image for updates.
 
+Authentication forms share a responsive isometric composition across login, logout, recovery, verification and required actions. The [artwork guide](isometric-backgrounds.md) records actual website/brand-kit sources, geometric depth ordering and the reduced mobile scene. The artwork remains presentation; server controls still own each journey.
+
 The custom copy currently supports American English. Upstream translations alone do not qualify the branded copy in another locale. Add complete translations, then review actual screens and emails before advertising another locale.

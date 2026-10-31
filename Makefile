@@ -4,6 +4,7 @@ check:
 	python3 -m py_compile scripts/*.py tooling/*.py
 	bash -n deploy/keycloak-entrypoint.sh deploy/postgres/init.sh
 	node --check tooling/runtime.mjs
+	node --check tooling/extended-runtime.mjs
 	node --test tests/*.test.mjs
 	git diff --check
 

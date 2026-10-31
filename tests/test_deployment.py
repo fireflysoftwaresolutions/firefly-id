@@ -88,6 +88,37 @@ class DeploymentGenerationTest(unittest.TestCase):
                 self.assertEqual(realm['smtpServer']['host'], 'mailpit')
                 self.assertEqual(realm['users'][0]['email'].split('@')[1], 'example.invalid')
 
+    def test_extended_accounts_are_separate_and_require_server_owned_verification_and_mfa(self):
+        with tempfile.TemporaryDirectory() as parent:
+            output = pathlib.Path(parent) / 'sandbox'
+            result = self.run_generator(output, '--mode', 'sandbox')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            credentials = json.loads((output / 'credentials.json').read_text())
+            self.assertIn('verify_email', credentials)
+            self.assertNotEqual(credentials['customers']['password'], credentials['verify_email']['password'])
+            customers = json.loads((output / 'realms/sandbox-customers-realm.json').read_text())
+            users = {user['username']: user for user in customers['users']}
+            primary = users['synthetic-customers']
+            verification = users['synthetic-verify-email']
+            self.assertTrue(primary['emailVerified'])
+            self.assertFalse(verification['emailVerified'])
+            self.assertEqual(verification['requiredActions'], ['VERIFY_EMAIL'])
+            self.assertEqual(verification['email'], 'verify-email@example.invalid')
+            self.assertEqual(verification['credentials'][0]['value'], credentials['verify_email']['password'])
+            self.assertNotEqual(primary['attributes']['party_id'], verification['attributes']['party_id'])
+            workforce = json.loads((output / 'realms/sandbox-workforce-realm.json').read_text())
+            self.assertEqual(workforce['users'][0]['requiredActions'], ['CONFIGURE_TOTP'])
+            self.assertEqual(workforce['otpPolicyType'], 'totp')
+            self.assertEqual(workforce['otpPolicyAlgorithm'], 'HmacSHA1')
+            self.assertEqual(workforce['otpPolicyDigits'], 6)
+            self.assertEqual(workforce['otpPolicyPeriod'], 30)
+            self.assertFalse(workforce['otpPolicyCodeReusable'])
+            factor_state = output / 'secrets/workforce-totp.json'
+            self.assertEqual(factor_state.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(json.loads(factor_state.read_text()), {'status': 'pending-enrollment'})
+            for account in credentials.values():
+                self.assertNotIn(account['password'], result.stdout)
+
     def test_generated_compose_has_private_pinned_database_and_reachable_issuer(self):
         with tempfile.TemporaryDirectory() as parent:
             output = pathlib.Path(parent) / 'sandbox'
@@ -109,6 +140,22 @@ class DeploymentGenerationTest(unittest.TestCase):
             self.assertIn('id.firefly.test', services['keycloak']['networks']['identity']['aliases'])
             self.assertNotIn('KC_DB_PASSWORD', env)
             self.assertTrue(compose['networks']['identity']['internal'])
+
+
+class ExtendedOtpAlgorithmTest(unittest.TestCase):
+    def test_totp_matches_rfc_vector_without_loading_browser_dependencies(self):
+        script = """
+import assert from 'node:assert/strict';
+import { totpCode } from './tooling/extended-runtime.mjs';
+const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
+assert.equal(totpCode(secret, 59, 8), '94287082');
+assert.equal(totpCode(secret, 59), '287082');
+assert.equal(totpCode(secret, 0), '755224');
+assert.throws(() => totpCode('invalid-secret!', 59));
+"""
+        result = subprocess.run(['node', '--input-type=module', '-e', script],
+                                cwd=ROOT, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 class SandboxLifecycleTest(unittest.TestCase):
