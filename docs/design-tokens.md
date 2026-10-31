@@ -16,7 +16,7 @@ The following private Firefly brand-kit files were inspected directly at revisio
 
 The palette and type values are canonical brand rules. The 4 px spacing scale, 8/12/16 px radii, 44 px minimum control size and focus dimensions are existing Firefly Identity interface decisions, recorded in `DESIGN.md` and `assets/brand/tokens.json`; they are not represented as private-kit mandates.
 
-The existing machine-readable product token file records rounded title/label weights of 500/600. The shared interface CSS uses the directly inspected canonical variable-font weights of 450/650. Outlined logo lettering is an independent approved asset and remains unchanged.
+The machine-readable product token file, `DESIGN.md` and shared interface CSS record the directly inspected canonical variable-font weights of 450/650 for titles and labels. Outlined logo lettering is an independent approved asset and remains unchanged.
 
 ## Layers
 
@@ -33,7 +33,7 @@ The existing machine-readable product token file records rounded title/label wei
 | `--ffid-link`, `--ffid-focus` | Gold | Amber |
 | `--ffid-action` / `--ffid-action-text` | Amber / charcoal | Amber / charcoal |
 
-Dark roles activate with Keycloak's `.pf-v5-theme-dark` or an explicitly applied `data-ffid-theme="dark"`. The consuming welcome surface owns its system-color-scheme behavior. The Identity dark card stays ink `#272820`, matching its current surface styling. The `#1d1f1a` role in the older product JSON came from Koinon; it is not a private-kit palette color and is not introduced into Identity's runtime by this layer.
+Dark roles activate with Keycloak's `.pf-v5-theme-dark` or an explicitly applied `data-ffid-theme="dark"`. The consuming welcome surface owns its system-color-scheme behavior. The Identity dark card uses canonical ink `#272820` in both the product JSON and live interface.
 
 Use quiet `--ffid-border` for separators. Use the stronger `--ffid-border-control` when an input boundary must remain identifiable. Use charcoal text on amber actions and gold for links on light surfaces. Preserve functional error, warning and success meaning; the token layer does not recolor all status states amber.
 

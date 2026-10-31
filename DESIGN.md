@@ -16,7 +16,7 @@ typography:
   title:
     fontFamily: "Manrope, sans-serif"
     fontSize: "27px"
-    fontWeight: 500
+    fontWeight: 450
     lineHeight: 1.2
     letterSpacing: "-0.035em"
   body:
@@ -27,7 +27,7 @@ typography:
   label:
     fontFamily: "Manrope, sans-serif"
     fontSize: "13px"
-    fontWeight: 600
+    fontWeight: 650
     lineHeight: 1.4
 rounded:
   control: "8px"
@@ -64,17 +64,19 @@ The visual authority is the current private Firefly brand kit. Actual koinon and
 
 `assets/brand/tokens.json` is the canonical machine-readable palette. Exact values come from private brand-kit `data/palette.json` at `eb8f3fae894c517c5d39c3d4ffc07547f8e17a1b`. Charcoal `#10110f`, paper `#f3f1eb` and amber `#ffb34a` establish the family. Ink `#272820` and muted `#62645b` serve light text roles; gold `#855414` supplies amber-family text on light. Stone `#bfb8ab` serves dark secondary text; line `#d8d4ca` and graphite `#474a42` supply rules.
 
-Amber actions use charcoal text. Gold, rather than amber, is suitable for ordinary accent text on paper or white. Koinon-derived semantic roles in `tokens.json` include light surface `#ffffff`, light canvas `#f3f1eb`, dark surface `#1d1f1a` and dark canvas `#10110f`. Supporting family tones steel `#b4bdb8`, slate `#6b8795` and olive `#7a8460` are reserved in the token file.
+Amber actions use charcoal text. Gold, rather than amber, is suitable for ordinary accent text on paper or white. Semantic roles in `tokens.json` include light surface `#ffffff`, light canvas `#f3f1eb`, dark surface `#272820` and dark canvas `#10110f`. Supporting family tones steel `#b4bdb8`, slate `#6b8795` and olive `#7a8460` are reserved in the token file.
 
 The private parent-logo generator contains an older paper constant; rendering explicitly receives the current palette's `#f3f1eb`.
 
 ## Typography
 
-Use **Manrope everywhere**, including layouts, forms, labels and all interface states. The self-hosted variable font lives in `assets/brand/fonts/` with its SIL OFL 1.1 license. Body: 16 px / 1.65 at 400. Labels: 13 px / 1.4 at 600. Titles: 27 px / 1.2 at 500 with -0.035em tracking. The actual Keycloak login title may use its recorded 30 px/650 operational hierarchy. Brand lettering is outlined SVG; interface text remains live text.
+Use **Manrope everywhere**, including layouts, forms, labels and all interface states. The self-hosted variable font lives in `assets/brand/fonts/` with its SIL OFL 1.1 license. Body: 16 px / 1.65 at 400. Labels: 13 px / 1.4 at 650 with .025em tracking. Titles: 27 px / 1.2 at 450 with -.035em tracking. These values follow the canonical `data/type.json` and apply to the live login title. Brand lettering is independently approved outlined SVG; interface text remains live text.
 
 ## Layout
 
 Use a 4 px spacing unit and the 4/8/12/16/24/32/48/64/96 scale. Authentication is an operational task: use a balanced two-column desktop composition with the approved signature and canonical isometric identity scene on the left, and a 480 px focused form on the right. At 900 px and below, use a single column and a reduced, quiet isometric background behind the opaque form. Labels, recovery paths, keyboard focus and primary actions remain clear in every journey. The repository banner is a deliberate 1280 × 400 composition with the approved family signature and its adjacent protection emblem. It contains no subtitle or upstream attribution. Its tagline connects identity to the ecosystem: “Identity at the heart of every connection.”
+
+Account and administration are operational workspaces. Keep the native navigation, forms and safety warnings. Use a continuous charcoal masthead, the shared semantic palettes and clear action hierarchy. On narrow screens, the masthead reflows into two rows; welcome text spans the content grid, and secondary actions wrap without clipping. The administrative welcome retains a 65ch maximum description width and removes its extra desktop indentation on phones. Review actual packaged consoles at 320, 390, 768 and 1440 pixels in light and dark modes.
 
 ## Elevation & Depth
 

@@ -41,6 +41,9 @@ page.setDefaultTimeout(15000);
 
 async function assertConsoleContrast(target, surface, dark) {
   await target.waitForFunction(expected => document.documentElement.classList.contains('pf-v5-theme-dark') === expected, dark);
+  if ((await target.viewportSize()).width >= 1024) {
+    await target.waitForFunction(() => document.querySelector('.pf-v5-c-masthead')?.getBoundingClientRect().height <= 80);
+  }
   const samples = await target.evaluate(() => {
     const rgb = value => {
       const parts = value.match(/[\d.]+/g)?.map(Number) || [0, 0, 0, 0];
@@ -89,6 +92,7 @@ async function assertWelcomeLayout(target) {
       section: section ? bounds(section) : null,
       links: [...(section?.querySelectorAll('.pf-v5-c-action-list a') || [])].map(bounds) };
   });
+  await writeFile(`${evidence}/admin-welcome-layout.json`, JSON.stringify(layout, null, 2));
   assert.ok(layout.description && layout.section, 'Native administrative welcome content is unavailable');
   assert.ok(layout.description.width >= Math.min(480, layout.section.width - 48), 'Welcome description is compressed into a narrow grid column');
   assert.equal(layout.links.length, 3, 'Native administrative resource links are missing');

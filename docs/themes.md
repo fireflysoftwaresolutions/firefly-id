@@ -10,10 +10,10 @@ Protocol forms and authenticator logic remain inherited. A narrow copy of the ex
 | --- | --- | --- |
 | Username/password, account selection, broker choices | Inherited login forms | Real browser login in runtime lane |
 | Registration and profile required actions | Inherited declarative-profile forms | Production policy and full flow review pending |
-| Recovery and verification | Inherited action-token forms and email bodies, branded email layout | Synthetic recovery in runtime lane; full verification/expiry/reuse review pending |
+| Recovery and verification | Inherited action-token forms and email bodies, branded email layout | Real synthetic password replacement/fresh login and email verification/consumed-link handling; expiry, lost-factor and native secure unlock remain separate gates |
 | Logout, expiration and errors | Inherited server forms | Logout and protocol negatives in runtime lane |
-| OTP, passkeys, recovery codes | Inherited authenticators and required actions | Actual enrollment/lost-factor/step-up review pending |
-| Account self-service | Upstream React account console with branded supported properties/CSS | Full profile-forgery/session review pending |
+| OTP, passkeys, recovery codes | Inherited authenticators and required actions | Real workforce TOTP enrollment, invalid-code refusal and valid challenge; passkeys, lost-factor and recovery-code review pending |
+| Account self-service | Upstream React account console with branded supported properties/CSS | Real customer/workforce protected-profile write/removal, unchanged stored attributes and fresh signed-claim checks; complete session administration remains separate |
 | Administration | Upstream React admin console with branded supported properties/CSS | Production ingress/least privilege review pending |
 
 These are implementation and test-lane descriptions, not claims that an unexecuted workflow has passed. Read [current evidence](progress.md) for actual results.
@@ -28,7 +28,7 @@ Review desktop and narrow layouts in both color schemes, keyboard focus, real er
 
 Authentication forms share a responsive isometric composition across login, logout, recovery, verification and required actions. The [artwork guide](isometric-backgrounds.md) records actual website/brand-kit sources, geometric depth ordering and the reduced mobile scene. The artwork remains presentation; server controls still own each journey.
 
-The custom copy currently supports American English. Upstream translations alone do not qualify the branded copy in another locale. Add complete translations, then review actual screens and emails before advertising another locale.
+Custom authentication and email copy supports American English and Spanish. The hosted localization lane exercises real login, refusal, logout, recovery acknowledgement and protocol errors in both languages, including native automatic locale selection and a discreet optional footer override. Upstream translations alone do not qualify additional branded locales; complete and review their custom copy before advertising them.
 
 The account/admin consoles load a supported theme script that hides and disables their English/Spanish password-reveal controls and preserves masked fields. This is a separately maintained presentation adaptation: the upstream React component's reveal option is not a realm property. Real administration reset-password dialogs must be rechecked on upgrades. It does not claim to prevent the owner of a browser from inspecting their own input value. Copyright appears in all scoped web surfaces and branded HTML email.
 

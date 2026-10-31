@@ -207,6 +207,7 @@ async function main() {
           minimumWidth: Math.min(480, (section?.getBoundingClientRect().width || innerWidth) - 48),
           pageFits: document.documentElement.scrollWidth <= innerWidth };
         });
+        await writeFile(`${masterEvidence}/master-${width}-${colorScheme}-layout.json`, JSON.stringify(bounds, null, 2));
         assert.ok(bounds.fits && bounds.pageFits && bounds.descriptionWidth >= bounds.minimumWidth, 'Branded master layout clips actions or compresses its description');
         await adminPage.screenshot({ path: `${masterEvidence}/master-branded-${width}-${colorScheme}.png`, fullPage: true });
       }
