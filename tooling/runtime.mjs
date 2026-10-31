@@ -90,12 +90,14 @@ async function assertWelcomeLayout(target) {
     };
     return { viewport: innerWidth, description: description ? bounds(description) : null,
       section: section ? bounds(section) : null,
-      links: [...(section?.querySelectorAll('.pf-v5-c-action-list a') || [])].map(bounds) };
+      links: [...(section?.querySelectorAll('.pf-v5-c-action-list a') || [])].map(link => ({ ...bounds(link),
+        itemMargin: getComputedStyle(link.parentElement).marginInlineStart })) };
   });
   await writeFile(`${evidence}/admin-welcome-layout.json`, JSON.stringify(layout, null, 2));
   assert.ok(layout.description && layout.section, 'Native administrative welcome content is unavailable');
   assert.ok(layout.description.width >= Math.min(480, layout.section.width - 48), 'Welcome description is compressed into a narrow grid column');
   assert.equal(layout.links.length, 3, 'Native administrative resource links are missing');
+  assert.ok(layout.links.every(link => link.itemMargin === '0px'), 'Wrapped administrative actions retain staggered sibling margins');
   assert.ok(layout.links.every(link => link.left >= 0 && link.right <= layout.viewport), 'Administrative resource links are clipped outside the viewport');
 }
 
