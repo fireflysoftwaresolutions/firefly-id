@@ -131,6 +131,8 @@ class ThemePackagingTest(unittest.TestCase):
             first = builder.build(output).read_bytes()
             second = builder.build(output).read_bytes()
             self.assertEqual(first, second)
+            self.assertEqual((output / "themes/firefly-id/LICENSE").read_bytes(), (ROOT / "LICENSE").read_bytes())
+            self.assertEqual((output / "themes/firefly-id/NOTICE").read_bytes(), (ROOT / "NOTICE").read_bytes())
             with zipfile.ZipFile(output / "firefly-id-theme.jar") as archive:
                 names = archive.namelist()
                 self.assertIn("META-INF/keycloak-themes.json", names)

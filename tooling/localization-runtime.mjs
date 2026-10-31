@@ -120,9 +120,27 @@ try {
       await page.locator('#ffid-signin-error').waitFor({ state: 'visible' });
       const refusal = (await page.locator('#ffid-signin-error').innerText()).trim();
       assert.ok(refusal.startsWith(locale === 'es' ? 'No se ha podido iniciar sesión.' : 'Sign-in could not be completed.'));
+      const icon = page.locator('#ffid-signin-error .ffid-icon--error');
+      await icon.waitFor({ state: 'visible' });
+      const iconStyle = await icon.evaluate(element => ({
+        mask: getComputedStyle(element).maskImage, width: element.getBoundingClientRect().width,
+        height: element.getBoundingClientRect().height,
+      }));
+      assert.equal(iconStyle.width, 16);
+      assert.equal(iconStyle.height, 16);
+      const iconAddress = iconStyle.mask.match(/^url\("([^\"]+)"\)$/);
+      assert.ok(iconAddress, 'Canonical icon mask is unavailable');
+      const iconUrl = new URL(iconAddress[1]);
+      assert.equal(iconUrl.origin, base);
+      assert.ok(iconUrl.pathname.endsWith('/img/icons/16/error.svg'));
+      assert.equal((await context.request.get(iconUrl.href)).status(), 200, 'Canonical optical icon is not served');
+      const attribution = page.locator('footer a[href="https://www.keycloak.org"]');
+      assert.equal((await attribution.innerText()).trim(), locale === 'es' ? 'Con tecnología de Keycloak' : 'Powered by Keycloak');
       assert.equal(await page.locator('input[type="password"]').count(), 1);
       assert.equal(await page.locator('[data-password-toggle]').count(), 0);
       await assertLocale(page, locale);
+      await page.locator('#password').fill('');
+      await page.screenshot({ path: `${directory}/${locale}-credentials-error-mobile-dark.png`, fullPage: true });
 
       phase = `localized ${locale} successful code and PKCE`;
       await page.locator('#username').fill(credentials.customers.username);

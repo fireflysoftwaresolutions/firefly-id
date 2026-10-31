@@ -92,6 +92,7 @@ jobs:
             .work/runtime/summary.json
             .work/runtime/layout.json
             .work/runtime/*-diagnostics.json
+            .work/runtime/*-contrast.json
             .work/extended-runtime/summary.json
             .work/policy-runtime/summary.json
             .work/policy-runtime/*.png

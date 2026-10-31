@@ -33,6 +33,8 @@ def build(output: Path) -> Path:
     entries["META-INF/keycloak-themes.json"] = (json.dumps({"themes": [{"name": "firefly-id", "types": list(KINDS)}]}, indent=2) + "\n").encode()
     entries["META-INF/LICENSE"] = (ROOT / "LICENSE").read_bytes()
     entries["META-INF/NOTICE"] = (ROOT / "NOTICE").read_bytes()
+    entries["theme/firefly-id/LICENSE"] = (ROOT / "LICENSE").read_bytes()
+    entries["theme/firefly-id/NOTICE"] = (ROOT / "NOTICE").read_bytes()
     entries["META-INF/licenses/lucide-ISC-MIT.txt"] = (ROOT / "assets/icons/LICENSE").read_bytes()
     for variant in ("light", "dark", "mobile-light", "mobile-dark"):
         entries[f"theme/firefly-id/login/resources/img/authentication-{variant}.svg"] = (

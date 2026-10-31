@@ -39,6 +39,44 @@ const captureAccountDiagnostics = observeConsole(page);
 let captureConsoleFailure;
 page.setDefaultTimeout(15000);
 
+async function assertConsoleContrast(target, surface, dark) {
+  await target.waitForFunction(expected => document.documentElement.classList.contains('pf-v5-theme-dark') === expected, dark);
+  const samples = await target.evaluate(() => {
+    const rgb = value => {
+      const parts = value.match(/[\d.]+/g)?.map(Number) || [0, 0, 0, 0];
+      return [parts[0], parts[1], parts[2], parts.length > 3 ? parts[3] : 1];
+    };
+    const background = element => {
+      const chain = [];
+      for (let parent = element; parent; parent = parent.parentElement) chain.unshift(parent);
+      let color = [255, 255, 255];
+      for (const parent of chain) {
+        const layer = rgb(getComputedStyle(parent).backgroundColor);
+        color = color.map((value, index) => layer[index] * layer[3] + value * (1 - layer[3]));
+      }
+      return color;
+    };
+    const main = document.querySelector('.pf-v5-c-page__main');
+    return ['h1', 'h2', 'p', 'label', 'input:not([type="hidden"]):not(:disabled):not([readonly])'].flatMap(selector => {
+      const element = [...(main?.querySelectorAll(selector) || [])].find(candidate => candidate.getClientRects().length);
+      if (!element) return [];
+      return [{ kind: selector.startsWith('input') ? 'editable-input' : selector,
+        foreground: rgb(getComputedStyle(element).color).slice(0, 3), background: background(element) }];
+    });
+  });
+  const luminance = channels => channels.map(value => {
+    const channel = value / 255;
+    return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4;
+  }).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+  const results = samples.map(sample => {
+    const values = [luminance(sample.foreground), luminance(sample.background)].sort((a, b) => b - a);
+    return { ...sample, contrast: (values[0] + .05) / (values[1] + .05) };
+  });
+  await writeFile(`${evidence}/${surface}-contrast.json`, JSON.stringify({ dark, samples: results }, null, 2));
+  assert.ok(results.length >= 2, 'Console contrast samples are unavailable');
+  assert.ok(results.every(sample => sample.contrast >= 4.5), 'Rendered console text contrast is below the selected 4.5:1 threshold');
+}
+
 function authorization({ challenge, state, nonce, ...extra }) {
   const url = new URL(metadata.authorization_endpoint);
   url.search = form({ client_id: clientId, response_type: 'code', redirect_uri: redirect,
@@ -67,6 +105,15 @@ async function login({ capture = false, checkReplay = false } = {}) {
         await page.emulateMedia({ colorScheme: 'light' });
         await page.evaluate(() => document.fonts.ready);
         assert.ok(await page.evaluate(() => document.fonts.check('16px Manrope')));
+        const brand = await page.evaluate(() => {
+          const title = getComputedStyle(document.querySelector('#kc-page-title'));
+          const label = getComputedStyle(document.querySelector('label[for="username"]'));
+          const action = getComputedStyle(document.querySelector('#kc-login'));
+          return { titleSize: title.fontSize, titleWeight: title.fontWeight, labelSize: label.fontSize,
+            labelWeight: label.fontWeight, actionColor: action.backgroundColor };
+        });
+        assert.deepEqual(brand, { titleSize: '27px', titleWeight: '450', labelSize: '13px',
+          labelWeight: '650', actionColor: 'rgb(255, 179, 74)' }, 'Effective native controls diverge from the canonical brand tokens');
         assert.ok(await page.evaluate(() => {
           const width = document.querySelector('main').getBoundingClientRect().width;
           return width >= 440 && width <= 500;
@@ -208,9 +255,11 @@ try {
   await page.emulateMedia({ colorScheme: 'light' });
   await page.evaluate(() => document.fonts.ready);
   assert.ok(await page.evaluate(() => document.fonts.check('16px Manrope')));
+  await assertConsoleContrast(page, 'account-light', false);
   await page.screenshot({ path: `${evidence}/account-desktop-light.png`, fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: 'dark' });
+  await assertConsoleContrast(page, 'account-dark', true);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Account layout overflows the mobile viewport');
   await page.screenshot({ path: `${evidence}/account-mobile-dark.png`, fullPage: true });
   passed('real account console and self-hosted Manrope');
@@ -274,9 +323,11 @@ try {
   await adminPage.emulateMedia({ colorScheme: 'light' });
   await adminPage.evaluate(() => document.fonts.ready);
   assert.ok(await adminPage.evaluate(() => document.fonts.check('16px Manrope')));
+  await assertConsoleContrast(adminPage, 'admin-light', false);
   await adminPage.screenshot({ path: `${evidence}/admin-desktop-light.png`, fullPage: true });
   await adminPage.setViewportSize({ width: 390, height: 844 });
   await adminPage.emulateMedia({ colorScheme: 'dark' });
+  await assertConsoleContrast(adminPage, 'admin-dark', true);
   const sidebar = adminPage.locator('.pf-v5-c-page__sidebar.pf-m-expanded');
   if (await sidebar.count()) await adminPage.locator('.pf-v5-c-masthead__toggle button').click();
   assert.ok(await adminPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Administration layout overflows the mobile viewport');
