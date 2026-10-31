@@ -1,97 +1,141 @@
 {
-  "version": 1,
+  "version": 2,
   "engineVersion": "1.4.0",
-  "method": "Canonical build() uses projected-volume overlap constraints and a deterministic topological depthOrder() before SVG emission. Full checkScene() covers structural support, interpenetration, occlusion, pipe intersection/clearance/overdraw/hidden runs and bounds.",
+  "method": "Canonical build() uses projected-volume overlap constraints and deterministic topological depthOrder() before SVG emission. Full checkScene() covers support, interpenetration, occlusion, pipe intersection/clearance/overdraw/hidden runs and bounds.",
   "matrix": [
     {
       "file": "authentication-light.svg",
       "theme": "light",
       "mobile": false,
-      "pieceCount": 9,
-      "shapeCount": 286,
+      "pieceCount": 24,
+      "shapeCount": 775,
       "canvas": [
-        993.688,
-        440.17
+        916.34,
+        565.6
       ],
       "structuralFindings": [],
       "sceneFindings": [],
       "canonicalOutputMatches": true,
-      "sha256": "a32cfed2fb1f128e42e45bbb8ddf0c1e95f99d7576467dffa72f80ba21e7b9fa"
+      "sha256": "ae5b3e47b1b9e8515c2fd92a9b69f9f8d738f70504ad8b447ce262acccff2780"
     },
     {
       "file": "authentication-mobile-light.svg",
       "theme": "light",
       "mobile": true,
-      "pieceCount": 3,
-      "shapeCount": 150,
+      "pieceCount": 12,
+      "shapeCount": 163,
       "canvas": [
-        504.852,
-        424.17
+        455.628,
+        381.3
       ],
       "structuralFindings": [],
       "sceneFindings": [],
       "canonicalOutputMatches": true,
-      "sha256": "1cf06ad71d330c178878465e267ead6bd5e29b1b86bb11746ff08e3a254bebf0"
+      "sha256": "62952b00f87dbfe483d98406576cd34205414a11121fb440335d65abc4637dc6"
     },
     {
       "file": "authentication-dark.svg",
       "theme": "dark",
       "mobile": false,
-      "pieceCount": 9,
-      "shapeCount": 286,
+      "pieceCount": 24,
+      "shapeCount": 775,
       "canvas": [
-        993.688,
-        440.17
+        916.34,
+        565.6
       ],
       "structuralFindings": [],
       "sceneFindings": [],
       "canonicalOutputMatches": true,
-      "sha256": "9a03c975cc720a62cd4264c19e2e4c7858f62b90786881092a89a09d9423dd9c"
+      "sha256": "2aa238319faf69c7f54cf74fdbbab021344b0b2602b386023c845411549a7c39"
     },
     {
       "file": "authentication-mobile-dark.svg",
       "theme": "dark",
       "mobile": true,
-      "pieceCount": 3,
-      "shapeCount": 150,
+      "pieceCount": 12,
+      "shapeCount": 163,
       "canvas": [
-        504.852,
-        424.17
+        455.628,
+        381.3
       ],
       "structuralFindings": [],
       "sceneFindings": [],
       "canonicalOutputMatches": true,
-      "sha256": "aea04bb6387d9ccb4653977623b858ee37c4c58b99db7b824aeb1ded7004ba74"
+      "sha256": "62952b00f87dbfe483d98406576cd34205414a11121fb440335d65abc4637dc6"
     }
   ],
   "pipeChecks": {
-    "adapterPortCentre": [
-      1.96,
-      10,
-      0.85
-    ],
-    "adapterApproachAxis": "x",
-    "gatewayServiceFace": {
-      "y": 4.96
-    },
-    "gatewayChannelFace": {
-      "x": 7.96
-    },
-    "applicationEntryFace": {
-      "x": 11.96
-    },
+    "routes": 4,
     "tapRadius": 0.1,
-    "builtInUnusedPort": false,
     "redundantCaps": false,
     "redundantSockets": false,
-    "orthogonalRoutes": true
+    "builtInUnusedPorts": false,
+    "orthogonalRoutes": true,
+    "visibleFaceEndpoints": {
+      "customer": {
+        "start": [
+          2.96,
+          9.5,
+          1.3
+        ],
+        "end": [
+          4.25,
+          8.96,
+          1.3
+        ],
+        "approach": "x then y"
+      },
+      "employee": {
+        "start": [
+          9.96,
+          8.75,
+          1.3
+        ],
+        "end": [
+          12.96,
+          7,
+          1.3
+        ],
+        "approach": "x to visible vertical face"
+      },
+      "application": {
+        "start": [
+          12.96,
+          2,
+          0.7
+        ],
+        "end": [
+          10,
+          4,
+          0.7
+        ],
+        "approach": "x to foundation vertical face"
+      },
+      "policyAudit": {
+        "start": [
+          2.96,
+          6,
+          0.6
+        ],
+        "end": [
+          2.96,
+          3,
+          0.6
+        ],
+        "approach": "x to policy and cylindrical audit faces"
+      }
+    }
   },
   "directReview": {
     "desktop": 1440,
     "mobile": 390,
-    "enlargedTopologyWidth": 1988,
+    "artworkTarget": [
+      624,
+      400
+    ],
+    "enlargedTopologyWidth": 1832.68,
     "lightAndDark": true,
-    "formArtworkSeparated": true,
-    "scope": "Artwork and composition reference only; live Keycloak journeys are validated separately."
+    "mobileFullQualityContained": true,
+    "scope": "Artwork and composition reference only; actual Keycloak journeys are validated separately."
   }
 }

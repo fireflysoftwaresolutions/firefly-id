@@ -1,8 +1,8 @@
 {
-  "version": 1,
+  "version": 2,
   "created": "2026-10-31",
   "product": "Firefly Identity",
-  "purpose": "Editable isometric artwork for shared authentication journeys.",
+  "purpose": "Architectural security-campus artwork for shared customer and employee authentication journeys.",
   "sources": [
     {
       "repository": "fireflysoftwaresolutions/firefly-software-website",
@@ -39,18 +39,24 @@
       "use": "Actual rendered isometric layer assembly and connected service reference; directly viewed and captured."
     }
   ],
-  "originalWork": "Identity gateway composition and its specific piece layout, connections and responsive reduction.",
+  "originalWork": "24-piece identity security campus with raised trust zone, protected credential vault, controlled entry, customer/employee channels, policy/audit services and face-aligned routes; complete12-piece mobile enclosure.",
   "rights": {
     "artwork": "Reserved Firefly brand artwork; software licensing does not grant trademark or private-kit rights.",
     "privateSource": "Only necessary rendered outputs and original declarative composition included; no proprietary generator source or unrelated private assets.",
-    "font": "Preview references Manrope under existing SIL OFL1.1 license in ../brand/fonts/OFL.txt."
+    "font": "Preview references Manrope under existing SIL OFL1.1 license in ../brand/fonts/OFL.txt.",
+    "canonicalBrandOwner": "Firefly Software Solutions Inc., as stated in private brand-kit NOTICE.md; original-composition copyright does not change canonical source rights."
   },
   "validation": "validation.json",
   "visualReview": {
     "desktopWidth": 1440,
     "mobileWidth": 390,
-    "enlargedPipeReviewWidth": 1988,
+    "artworkTarget": [
+      624,
+      400
+    ],
+    "enlargedTopologyWidth": 1832.68,
     "lightAndDark": true,
+    "mobileFullQualityContained": true,
     "allImagesLoaded": true,
     "manropeLoaded": true,
     "horizontalOverflowAt390": false,
@@ -58,28 +64,29 @@
   },
   "files": {
     "NOTICE.md": {
-      "sha256": "60f05534959fd67428d509fa44c4847b534316b00ad289d427481056d4518b2c"
+      "sha256": "d38fa6afe7df6893303340d3e3b37d3e0818f4bd564c6d07f45cdc126614f0d4"
     },
     "authentication-dark.svg": {
-      "sha256": "9a03c975cc720a62cd4264c19e2e4c7858f62b90786881092a89a09d9423dd9c"
+      "sha256": "2aa238319faf69c7f54cf74fdbbab021344b0b2602b386023c845411549a7c39"
     },
     "authentication-light.svg": {
-      "sha256": "a32cfed2fb1f128e42e45bbb8ddf0c1e95f99d7576467dffa72f80ba21e7b9fa"
+      "sha256": "ae5b3e47b1b9e8515c2fd92a9b69f9f8d738f70504ad8b447ce262acccff2780"
     },
     "authentication-mobile-dark.svg": {
-      "sha256": "aea04bb6387d9ccb4653977623b858ee37c4c58b99db7b824aeb1ded7004ba74"
+      "sha256": "62952b00f87dbfe483d98406576cd34205414a11121fb440335d65abc4637dc6"
     },
     "authentication-mobile-light.svg": {
-      "sha256": "1cf06ad71d330c178878465e267ead6bd5e29b1b86bb11746ff08e3a254bebf0"
+      "sha256": "62952b00f87dbfe483d98406576cd34205414a11121fb440335d65abc4637dc6"
     },
     "composition.json": {
-      "sha256": "a85fe8feede3040676c0ee725eafa84522bb8d6e545750e685a77c3b92e0aa31"
+      "sha256": "ad668b029d88f56d255a793ef2a57347a75f4fb521a767541a714755a0c88f70"
     },
     "index.html": {
-      "sha256": "cf7ec93a859dc64dfb39d3f08745bfc221cbb89e4a720a53b331573e45082ab0"
+      "sha256": "6c041ddae6bf1c1a3134aaa77840cbc41c3d51780dff4af1eae4e408e02d82a7"
     },
     "validation.json": {
-      "sha256": "c873cec92a0a64f1687278369b96f71a9d3eb20e075303c2d864eef684e48ca6"
+      "sha256": "426ee5e5b7de463d098577922058994f2ac9cb24831d0928c6543ee3ec78b636"
     }
-  }
+  },
+  "copyright": "Original composition copyright 2026 Firefly Software Foundation Inc."
 }
