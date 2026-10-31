@@ -103,7 +103,7 @@ def tls(directory, credentials):
     run(['sudo', 'chmod', '755', str(directory), str(directory / 'tls'), str(directory / 'pepper'), str(directory / 'realms'), str(directory / 'providers')], directory, 'native-mount-access')
     for path in (directory / 'realms').glob('*.json'):
         run(['sudo', 'chown', '1000:0', str(path)], directory, 'realm-owner')
-    hosts = '127.0.0.1 ' + ' '.join(names) + '\n'
+    hosts = '\n127.0.0.1 ' + ' '.join(names) + '\n'
     run(['sudo', 'tee', '-a', '/etc/hosts'], directory, 'owned-hostnames', input=hosts.encode())
     nss = Path.home() / '.pki/nssdb'; nss.mkdir(parents=True, exist_ok=True)
     if not (nss / 'cert9.db').exists(): run(['certutil', '-N', '-d', 'sql:' + str(nss), '--empty-password'], directory, 'browser-trust-init')
@@ -287,11 +287,43 @@ if __name__ == '__main__':
         diagnostic = {'status': 'BOOT_OR_LIFECYCLE_FAILED', 'stage': PHASE, 'exceptionClasses': []}
         try:
             directory, owner = state()
+            credentials = json.loads((directory / 'credentials.json').read_text())
+            secrets_to_redact = [credentials[key] for key in ('postgres', 'keycloak-db', 'core-db', 'admin', 'store')]
+            secrets_to_redact += [profile['person']['password'] for profile in credentials['profiles']]
+            secrets_to_redact += [path.read_text().strip() for path in (directory / 'secrets').iterdir() if path.is_file()]
+            diagnostic['containerStates'] = []
+            for container in owner['containers']:
+                if subprocess.run(['docker', 'inspect', container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
+                    continue
+                actual = inspect_container(owner, container)
+                diagnostic['containerStates'].append({'kind': 'keycloak' if container.endswith('-keycloak') else 'postgres',
+                                                     'running': actual['State']['Running'], 'exitCode': actual['State']['ExitCode']})
+                captured = subprocess.run(['docker', 'logs', '--tail', '2000', container], capture_output=True)
+                (directory / 'logs' / ('keycloak-private.log' if container.endswith('-keycloak') else 'postgres-private.log')).write_bytes(captured.stdout + captured.stderr)
+            diagnostic['loopbackDns'] = {}
+            for host in ['id.firefly.test'] + [f'{service}-{profile["kind"]}.firefly.test' for profile in credentials['profiles'] for service in ('core', 'domain')]:
+                try:
+                    diagnostic['loopbackDns'][host] = all(value[4][0] in ('127.0.0.1', '::1') for value in socket.getaddrinfo(host, None))
+                except OSError:
+                    diagnostic['loopbackDns'][host] = False
             for log in (directory / 'logs').glob('*.log'):
                 content = log.read_text(errors='replace')
                 diagnostic['exceptionClasses'].extend(re.findall(r'Caused by: ([A-Za-z0-9_.$]+)', content)[-6:])
                 missing = re.findall(r"required a bean of type '([A-Za-z0-9_.$]+)'", content)
                 diagnostic.setdefault('missingBeanTypes', []).extend(missing[-4:])
+                # Startup-only bounded diagnostics: no browser has run or actor assertion been minted.
+                if PHASE.startswith('https-readiness-'):
+                    lines = [line for line in content.splitlines() if 'ERROR:' in line or 'Caused by:' in line or 'Failed to start' in line][-8:]
+                    for line in lines:
+                        if any(field in line for field in ('actorAssertion', 'Authorization:', 'Bearer ')) or ('{' in line and '}' in line):
+                            continue
+                        if 'secret' in line.lower() or 'password' in line.lower():
+                            diagnostic.setdefault('sanitizedStartupErrors', []).append('Native startup authentication/secret configuration failure [DETAILS REDACTED]')
+                            continue
+                        for secret in secrets_to_redact:
+                            if secret: line = line.replace(secret, '[REDACTED]')
+                        line = re.sub(r'[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}', '[REDACTED JWT]', line)
+                        diagnostic.setdefault('sanitizedStartupErrors', []).append(line[:500])
         except Exception:
             pass
         (evidence / 'boot-summary.json').write_text(json.dumps(diagnostic, indent=2) + '\n')

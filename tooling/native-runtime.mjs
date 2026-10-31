@@ -87,11 +87,19 @@ async function authenticate(profile, context, wrong = false, enroll = false) {
 }
 async function recovery(profile, context, username, password) {
   const page = await context.newPage(); page.setDefaultTimeout(25000);
-  await page.goto(`${profile.issuer}/firefly-recovery`);
+  await page.goto(`${profile.issuer}/firefly-recovery?kc_locale=es`);
   assert.equal(await page.locator('#password').getAttribute('type'), 'password');
   await page.locator('#username').fill(username); await page.locator('#password').fill(password);
   await page.locator('#ffid-recovery-continue').click();
   await page.locator('#otp').waitFor();
+  if (username === profile.person.username) {
+    const reserved = snapshot(profile.kind);
+    await page.reload(); await page.locator('#otp').waitFor();
+    assert.equal(await page.locator('#username').count(), 0, 'Reload must preserve the completed password stage');
+    assert.ok((await page.locator('html').getAttribute('lang')).startsWith('es'), 'Native recovery must preserve Spanish locale');
+    assert.equal(snapshot(profile.kind).core[0].attempts, reserved.core[0].attempts, 'Reload must not reserve another verification');
+    passed(`${profile.kind}-spanish-reload-preserves-native-progress-and-core-budget`);
+  }
   return page;
 }
 async function expectCsrfRefusal(profile) {
@@ -147,14 +155,14 @@ try {
     assert.equal(snapshot(profile.kind).native.generation, before.native.generation, 'Restart lost lock generation');
     assert.equal((await user(profile)).enabled, false); passed(`${profile.kind}-native-restart-preserves-lock`);
     await expectCsrfRefusal(profile);
-    const unknown = await browser.newContext(); const unknownPage = await recovery(profile, unknown, 'synthetic-unknown-person', profile.person.password);
+    const unknown = await browser.newContext({ locale: 'es-ES' }); const unknownPage = await recovery(profile, unknown, 'synthetic-unknown-person', profile.person.password);
     const unknownText = await unknownPage.locator('.ffid-native-journey').innerText(); await unknown.close();
-    const manual = await browser.newContext(); const heldPage = await recovery(profile, manual, profile.manual.username, profile.person.password);
+    const manual = await browser.newContext({ locale: 'es-ES' }); const heldPage = await recovery(profile, manual, profile.manual.username, profile.person.password);
     assert.equal(await heldPage.locator('.ffid-native-journey').innerText(), unknownText, 'Manual hold reveals eligibility');
     await heldPage.locator('#otp').fill('000000'); await heldPage.locator('#ffid-recovery-continue').click();
     assert.equal((await user(profile, true)).enabled, false); await manual.close();
     passed(`${profile.kind}-unknown-and-manual-hold-generic-unavailable`);
-    const context = await browser.newContext(); const page = await recovery(profile, context, profile.person.username, profile.person.password);
+    const context = await browser.newContext({ locale: 'es-ES' }); const page = await recovery(profile, context, profile.person.username, profile.person.password);
     assert.equal(await page.locator('.ffid-native-journey').innerText(), unknownText, 'Known recovery reveals existence');
     before = snapshot(profile.kind); assert.equal(before.core.length, 1); assert.equal(before.core[0].attempts, 1);
     const permitted = new Set([-30, 0, 30].map(offset => totpCode(factors.get(profile.kind).secret, Date.now() / 1000 + offset)));
@@ -184,6 +192,24 @@ try {
     passed(`${profile.kind}-fresh-password-and-pre-enrolled-mfa-required-after-unlock`);
     if (profile.population === 'HUMAN') await supportPin(profile, fresh);
     await fresh.close(); await context.close(); await previousSession.close();
+    const serviceClient = 'untracked-fixture-service-' + profile.kind;
+    const clientCreated = await admin(profile, 'clients', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientId: serviceClient, protocol: 'openid-connect', enabled: true, publicClient: false,
+        secret: randomBytes(32).toString('base64url'), standardFlowEnabled: false, implicitFlowEnabled: false,
+        directAccessGrantsEnabled: false, serviceAccountsEnabled: true, fullScopeAllowed: false, defaultClientScopes: [], optionalClientScopes: [] }) });
+    assert.equal(clientCreated.status, 201);
+    const clients = await (await admin(profile, `clients?clientId=${encodeURIComponent(serviceClient)}`)).json(); assert.equal(clients.length, 1);
+    const serviceUser = await (await admin(profile, `clients/${clients[0].id}/service-account-user`)).json(); assert.ok(serviceUser.id);
+    const updated = await admin(profile, `users/${serviceUser.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ firstName: 'Untracked synthetic service principal' }) });
+    assert.equal(updated.status, 204, 'An untracked service-account update must not be vetoed by recovery');
+    passed(`${profile.kind}-untracked-service-account-update-is-available`);
+    const removed = await admin(profile, `users/${profile.person.id}`, { method: 'DELETE' });
+    assert.equal(removed.status, 204, 'Explicit tracked-fixture deletion must complete');
+    assert.equal((await admin(profile, `users/${profile.person.id}`)).status, 404);
+    const tombstone = snapshot(profile.kind); assert.equal(tombstone.native.hold, true); assert.equal(tombstone.native.executions, 1);
+    assert.equal(tombstone.core[0].state, 'CONSUMED');
+    passed(`${profile.kind}-explicit-fixture-user-deletion-preserves-native-tombstone-and-core-evidence`);
   }
   await writeFile(`${output}/summary.json`, JSON.stringify({ status: 'PASSED', passed: results,
     pending: ['true simultaneous native execution requests', 'post-commit network response-loss injection', 'expired ceremony and swapped private attestation references',
