@@ -55,6 +55,16 @@ async function assertLocale(page, locale) {
   assert.ok(await selector.getAttribute('aria-label'));
 }
 
+async function captureMobile(page, locale, surface) {
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const scheme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.waitForFunction(dark => document.documentElement.classList.contains('pf-v5-theme-dark') === dark, scheme === 'dark');
+    await assertLocale(page, locale);
+    await page.screenshot({ path: `${directory}/${locale}-${surface}-mobile-${scheme}.png`, fullPage: true });
+  }
+}
+
 try {
   for (const scenario of [
     { browserLocale: 'fr-FR', expected: 'en', label: 'unsupported browser language defaults to English', extra: {} },
@@ -88,10 +98,11 @@ try {
       await page.locator('#username').waitFor();
       await assertLocale(page, locale);
       await page.screenshot({ path: `${directory}/${locale}-login-desktop-light.png`, fullPage: true });
-      await page.setViewportSize({ width: 390, height: 844 });
       await page.emulateMedia({ colorScheme: 'dark' });
+      await page.waitForFunction(() => document.documentElement.classList.contains('pf-v5-theme-dark'));
       await assertLocale(page, locale);
-      await page.screenshot({ path: `${directory}/${locale}-login-mobile-dark.png`, fullPage: true });
+      await page.screenshot({ path: `${directory}/${locale}-login-desktop-dark.png`, fullPage: true });
+      await captureMobile(page, locale, 'login');
 
       phase = `native footer ${locale} language override and keyboard focus`;
       const alternate = locale === 'es' ? 'en' : 'es';
@@ -140,7 +151,7 @@ try {
       assert.equal(await page.locator('[data-password-toggle]').count(), 0);
       await assertLocale(page, locale);
       await page.locator('#password').fill('');
-      await page.screenshot({ path: `${directory}/${locale}-credentials-error-mobile-dark.png`, fullPage: true });
+      await captureMobile(page, locale, 'credentials-error');
 
       phase = `localized ${locale} successful code and PKCE`;
       await page.locator('#username').fill(credentials.customers.username);
@@ -162,7 +173,7 @@ try {
       await page.goto(logout.href);
       await page.locator('#kc-logout').waitFor({ state: 'visible' });
       await assertLocale(page, locale);
-      await page.screenshot({ path: `${directory}/${locale}-logout-mobile-dark.png`, fullPage: true });
+      await captureMobile(page, locale, 'logout');
       await page.locator('#kc-logout').click();
       await page.waitForURL('http://localhost:3000/signed-out*');
       const afterLogout = await fetch(metadata.token_endpoint, { method: 'POST', body: new URLSearchParams({
@@ -174,7 +185,7 @@ try {
       await page.locator('a[href*="/login-actions/reset-credentials"]').click();
       await page.locator('#kc-reset-password-form').waitFor();
       await assertLocale(page, locale);
-      await page.screenshot({ path: `${directory}/${locale}-recovery-mobile-dark.png`, fullPage: true });
+      await captureMobile(page, locale, 'recovery');
       await page.locator('#username').fill(`unknown-localization-${randomBytes(12).toString('hex')}`);
       await page.locator('#kc-form-buttons').click();
       await page.locator('.kc-feedback-text').waitFor({ state: 'visible' });
@@ -186,7 +197,7 @@ try {
       await page.goto(authorization({ client_id: 'unknown-localization-fixture' }).url.href);
       await page.locator('#kc-error-message').waitFor();
       await assertLocale(page, locale);
-      await page.screenshot({ path: `${directory}/${locale}-error-mobile-dark.png`, fullPage: true });
+      await captureMobile(page, locale, 'error');
       results.push(`${locale}: browser language, native footer override, generic refusal, code/PKCE, logout/refresh refusal, recovery and protocol error`);
       console.log(`PASS localized ${locale} identity journeys`);
     } finally { await context.close(); }
