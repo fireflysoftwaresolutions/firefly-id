@@ -1,0 +1,19 @@
+{
+  "verified_at": "2026-10-31",
+  "verification": "Registry manifest GET; Docker-Content-Digest matched SHA-256 of response bytes. No image layers pulled.",
+  "keycloak": {
+    "image": "quay.io/keycloak/keycloak:26.8.1@sha256:3f3c5f8e03c614774b4bd9173b88391fefa4153bfc010d8012d59ad825377332",
+    "source": "https://www.keycloak.org/downloads",
+    "manifest": "https://quay.io/v2/keycloak/keycloak/manifests/26.8.1"
+  },
+  "postgres": {
+    "image": "docker.io/library/postgres:17.11-bookworm@sha256:839fbb5a4942a7758dd93e18b42ea5649807491a0545b5eeeb8f0b8bb11857a5",
+    "source": "https://www.postgresql.org/support/versioning/",
+    "manifest": "https://registry-1.docker.io/v2/library/postgres/manifests/17.11-bookworm"
+  },
+  "mailpit": {
+    "image": "docker.io/axllent/mailpit:v1.31.3@sha256:ed9b00c609e77e99c79b93f1178255ebc271868920f2c69a8d166bd5634ed10d",
+    "source": "https://github.com/axllent/mailpit/releases/tag/v1.31.3",
+    "manifest": "https://registry-1.docker.io/v2/axllent/mailpit/manifests/v1.31.3"
+  }
+}

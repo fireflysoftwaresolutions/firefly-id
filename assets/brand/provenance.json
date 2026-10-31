@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "created": "2026-10-31",
+  "sources": [
+    {
+      "repository": "fireflysoftwaresolutions/brand-kit",
+      "revision": "eb8f3fae894c517c5d39c3d4ffc07547f8e17a1b",
+      "visibility": "private",
+      "paths": [
+        "data/palette.json",
+        "data/type.json",
+        "docs/logo.md",
+        "NOTICE.md",
+        "scripts/logo.mjs"
+      ],
+      "usage": "Canonical palette, typography, unchanged parent wordmark rendered by its official generator. Generator source is not redistributed."
+    },
+    {
+      "repository": "fireflyframework/firefly-koinon",
+      "remoteRevision": "46136fa4ddffdf5f49f54f4d51a7c75df061b312",
+      "localRevision": "89adfe5469a7bcb24df52a417db83db5c8b2b241",
+      "paths": [
+        "brand/tokens.json",
+        "brand/logos/firefly-koinon-lockup-color.svg",
+        "brand/fonts/manrope-latin-wght-normal.woff2",
+        "brand/OFL.txt"
+      ],
+      "usage": "Family lockup structure, matching theme roles, Manrope font and OFL."
+    },
+    {
+      "repository": "fireflysoftwaresolutions/firefly-software-website",
+      "remoteRevision": "795a80c1b11250630bd0e399a3c5c8763f3c9864",
+      "localRevision": "82ede77203a8a6e32346ab6e77c2e117de0739bd",
+      "paths": [
+        "src/styles/global.css",
+        "src/pages/liquidos.astro",
+        "scripts/brand/logo.mjs"
+      ],
+      "usage": "liquidOS family typography, charcoal/paper/amber visual system; local fontkit used only to render outlined lettering."
+    }
+  ],
+  "originalWork": [
+    "Protected-identity emblem: structural arch, broad geometric cradle and central amber identity",
+    "Identity lettering composition, family lockup composition, favicon and CIAM repository banner"
+  ],
+  "rights": {
+    "fireflyMarks": "Proprietary Firefly Software Solutions Inc. marks; reserved from any repository software license. User authorized creation for the Firefly product.",
+    "privateKit": "Private proprietary source; no blanket open source license or redistribution grant inferred. Only necessary rendered parent-mark outputs are included.",
+    "font": "Manrope; SIL Open Font License 1.1; fonts/OFL.txt"
+  },
+  "files": {
+    "NOTICE.md": {
+      "sha256": "0fc906fb29029eab31f15ced23cd236b5f1887c1ad782323787280b2f8b60e26"
+    },
+    "favicon.svg": {
+      "sha256": "e27dd8dc52095c487bddb1fb108546dab57e0613dce71d1dfe4a76e9e10c9691"
+    },
+    "firefly-id-dark.svg": {
+      "sha256": "f275f90c6d0f4e206037687d909c3b826e5b69a0b13bd7786b11b7ac78956bc5"
+    },
+    "firefly-id-light.svg": {
+      "sha256": "aaec04656a78673eb9f36fbc18a5b94c6f04f33d92f0a59a12b95b8769e581ce"
+    },
+    "firefly-id-mono-black.svg": {
+      "sha256": "01138dad256506e20cf833836c89ccd7ae10c66823a431a8166cd8b2e2265a09"
+    },
+    "firefly-id-mono-white.svg": {
+      "sha256": "fc4c247be803aa2be7062e0210a3adb7558e198caf9fac51b98b2aa0ce2c8e39"
+    },
+    "firefly-id-symbol-dark.svg": {
+      "sha256": "42f2f7ec6f62a365a4e86333d0265e916d471041ae7e4291f675f775ce35854d"
+    },
+    "firefly-id-symbol-light.svg": {
+      "sha256": "c5fcc32efe3bb0f79c72b741c839f8c17078baf53859eda0d2bc40c40cf8b7f7"
+    },
+    "firefly-id-symbol-mono-black.svg": {
+      "sha256": "fc701133a3d9cf2eb21b48fc8d33a20f01e9f68b7dc4e177674b4439552ce2f2"
+    },
+    "firefly-id-symbol-mono-white.svg": {
+      "sha256": "324934c5fede119799815224eef4433d2fac6ab51d669e16abdc5ec12e3567e9"
+    },
+    "fonts/OFL.txt": {
+      "sha256": "d826ab6583b12c26807d8716a545bdbbb672df04f48608a364ba9efdbe501c30"
+    },
+    "fonts/manrope-latin-wght-normal.woff2": {
+      "sha256": "a30ddcd349703aff7464c34bef3fffdff405ee50c113440d7c8693c02d210972"
+    },
+    "index.html": {
+      "sha256": "494fde520d36d180b0317039313b851f9fc9b3bf7ebf6053be3cb48dc4f273d8"
+    },
+    "repository-banner.svg": {
+      "sha256": "30edbb0735a6abca34e67a8c5fd43951aab62bc4bdd1e2f380d4d05434fdad98"
+    },
+    "source/firefly-dark.svg": {
+      "sha256": "5350552c075753470403a2279dbe0868c24151dde3aa789664e590f884a327c6"
+    },
+    "source/firefly-light.svg": {
+      "sha256": "4c2a5f383e82996cd8a5d2bea2170d47a25222370c16dfb44526a863992de1d5"
+    },
+    "source/firefly-mono-black.svg": {
+      "sha256": "58b0ba6361207ea773e5cfbcdd98636945ef8cfdde7cba9462a3ffd8bcdea205"
+    },
+    "source/firefly-mono-white.svg": {
+      "sha256": "b66d5a4254cfc31559767e1ee9415d9099b93186bd6872681bc402c0729d1aac"
+    },
+    "tokens.json": {
+      "sha256": "8e37aecf5578d9f4d4d8c42e44f036580ac3ad966b7b79f5aa70c6f23c2273af"
+    }
+  },
+  "designDecision": {
+    "selected": "Geometric protected identity",
+    "concept": "A structural arch and broad protective cradle hold a central amber identity.",
+    "composition": "Official Firefly parent, thin divider, exact chosen protective enclosure and lowercase identity. The emblem sits directly beside identity at a harmonized scale.",
+    "banner": "Customer identity and access management",
+    "scope": "The user selected the right-hand geometric protective enclosure from three finished variants. Its chosen topology is preserved exactly.",
+    "visibleProductName": "Firefly Identity",
+    "technicalSlug": "firefly-id"
+  },
+  "visualReview": {
+    "desktopWidth": 1440,
+    "mobileWidth": 390,
+    "bannerSize": [
+      1280,
+      400
+    ],
+    "symbolSizes": [
+      16,
+      24,
+      32,
+      64
+    ],
+    "allImagesLoaded": true,
+    "selfHostedFontLoaded": true,
+    "horizontalOverflowAt390": false,
+    "scope": "Brand reference and vector assets; integration and live authentication flows are separate."
+  }
+}

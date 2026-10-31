@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-31T19:46:00Z",
+  "title": "Design System: Firefly Identity",
+  "extensions": {
+    "shadows": [
+      {
+        "name": "login-surface",
+        "value": "0 12px 36px rgb(16 17 15 / 8%)",
+        "purpose": "Soft offset elevation for the operational login surface."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "login-mobile",
+        "value": "540px"
+      },
+      {
+        "name": "brand-reference-mobile",
+        "value": "650px"
+      }
+    ],
+    "motion": []
+  },
+  "components": [
+    {
+      "name": "Primary action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "One amber primary action for the current identity task.",
+      "html": "<button class=\"ds-primary\">Sign in</button>",
+      "css": ".ds-primary{font-family:Manrope,sans-serif;font-size:16px;background:#ffb34a;color:#10110f;min-height:44px;padding:12px 24px;border:0;border-radius:8px;font-weight:650;cursor:pointer}.ds-primary:hover{background:#f3f1eb}.ds-primary:active{background:#bfb8ab}.ds-primary:focus-visible{outline:3px solid #855414;outline-offset:4px}"
+    },
+    {
+      "name": "Secondary action",
+      "kind": "button",
+      "description": "A quieter explicit identity action.",
+      "html": "<button class=\"ds-secondary\">Try another way</button>",
+      "css": ".ds-secondary{font-family:Manrope,sans-serif;font-size:16px;background:#ffffff;color:#855414;min-height:44px;padding:12px 24px;border:1px solid #d8d4ca;border-radius:8px;font-weight:650;cursor:pointer}.ds-secondary:hover{background:#f3f1eb}.ds-secondary:active{background:#d8d4ca}.ds-secondary:focus-visible{outline:3px solid #855414;outline-offset:4px}"
+    },
+    {
+      "name": "Identity field",
+      "kind": "input",
+      "description": "Manrope form text, clear label and visible keyboard focus.",
+      "html": "<label class=\"ds-label\" for=\"ds-email\">Email address</label><input class=\"ds-input\" id=\"ds-email\" type=\"email\" placeholder=\"you@example.com\">",
+      "css": ".ds-label{font-family:Manrope,sans-serif;font-size:16px;display:block;color:#272820;font-size:14px;font-weight:650;margin-bottom:8px}.ds-input{font-family:Manrope,sans-serif;font-size:16px;background:#ffffff;color:#272820;min-height:48px;padding:12px;border:1px solid #d8d4ca;border-radius:8px}.ds-input::placeholder{color:#62645b;opacity:1}.ds-input:hover{border-color:#62645b}.ds-input:focus-visible{outline:2px solid #855414;outline-offset:2px}"
+    },
+    {
+      "name": "Recovery link",
+      "kind": "nav",
+      "description": "Gold on light surfaces keeps recovery actions legible.",
+      "html": "<a class=\"ds-link\" href=\"#recover\">Forgot password?</a>",
+      "css": ".ds-link{font-family:Manrope,sans-serif;font-size:16px;color:#855414;text-underline-offset:.2em}.ds-link:hover{color:#272820;text-decoration:underline}.ds-link:focus-visible{outline:3px solid #855414;outline-offset:4px}"
+    },
+    {
+      "name": "Login surface",
+      "kind": "card",
+      "description": "A focused operational surface with soft offset elevation.",
+      "html": "<section class=\"ds-login\"><h2>Sign in to your account</h2><p>Use your email address to continue.</p></section>",
+      "css": ".ds-login{font-family:Manrope,sans-serif;font-size:16px;max-width:480px;padding:36px;background:#ffffff;color:#272820;border-radius:16px;box-shadow:0 12px 36px rgb(16 17 15 / 8%)}.ds-login h2{font-size:30px;line-height:1.25;font-weight:650;letter-spacing:-.03em;margin:0 0 24px}.ds-login p{font-size:16px;line-height:1.6;color:#62645b;margin:0}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Protected identity",
+    "overview": "A structural arch and broad geometric cradle protect a central amber identity. The chosen emblem sits directly beside lowercase identity in the family signature: official firefly, divider, protection emblem and identity. Technical slugs remain firefly-id.",
+    "keyCharacteristics": [
+      "Structural protective arch",
+      "Broad geometric cradle",
+      "Central amber identity",
+      "Manrope everywhere",
+      "Official Firefly endorsement"
+    ],
+    "rules": [
+      {
+        "name": "Meaning before abstraction",
+        "body": "Protected identity must remain understandable and legible at 16\u201324 px.",
+        "section": "shapes"
+      },
+      {
+        "name": "One family voice",
+        "body": "Use the exact canonical palette and Manrope across brand, layouts and forms.",
+        "section": "typography"
+      }
+    ],
+    "dos": [
+      "Preserve the official parent mark.",
+      "State the CIAM purpose directly.",
+      "Keep keyboard focus visible."
+    ],
+    "donts": [
+      "Do not replace meaning with an unexplained abstract motif.",
+      "Do not add generic experience slogans to the repository banner.",
+      "Do not infer trademark grants from software licensing."
+    ]
+  }
+}

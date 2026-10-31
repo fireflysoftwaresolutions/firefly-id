@@ -1,0 +1,11 @@
+@font-face { font-family: Manrope; src: url('../fonts/manrope.woff2') format('woff2'); font-weight: 200 800; font-display: swap; }
+:root { color-scheme: light dark; --canvas: #f3f1eb; --ink: #272820; --muted: #62645b; --link: #855414; }
+body { margin: 0; background: var(--canvas); color: var(--ink); font: 16px/1.65 Manrope, sans-serif; }
+main { max-width: 640px; padding: clamp(32px, 10vw, 120px) 24px; margin: auto; }
+img { display: block; max-width: 100%; height: auto; }
+h1 { margin: 64px 0 24px; font-size: clamp(36px, 6vw, 56px); line-height: 1.12; letter-spacing: -.035em; font-weight: 600; }
+p { max-width: 50ch; color: var(--muted); margin: 0 0 32px; }
+a { color: var(--link); font-weight: 650; text-underline-offset: .3em; }
+:focus-visible { outline: 3px solid var(--link); outline-offset: 4px; }
+::selection { color: #10110f; background: #ffb34a; }
+@media (prefers-color-scheme: dark) { :root { --canvas: #10110f; --ink: #f3f1eb; --muted: #bfb8ab; --link: #ffb34a; } }

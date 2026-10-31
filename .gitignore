@@ -1,0 +1,11 @@
+.work/
+.runtime/
+.state/
+.superpowers/
+__pycache__/
+*.pyc
+.env
+dist/
+node_modules/
+target/
+.DS_Store

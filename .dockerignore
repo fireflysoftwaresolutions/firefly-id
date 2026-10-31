@@ -1,0 +1,7 @@
+.git
+.state
+.work
+.runtime
+tooling/node_modules
+**/__pycache__
+*.pyc

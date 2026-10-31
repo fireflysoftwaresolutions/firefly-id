@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "description": "Template for a separate private evidence inventory. Replace placeholders only in a file stored outside the public repository.",
+  "entries": [
+    {
+      "purpose": "Approved identity and delegation contract",
+      "privateLocation": "<private evidence location>",
+      "immutableReference": "<commit or content digest>",
+      "reviewStatus": "pending",
+      "publicSummary": "Identity claim and delegation bindings require owner approval."
+    },
+    {
+      "purpose": "Authenticated namespace to Configuration resource tenant mapping",
+      "privateLocation": "<private evidence location>",
+      "immutableReference": "<commit or content digest>",
+      "reviewStatus": "pending",
+      "publicSummary": "The authenticated namespace and resource tenant UUID remain distinct."
+    }
+  ]
+}

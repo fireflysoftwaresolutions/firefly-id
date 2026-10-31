@@ -1,0 +1,25 @@
+# Reference only. No production realms/clients or credentials are supplied.
+# Build deploy/Containerfile after building the theme; mount this as keycloak.conf.
+db=postgres
+db-url=${FIREFLY_ID_DATABASE_URL}
+db-username=${FIREFLY_ID_DATABASE_USER}
+# Inject KCRAW_DB_PASSWORD through the secret manager, or use a PKCS12 config
+# keystore containing kc.db-password. There is no generic KC_DB_PASSWORD_FILE.
+hostname=${FIREFLY_ID_PUBLIC_URL}
+hostname-admin=${FIREFLY_ID_ADMIN_URL}
+hostname-strict=true
+hostname-backchannel-dynamic=false
+http-enabled=false
+https-certificate-file=/run/secrets/tls.crt
+https-certificate-key-file=/run/secrets/tls.key
+proxy-headers=xforwarded
+proxy-trusted-addresses=${FIREFLY_ID_PROXY_CIDRS}
+# Only a private monitoring network may reach management port 9000.
+http-management-scheme=http
+http-management-port=9000
+health-enabled=true
+metrics-enabled=true
+log=console
+log-console-output=json
+shutdown-delay=10s
+shutdown-timeout=30s
