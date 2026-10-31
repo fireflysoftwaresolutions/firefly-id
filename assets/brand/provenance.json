@@ -86,10 +86,10 @@
       "sha256": "a30ddcd349703aff7464c34bef3fffdff405ee50c113440d7c8693c02d210972"
     },
     "index.html": {
-      "sha256": "494fde520d36d180b0317039313b851f9fc9b3bf7ebf6053be3cb48dc4f273d8"
+      "sha256": "3fd1849d3470c270bfac1fd9d9997d919668e34ccd3145cb4b1a7c0ce630f57f"
     },
     "repository-banner.svg": {
-      "sha256": "30edbb0735a6abca34e67a8c5fd43951aab62bc4bdd1e2f380d4d05434fdad98"
+      "sha256": "f9dd53cfde244f5159d3f0299d87ebb6226e2318a4907d45ff8180a5355af7bd"
     },
     "source/firefly-dark.svg": {
       "sha256": "5350552c075753470403a2279dbe0868c24151dde3aa789664e590f884a327c6"
@@ -111,7 +111,7 @@
     "selected": "Geometric protected identity",
     "concept": "A structural arch and broad protective cradle hold a central amber identity.",
     "composition": "Official Firefly parent, thin divider, exact chosen protective enclosure and lowercase identity. The emblem sits directly beside identity at a harmonized scale.",
-    "banner": "Customer identity and access management",
+    "banner": "Identity at the heart of every connection.",
     "scope": "The user selected the right-hand geometric protective enclosure from three finished variants. Its chosen topology is preserved exactly.",
     "visibleProductName": "Firefly Identity",
     "technicalSlug": "firefly-id"

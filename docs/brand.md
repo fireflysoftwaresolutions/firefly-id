@@ -24,7 +24,7 @@ All brand artwork is editable vector SVG; no raster image or external font servi
 
 Open the reference locally with a static server, for example `python3 -m http.server 8766`, then visit `http://localhost:8766/assets/brand/`.
 
-The emblem makes protected identity visible: a structural arch and broad geometric cradle enclose a single amber identity. Its balanced silhouette keeps the protection meaning clear at small sizes. The repository banner contains only the family signature with its adjacent protection emblem and **Customer identity and access management**.
+The emblem makes protected identity visible: a structural arch and broad geometric cradle enclose a single amber identity. Its balanced silhouette keeps the protection meaning clear at small sizes. The repository banner contains only the family signature with its adjacent protection emblem and **Identity at the heart of every connection.**.
 
 ## Use
 

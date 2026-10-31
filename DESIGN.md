@@ -74,7 +74,7 @@ Use **Manrope everywhere**, including layouts, forms, labels and all interface s
 
 ## Layout
 
-Use a 4 px spacing unit and the 4/8/12/16/24/32/48/64/96 scale. Authentication is an operational task: prioritize focused forms, readable labels and one primary action. The repository banner is a deliberate 1280 × 400 composition with the family signature, clear CIAM description, a large independent protection emblem. It contains no subtitle or upstream attribution. Its copy states the product purpose directly: “Customer identity and access management.”
+Use a 4 px spacing unit and the 4/8/12/16/24/32/48/64/96 scale. Authentication is an operational task: prioritize focused forms, readable labels and one primary action. The repository banner is a deliberate 1280 × 400 composition with the approved family signature and its adjacent protection emblem. It contains no subtitle or upstream attribution. Its tagline connects identity to the ecosystem: “Identity at the heart of every connection.”
 
 ## Elevation & Depth
 
