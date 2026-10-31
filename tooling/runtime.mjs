@@ -277,6 +277,8 @@ try {
   await adminPage.screenshot({ path: `${evidence}/admin-desktop-light.png`, fullPage: true });
   await adminPage.setViewportSize({ width: 390, height: 844 });
   await adminPage.emulateMedia({ colorScheme: 'dark' });
+  const sidebar = adminPage.locator('.pf-v5-c-page__sidebar.pf-m-expanded');
+  if (await sidebar.count()) await adminPage.locator('.pf-v5-c-masthead__toggle button').click();
   assert.ok(await adminPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Administration layout overflows the mobile viewport');
   await adminPage.screenshot({ path: `${evidence}/admin-mobile-dark.png`, fullPage: true });
   await adminContext.close();

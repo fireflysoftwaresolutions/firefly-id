@@ -1,0 +1,183 @@
+{
+  "version": 1,
+  "created": "2026-10-31",
+  "authority": {
+    "repository": "fireflysoftwaresolutions/brand-kit",
+    "revision": "eb8f3fae894c517c5d39c3d4ffc07547f8e17a1b",
+    "paths": [
+      "docs/icons.md",
+      "icons/icons.json",
+      "icons/LICENSE"
+    ],
+    "catalogueVersion": "1.0.0"
+  },
+  "source": {
+    "package": "lucide-static",
+    "version": "1.52.0",
+    "licenseUrl": "https://unpkg.com/lucide-static@1.52.0/LICENSE",
+    "licenseSha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57"
+  },
+  "construction": {
+    "viewBox": "0 0 24 24",
+    "caps": "round",
+    "joins": "round",
+    "fill": "none",
+    "stroke": "currentColor",
+    "opticalSizes": {
+      "16": 2.25,
+      "20": 1.8,
+      "24": 1.5
+    },
+    "screenStrokePixels": 1.5
+  },
+  "modifications": [
+    "Lucide geometry retained; master stroke normalized from 2 to the canonical Firefly 1.5.",
+    "16px and 20px variants retain geometry, with the optical stroke prescribed by docs/icons.md.",
+    "Generic source CSS classes removed; consumers use explicit ffid-icon hooks."
+  ],
+  "icons": {
+    "check": {
+      "catalogueId": "check",
+      "geometry": "lucide:check",
+      "sourceUrl": "https://unpkg.com/lucide-static@1.52.0/icons/check.svg",
+      "sourceSha256": "97a72209deb061b1bae237dd92b49a88ffd61e8139a3bd15cd7c093162dee2b0",
+      "files": {
+        "check.svg": "88050a8ce1f49b2b7f65b485a0a3219c7dca9f10169f342741e2e72975fe5519",
+        "16/check.svg": "1ef176d82df1038abd693848ef6952a260a6179e6757a0d297ecf1b9ba87647b",
+        "20/check.svg": "4d687e2d76ecc9405161f3b45bb4c92f567aaef227c13d54436341901687e091"
+      }
+    },
+    "error": {
+      "catalogueId": "error",
+      "geometry": "lucide:circle-x",
+      "sourceUrl": "https://unpkg.com/lucide-static@1.52.0/icons/circle-x.svg",
+      "sourceSha256": "858ff63df686285305e9bacd60e547ca7bf98d35d946a879c3c3c1ad50bdb3ab",
+      "files": {
+        "error.svg": "0df5776ff4ec7443fef93e51bfa89dfbf14b824b7ec56e0750d862b352efbdcb",
+        "16/error.svg": "d25595354ae2efe65e734039463a6e5015e09c2355c433a15b24ef4c276082b6",
+        "20/error.svg": "cda46db1b5fcddddc52b5d45903a044e4f040f28de8789636dc413f1b606ce7f"
+      }
+    },
+    "copy": {
+      "catalogueId": "copy",
+      "geometry": "lucide:copy",
+      "sourceUrl": "https://unpkg.com/lucide-static@1.52.0/icons/copy.svg",
+      "sourceSha256": "ba7570767d3e7548b13d11503cfa898c0e7155072aa109234e71bd8deda009a4",
+      "files": {
+        "copy.svg": "1f2afd3bb3d44af264f2b40f0da90b0aac74734f8f57991087dac34e5687827d",
+        "16/copy.svg": "bf91a6fee28c7f13fde2a2176443afc45967289dfcad50a318f81fb52d798a86",
+        "20/copy.svg": "97e068dff6dd8abd051c4b2b018ddbc50460e22f704607725d7239aafc8b2805"
+      }
+    },
+    "chevron-right": {
+      "catalogueId": "chevron-right",
+      "geometry": "lucide:chevron-right",
+      "sourceUrl": "https://unpkg.com/lucide-static@1.52.0/icons/chevron-right.svg",
+      "sourceSha256": "f24285f7456e2738daf3c1e960b618ed4a5603d883da989a45fbac1613bb1660",
+      "files": {
+        "chevron-right.svg": "77d855e15e6bc6f906616cee5c19a5f6f89991f675bd258e3b39ac6f862a4df2",
+        "16/chevron-right.svg": "b20131222c75e0d3ce88f7e90683e4da4ddc90d52452c2cb1ac1a2661ab406e5",
+        "20/chevron-right.svg": "f5f9e98f1838c24c0dbd277750d8d9b20d0f7d49ef7451564d143020d4b21d95"
+      }
+    },
+    "chevron-down": {
+      "catalogueId": "chevron-down",
+      "geometry": "lucide:chevron-down",
+      "sourceUrl": "https://unpkg.com/lucide-static@1.52.0/icons/chevron-down.svg",
+      "sourceSha256": "d111e8509fb4d81802439a108572497c3d5ec26b8106be64c454f72a99be02b1",
+      "files": {
+        "chevron-down.svg": "84a701059328071563a8a482b2af45379166104da099d5c296a8c3d06ff97e86",
+        "16/chevron-down.svg": "db03b0f46e7a3a06a07cbf5ab37a06179ac080f75f8adc721bc395f5a3531dc1",
+        "20/chevron-down.svg": "a5746949a38661bd54ff27df3fa18754c6dbd2e16cc34e11c67950b7399c7d2d"
+      }
+    },
+    "success": {
+      "catalogueId": "success",
+      "geometry": "lucide:circle-check",
+      "sourceUrl": "https://unpkg.com/lucide-static@1.52.0/icons/circle-check.svg",
+      "sourceSha256": "785e1bb4600b471ce47e8bf38700f9ded1cbd70801e241c8ac576e5df3a5dd5a",
+      "files": {
+        "success.svg": "e9106423962cbf5f02d64f526d37f0aac6c7fdd824cc914935eaedd7632375b5",
+        "16/success.svg": "c72fff478dd68b9692cf3bb4ea47ea09b277546b07b6aef748d2f3b11170981f",
+        "20/success.svg": "f1df11c2d1d970b89b125e784bdd8c70cdacca6f6e3a913fc48a5589cc592b3f"
+      }
+    },
+    "warning": {
+      "catalogueId": "warning",
+      "geometry": "lucide:triangle-alert",
+      "sourceUrl": "https://unpkg.com/lucide-static@1.52.0/icons/triangle-alert.svg",
+      "sourceSha256": "862a3389768d53f7fc9eb2bfff7e55c5ed07345dbbfe20673fbc9eee6b55ee24",
+      "files": {
+        "warning.svg": "1a601913865ca8b493b499c7713b27c8fd29409bc86116d306f4d6af7033947f",
+        "16/warning.svg": "052a9dae170f6798c8fa1b647bb7ebaae4555ece9190657ca8e6f594109497bf",
+        "20/warning.svg": "3a013c8ac18d753d6856ad53d702f37157b297a43ac59d3a42926f1ed2e3c95b"
+      }
+    },
+    "info": {
+      "catalogueId": "info",
+      "geometry": "lucide:info",
+      "sourceUrl": "https://unpkg.com/lucide-static@1.52.0/icons/info.svg",
+      "sourceSha256": "e789d31dd65c6c6bcd8d84234c2fee631d043493dc67cf493eb48d5320c66a30",
+      "files": {
+        "info.svg": "7d963f21d8ced1ea1bed390d82f49e0d0cd6a8ce6039210e60b56a635fadd8d7",
+        "16/info.svg": "659d83e767301045c085cefc61fcb03a6cb9f64a4463bcc5b4a3c4a168a68578",
+        "20/info.svg": "8c9493f8a8472d92486fd0f0da3566e781cdb30d323317f910da0aa1e6317cbe"
+      }
+    },
+    "sync": {
+      "catalogueId": "sync",
+      "geometry": "lucide:refresh-cw",
+      "sourceUrl": "https://unpkg.com/lucide-static@1.52.0/icons/refresh-cw.svg",
+      "sourceSha256": "60f02adce4aae6849438fadbb466b2c5355e660bd9c95c0057a42e1aa63c2892",
+      "files": {
+        "sync.svg": "2f36514ace09bc1f32ac06d5defe7295d177091c3b513a853db4f1f5b35a030c",
+        "16/sync.svg": "8ffcb9faadf855db8a1fcd86737d7057519e1a5e8aaacd49d4627f197826f52e",
+        "20/sync.svg": "b747721abae3488041263f1bdb873a296b84be85b499810a4079b1b219dde3e2"
+      }
+    },
+    "access-management": {
+      "catalogueId": "access-management",
+      "geometry": "lucide:key-round",
+      "sourceUrl": "https://unpkg.com/lucide-static@1.52.0/icons/key-round.svg",
+      "sourceSha256": "a8062e3517e28dbde20a19b7b0f043c1d10dd6235899cb3eb155f1a04a639cc9",
+      "files": {
+        "access-management.svg": "7df5d5bb09ebda2d3358b71f85f544e97370e05c5927e6c721d3b4ba29df2aa3",
+        "16/access-management.svg": "4ce02f2635869e6ddef4b20321f40199c0c5c58abadd5731db52bcaf97b62875",
+        "20/access-management.svg": "2effde17aff30374e1f290f6649f53b863f40f3de7590476fcf7381acf258629"
+      }
+    },
+    "mobile-app": {
+      "catalogueId": "mobile-app",
+      "geometry": "lucide:smartphone",
+      "sourceUrl": "https://unpkg.com/lucide-static@1.52.0/icons/smartphone.svg",
+      "sourceSha256": "28a474eeb22cd387f3dd794ae3ea2f09d433194e3a66548c87db2836649ea0bc",
+      "files": {
+        "mobile-app.svg": "8d185251ace98e6c0be8087fdc47e0516bfd5ec7235411cc7c3e3c984a1b0238",
+        "16/mobile-app.svg": "aa396b715abea1d1fcef5600ef4dc2e2de692617664d42eb329283c2187a0daf",
+        "20/mobile-app.svg": "bcb22e6067eee1be4d87d69d5542d8edf5349d374118cd7754f6391132cbfbb1"
+      }
+    },
+    "security": {
+      "catalogueId": "security",
+      "geometry": "lucide:lock",
+      "sourceUrl": "https://unpkg.com/lucide-static@1.52.0/icons/lock.svg",
+      "sourceSha256": "bdbff889c8f6c6be8bbd71463942eaaf5865d79d871f77c5962ea0ba580b44bb",
+      "files": {
+        "security.svg": "481ae61a3b470458d3c05ee11528c8af95c6bf33fce1c7c4af2421cfa4d0852c",
+        "16/security.svg": "d58fc3ab31182efc119bb6ebf642a7798c5782a401194ed7fc421932743f21c9",
+        "20/security.svg": "c30ad2c583b49e3d9fc59410d64b2690fc5ff14df98fc934edd709982fc33a16"
+      }
+    },
+    "list": {
+      "catalogueId": "list",
+      "geometry": "lucide:list",
+      "sourceUrl": "https://unpkg.com/lucide-static@1.52.0/icons/list.svg",
+      "sourceSha256": "f43417ab174dfa43a990aec47571036b3e3fdf08f7b6de5aa1ffc64b394b7db9",
+      "files": {
+        "list.svg": "7d8d722113c641386818e94bb8bbd54cb600a9a8d0901055dae4a4910916b442",
+        "16/list.svg": "d4ffb69f8929aa61b9f50e23963cfa5c98fb5213203d26e37800aae044e2dc87",
+        "20/list.svg": "9198e504c190d28cea59c48760ae6e574a1b633476452c172b78e7c5ba883449"
+      }
+    }
+  }
+}

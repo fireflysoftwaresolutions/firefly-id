@@ -6,6 +6,7 @@
   <meta name="color-scheme" content="light dark">
   <title>Firefly Identity</title>
   <link rel="icon" type="image/svg+xml" href="${resourcesPath}/img/favicon.svg">
+  <link rel="stylesheet" href="${resourcesPath}/css/firefly-tokens.css">
   <link rel="stylesheet" href="${resourcesPath}/css/welcome.css">
 </head>
 <body>
@@ -19,7 +20,7 @@
     <#if adminConsoleEnabled>
       <a href="${adminUrl}">Open administration</a>
     </#if>
-    <footer>© 2026 Firefly Software Foundation Inc.</footer>
+    <footer>© 2026 Firefly Software Foundation Inc. · <a href="https://www.keycloak.org">Powered by Keycloak</a></footer>
   </main>
 </body>
 </html>

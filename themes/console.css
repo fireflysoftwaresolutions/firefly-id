@@ -1,80 +1,70 @@
 @font-face { font-family: Manrope; src: url('../fonts/manrope.woff2') format('woff2'); font-weight: 200 800; font-display: swap; }
-:root {
-  --pf-v5-global--FontFamily--text: Manrope, sans-serif;
-  --pf-v5-global--FontFamily--heading: Manrope, sans-serif;
-  --pf-v5-global--primary-color--100: #855414;
-  --pf-v5-global--primary-color--200: #272820;
-  --pf-v5-global--BackgroundColor--100: #ffffff;
-  --pf-v5-global--BackgroundColor--200: #f3f1eb;
-  --pf-v5-global--Color--100: #272820;
-  --pf-v5-global--Color--200: #62645b;
-  --pf-v5-global--active-color--100: #855414;
-  --pf-v5-global--link--Color: #855414;
-}
-.pf-v5-theme-dark {
-  --pf-v5-global--primary-color--100: #ffb34a;
-  --pf-v5-global--primary-color--200: #f3f1eb;
-  --pf-v5-global--BackgroundColor--100: #10110f;
-  --pf-v5-global--BackgroundColor--200: #272820;
-  --pf-v5-global--Color--100: #f3f1eb;
-  --pf-v5-global--Color--200: #bfb8ab;
-  --pf-v5-global--active-color--100: #ffb34a;
-  --pf-v5-global--link--Color: #ffb34a;
-}
-body { font-family: Manrope, sans-serif; caret-color: #855414; scrollbar-color: #62645b #f3f1eb; }
+body { font-family: var(--ffid-font-family); caret-color: var(--ffid-color-gold); scrollbar-color: var(--ffid-color-muted) var(--ffid-color-paper); }
 body[data-page-id='admin'], body[data-page-id='account'] { display: flex; flex-direction: column; height: 100svh; }
 body[data-page-id] > #app { flex: 1; min-height: 0; height: auto; }
 #app .pf-v5-c-page { min-height: 0; height: 100%; }
+body[data-page-id] > #app, #app .pf-v5-c-page__main { min-width: 0; }
 #ffid-copyright { flex: none; padding: 8px 16px; background: var(--pf-v5-global--BackgroundColor--200); color: var(--pf-v5-global--Color--200); font: 12px/1.5 Manrope, sans-serif; text-align: center; }
 button[data-password-toggle], button[aria-label='Show password'], button[aria-label='Hide password'], button[aria-label='showPassword'], button[aria-label='hidePassword'], button[aria-label='Mostrar contraseña'], button[aria-label='Ocultar contraseña'], button[aria-label='Mostrar campo de contraseña en texto claro'], button[aria-label='Ocultar campo de contraseña en texto claro'] { display: none; }
 button[aria-label='Show password field in clear text'], button[aria-label='Hide password field in clear text'] { display: none; }
-::selection { color: #10110f; background: #ffb34a; }
+::selection { color: var(--ffid-color-charcoal); background: var(--ffid-color-amber); }
 a { text-underline-offset: .2em; }
-:focus-visible { outline: 3px solid #855414; outline-offset: 3px; }
-.pf-v5-theme-dark :focus-visible { outline-color: #ffb34a; }
-.pf-v5-c-masthead, .pf-v5-c-page__header { background: #10110f; }
+:focus-visible { outline: 3px solid var(--ffid-color-gold); outline-offset: 3px; }
+.pf-v5-theme-dark :focus-visible { outline-color: var(--ffid-color-amber); }
+.pf-v5-c-masthead, .pf-v5-c-page__header { background: var(--ffid-color-charcoal); }
 .pf-v5-c-brand { width: 184px; max-height: 44px; }
-.pf-v5-c-page__sidebar { background: #272820; }
+.pf-v5-c-page__sidebar { background: var(--ffid-color-ink); }
 .pf-v5-c-form { --pf-v5-c-form--Gap: 24px; }
-.pf-v5-c-form__label { font: 650 14px/1.5 Manrope, sans-serif; }
-.pf-v5-c-form-control { min-height: 44px; border: 1px solid #d8d4ca; border-radius: 8px; }
+.pf-v5-c-form__label { font: var(--ffid-font-label-weight) var(--ffid-font-label-size)/var(--ffid-font-label-line-height) var(--ffid-font-family); letter-spacing: var(--ffid-font-label-tracking); }
+.pf-v5-c-form-control { min-height: 44px; border: 1px solid var(--ffid-border-control); border-radius: var(--ffid-radius-control); }
 .pf-v5-c-form-control::before, .pf-v5-c-form-control::after { border: 0; }
-.pf-v5-c-form-control:focus-within { outline: 2px solid #855414; outline-offset: 2px; }
-.pf-v5-theme-dark .pf-v5-c-form-control { border-color: #62645b; }
-.pf-v5-theme-dark .pf-v5-c-form-control:focus-within { outline-color: #ffb34a; }
+.pf-v5-c-form-control:focus-within { outline: 2px solid var(--ffid-color-gold); outline-offset: 2px; }
+.pf-v5-theme-dark .pf-v5-c-form-control { border-color: var(--ffid-color-muted); }
+.pf-v5-theme-dark .pf-v5-c-form-control:focus-within { outline-color: var(--ffid-color-amber); }
 .pf-v5-c-button { min-height: 44px; border-radius: 8px; }
 .pf-v5-c-button.pf-m-primary {
-  --pf-v5-c-button--m-primary--BackgroundColor: #ffb34a;
-  --pf-v5-c-button--m-primary--Color: #10110f;
-  --pf-v5-c-button--m-primary--hover--BackgroundColor: #f3f1eb;
-  --pf-v5-c-button--m-primary--hover--Color: #10110f;
+  --pf-v5-c-button--m-primary--BackgroundColor: var(--ffid-color-amber);
+  --pf-v5-c-button--m-primary--Color: var(--ffid-color-charcoal);
+  --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--ffid-color-paper);
+  --pf-v5-c-button--m-primary--hover--Color: var(--ffid-color-charcoal);
 }
-.keycloak__loading-container { color: #272820; background: #f3f1eb; }
+.keycloak__loading-container { color: var(--ffid-color-ink); background: var(--ffid-color-paper); }
 .ffid-error-dialog {
   width: min(540px, calc(100vw - 32px));
   max-width: 540px;
-  border: 1px solid #d8d4ca;
+  border: 1px solid var(--ffid-color-line);
   border-radius: 16px;
-  background: #ffffff;
-  color: #272820;
+  background: var(--ffid-color-white);
+  color: var(--ffid-color-ink);
   box-shadow: 0 16px 48px rgb(16 17 15 / 12%);
   overflow-wrap: anywhere;
 }
 .ffid-error-dialog .pf-v5-c-modal-box__header { padding: 32px 32px 20px; }
 .ffid-error-brand { display: block; width: min(100%, 250px); height: 44px; object-fit: contain; object-position: left; margin-bottom: 32px; }
-.ffid-error-dialog .pf-v5-c-modal-box__title { font: 600 28px/1.25 Manrope, sans-serif; letter-spacing: -.025em; color: inherit; }
+.ffid-error-dialog .pf-v5-c-modal-box__title { font: var(--ffid-font-title-weight) var(--ffid-font-title-size)/var(--ffid-font-title-line-height) var(--ffid-font-family); letter-spacing: -.025em; color: inherit; }
 .ffid-error-dialog .pf-v5-c-modal-box__title-text { white-space: normal; overflow: visible; text-overflow: clip; }
-.ffid-error-dialog .pf-v5-c-modal-box__body { padding: 0 32px; color: #62645b; font: 16px/1.65 Manrope, sans-serif; }
+.ffid-error-dialog .pf-v5-c-modal-box__body { padding: 0 32px; color: var(--ffid-color-muted); font: 16px/1.65 Manrope, sans-serif; }
 .ffid-error-dialog .pf-v5-c-modal-box__footer { padding: 24px 32px 32px; }
-.ffid-error-dialog .pf-v5-c-button.pf-m-primary { min-width: 132px; background: #ffb34a; color: #10110f; }
-.ffid-error-dialog .pf-v5-c-button.pf-m-primary:hover { background: #f3f1eb; color: #10110f; }
-.pf-v5-theme-dark .ffid-error-dialog { border-color: #474a42; background: #272820; color: #f3f1eb; }
-.pf-v5-theme-dark .ffid-error-dialog .pf-v5-c-modal-box__body { color: #bfb8ab; }
+.ffid-error-dialog .pf-v5-c-button.pf-m-primary { min-width: 132px; background: var(--ffid-color-amber); color: var(--ffid-color-charcoal); }
+.ffid-error-dialog .pf-v5-c-button.pf-m-primary:hover { background: var(--ffid-color-paper); color: var(--ffid-color-charcoal); }
+.pf-v5-theme-dark .ffid-error-dialog { border-color: var(--ffid-color-graphite); background: var(--ffid-color-ink); color: var(--ffid-color-paper); }
+.pf-v5-theme-dark .ffid-error-dialog .pf-v5-c-modal-box__body { color: var(--ffid-color-stone); }
 @media (max-width: 540px) {
   .ffid-error-dialog .pf-v5-c-modal-box__header { padding: 24px 24px 16px; }
   .ffid-error-dialog .pf-v5-c-modal-box__body { padding-inline: 24px; }
   .ffid-error-dialog .pf-v5-c-modal-box__footer { padding: 24px; }
   .ffid-error-dialog .pf-v5-c-modal-box__title { font-size: 24px; }
 }
-@media (prefers-color-scheme: dark) { .keycloak__loading-container { color: #f3f1eb; background: #10110f; } }
+@media (max-width: 767px) {
+  .pf-v5-c-masthead { display: grid; width: 100%; min-width: 0; grid-template-columns: auto minmax(0, 1fr); }
+  .pf-v5-c-masthead__toggle { grid-column: 1; grid-row: 1; }
+  .pf-v5-c-masthead__main { min-width: 0; grid-column: 2; grid-row: 1; }
+  .pf-v5-c-masthead__content { min-width: 0; margin: 0; padding-inline: 16px; grid-column: 1 / -1; grid-row: 2; }
+  .pf-v5-c-masthead .pf-v5-c-toolbar { width: 100%; min-width: 0; }
+  .pf-v5-c-masthead .pf-v5-c-toolbar__content-section { min-width: 0; flex-wrap: wrap; }
+  .pf-v5-c-masthead .pf-v5-c-toolbar__group { min-width: 0; }
+}
+@media (prefers-color-scheme: dark) { .keycloak__loading-container { color: var(--ffid-color-paper); background: var(--ffid-color-charcoal); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+.pf-v5-c-title.pf-m-2xl, .pf-v5-c-title.pf-m-3xl { font-family: var(--ffid-font-family); font-weight: var(--ffid-font-title-weight); letter-spacing: var(--ffid-font-title-tracking); }

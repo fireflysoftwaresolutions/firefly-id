@@ -9,7 +9,7 @@
       <tr><td style="padding:32px;background:#ffffff;border-radius:12px;">
         <#nested>
       </td></tr>
-      <tr><td style="padding:24px 0 0;color:#62645b;font-size:13px;">Firefly Identity<br>${msg("ffidEmailPrivacyNotice")}<br>© 2026 Firefly Software Foundation Inc.</td></tr>
+      <tr><td style="padding:24px 0 0;color:#62645b;font-size:13px;">Firefly Identity<br>${msg("ffidEmailPrivacyNotice")}<br>© 2026 Firefly Software Foundation Inc. · <a href="https://www.keycloak.org" style="color:#855414;text-decoration:underline;">${msg("ffidPoweredBy")}</a></td></tr>
     </table>
   </td></tr></table>
 </body>

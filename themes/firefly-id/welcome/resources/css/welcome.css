@@ -1,5 +1,5 @@
 @font-face { font-family: Manrope; src: url('../fonts/manrope.woff2') format('woff2'); font-weight: 200 800; font-display: swap; }
-:root { color-scheme: light dark; --canvas: #f3f1eb; --ink: #272820; --muted: #62645b; --link: #855414; }
+:root { color-scheme: light dark; --canvas: var(--ffid-color-paper); --ink: var(--ffid-color-ink); --muted: var(--ffid-color-muted); --link: var(--ffid-color-gold); }
 body { margin: 0; background: var(--canvas); color: var(--ink); font: 16px/1.65 Manrope, sans-serif; }
 main { max-width: 640px; padding: clamp(32px, 10vw, 120px) 24px; margin: auto; }
 img { display: block; max-width: 100%; height: auto; }
@@ -8,5 +8,5 @@ p { max-width: 50ch; color: var(--muted); margin: 0 0 32px; }
 footer { margin-top: 64px; color: var(--muted); font-size: 12px; }
 a { color: var(--link); font-weight: 650; text-underline-offset: .3em; }
 :focus-visible { outline: 3px solid var(--link); outline-offset: 4px; }
-::selection { color: #10110f; background: #ffb34a; }
-@media (prefers-color-scheme: dark) { :root { --canvas: #10110f; --ink: #f3f1eb; --muted: #bfb8ab; --link: #ffb34a; } }
+::selection { color: var(--ffid-color-charcoal); background: var(--ffid-color-amber); }
+@media (prefers-color-scheme: dark) { :root { --canvas: var(--ffid-color-charcoal); --ink: var(--ffid-color-paper); --muted: var(--ffid-color-stone); --link: var(--ffid-color-amber); } }

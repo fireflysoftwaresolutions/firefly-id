@@ -1,0 +1,109 @@
+/* Firefly brand-kit eb8f3fa; source and integration contract: docs/design-tokens.md. */
+:root {
+  --ffid-color-charcoal: #10110f;
+  --ffid-color-paper: #f3f1eb;
+  --ffid-color-amber: #ffb34a;
+  --ffid-color-ink: #272820;
+  --ffid-color-muted: #62645b;
+  --ffid-color-gold: #855414;
+  --ffid-color-white: #ffffff;
+  --ffid-color-stone: #bfb8ab;
+  --ffid-color-line: #d8d4ca;
+  --ffid-color-graphite: #474a42;
+
+  --ffid-font-family: "Manrope", "Manrope Variable", system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  --ffid-font-body-size: 1rem;
+  --ffid-font-body-weight: 400;
+  --ffid-font-body-line-height: 1.65;
+  --ffid-font-title-size: 1.6875rem;
+  --ffid-font-title-weight: 450;
+  --ffid-font-title-line-height: 1.2;
+  --ffid-font-title-tracking: -.035em;
+  --ffid-font-label-size: .8125rem;
+  --ffid-font-label-weight: 650;
+  --ffid-font-label-line-height: 1.4;
+  --ffid-font-label-tracking: .025em;
+
+  --ffid-space-1: .25rem;
+  --ffid-space-2: .5rem;
+  --ffid-space-3: .75rem;
+  --ffid-space-4: 1rem;
+  --ffid-space-6: 1.5rem;
+  --ffid-space-8: 2rem;
+  --ffid-space-12: 3rem;
+  --ffid-space-16: 4rem;
+  --ffid-space-24: 6rem;
+  --ffid-radius-control: 8px;
+  --ffid-radius-panel: 12px;
+  --ffid-radius-dialog: 16px;
+  --ffid-control-min-size: 44px;
+  --ffid-focus-width: 3px;
+  --ffid-focus-offset: 3px;
+  --ffid-icon-size-sm: 16px;
+  --ffid-icon-size-md: 20px;
+  --ffid-icon-size-lg: 24px;
+  --ffid-icon-stroke-width: 1.5px;
+
+  --ffid-canvas: var(--ffid-color-paper);
+  --ffid-surface: var(--ffid-color-white);
+  --ffid-surface-raised: var(--ffid-color-white);
+  --ffid-text: var(--ffid-color-ink);
+  --ffid-text-muted: var(--ffid-color-muted);
+  --ffid-border: var(--ffid-color-line);
+  --ffid-border-control: var(--ffid-color-muted);
+  --ffid-link: var(--ffid-color-gold);
+  --ffid-link-hover: var(--ffid-color-ink);
+  --ffid-focus: var(--ffid-color-gold);
+  --ffid-action: var(--ffid-color-amber);
+  --ffid-action-text: var(--ffid-color-charcoal);
+  --ffid-action-hover: var(--ffid-color-paper);
+  --ffid-action-active: var(--ffid-color-stone);
+}
+
+.pf-v5-theme-dark, [data-ffid-theme="dark"] {
+  --ffid-canvas: var(--ffid-color-charcoal);
+  --ffid-surface: var(--ffid-color-ink);
+  --ffid-surface-raised: var(--ffid-color-ink);
+  --ffid-text: var(--ffid-color-paper);
+  --ffid-text-muted: var(--ffid-color-stone);
+  --ffid-border: var(--ffid-color-graphite);
+  --ffid-border-control: var(--ffid-color-stone);
+  --ffid-link: var(--ffid-color-amber);
+  --ffid-link-hover: var(--ffid-color-paper);
+  --ffid-focus: var(--ffid-color-amber);
+}
+
+:root, .pf-v5-theme-dark, [data-ffid-theme="dark"] {
+  --pf-v5-global--FontFamily--text: var(--ffid-font-family);
+  --pf-v5-global--FontFamily--heading: var(--ffid-font-family);
+  --pf-v5-global--FontFamily--text--vf: var(--ffid-font-family);
+  --pf-v5-global--FontFamily--heading--vf: var(--ffid-font-family);
+  --pf-v5-global--FontSize--md: var(--ffid-font-body-size);
+  --pf-v5-global--FontWeight--normal: var(--ffid-font-body-weight);
+  --pf-v5-global--LineHeight--md: var(--ffid-font-body-line-height);
+  --pf-v5-global--BackgroundColor--100: var(--ffid-surface);
+  --pf-v5-global--BackgroundColor--200: var(--ffid-canvas);
+  --pf-v5-global--Color--100: var(--ffid-text);
+  --pf-v5-global--Color--200: var(--ffid-text-muted);
+  --pf-v5-global--Color--light-100: var(--ffid-color-paper);
+  --pf-v5-global--Color--light-200: var(--ffid-color-stone);
+  --pf-v5-global--Color--dark-100: var(--ffid-color-ink);
+  --pf-v5-global--Color--dark-200: var(--ffid-color-muted);
+  --pf-v5-global--BackgroundColor--light-100: var(--ffid-color-white);
+  --pf-v5-global--BackgroundColor--light-200: var(--ffid-color-paper);
+  --pf-v5-global--BackgroundColor--dark-100: var(--ffid-color-charcoal);
+  --pf-v5-global--BackgroundColor--dark-200: var(--ffid-color-ink);
+  --pf-v5-global--BorderColor--100: var(--ffid-border);
+  --pf-v5-global--primary-color--100: var(--ffid-link);
+  --pf-v5-global--primary-color--200: var(--ffid-link-hover);
+  --pf-v5-global--primary-color--light-100: var(--ffid-color-amber);
+  --pf-v5-global--primary-color--dark-100: var(--ffid-color-gold);
+  --pf-v5-global--active-color--100: var(--ffid-link);
+  --pf-v5-global--link--Color: var(--ffid-link);
+  --pf-v5-global--link--Color--hover: var(--ffid-link-hover);
+  --pf-v5-global--link--Color--visited: var(--ffid-link);
+  --pf-v5-global--link--Color--light: var(--ffid-color-amber);
+  --pf-v5-global--link--Color--light--hover: var(--ffid-color-paper);
+  --pf-v5-global--link--Color--dark: var(--ffid-color-gold);
+  --pf-v5-global--link--Color--dark--hover: var(--ffid-color-ink);
+}

@@ -1,0 +1,17 @@
+/* Dedicated Keycloak FreeMarker icon hooks; native React SVGs retain their own semantics. */
+.ffid-icon { display: inline-block; flex: none; width: 16px; height: 16px; vertical-align: -.125em; background-color: currentColor; mask: var(--ffid-icon-small) center / contain no-repeat; font-size: 0; }
+.ffid-icon::before { content: none; }
+.ffid-icon.ffid-icon--24 { width: 24px; height: 24px; mask-image: var(--ffid-icon-master); }
+.ffid-icon--access-management { --ffid-icon-small: url('../img/icons/16/access-management.svg'); --ffid-icon-master: url('../img/icons/access-management.svg'); }
+.ffid-icon--check { --ffid-icon-small: url('../img/icons/16/check.svg'); --ffid-icon-master: url('../img/icons/check.svg'); }
+.ffid-icon--chevron-down { --ffid-icon-small: url('../img/icons/16/chevron-down.svg'); --ffid-icon-master: url('../img/icons/chevron-down.svg'); }
+.ffid-icon--chevron-right { --ffid-icon-small: url('../img/icons/16/chevron-right.svg'); --ffid-icon-master: url('../img/icons/chevron-right.svg'); }
+.ffid-icon--copy { --ffid-icon-small: url('../img/icons/16/copy.svg'); --ffid-icon-master: url('../img/icons/copy.svg'); }
+.ffid-icon--error { --ffid-icon-small: url('../img/icons/16/error.svg'); --ffid-icon-master: url('../img/icons/error.svg'); }
+.ffid-icon--info { --ffid-icon-small: url('../img/icons/16/info.svg'); --ffid-icon-master: url('../img/icons/info.svg'); }
+.ffid-icon--list { --ffid-icon-small: url('../img/icons/16/list.svg'); --ffid-icon-master: url('../img/icons/list.svg'); }
+.ffid-icon--mobile-app { --ffid-icon-small: url('../img/icons/16/mobile-app.svg'); --ffid-icon-master: url('../img/icons/mobile-app.svg'); }
+.ffid-icon--security { --ffid-icon-small: url('../img/icons/16/security.svg'); --ffid-icon-master: url('../img/icons/security.svg'); }
+.ffid-icon--success { --ffid-icon-small: url('../img/icons/16/success.svg'); --ffid-icon-master: url('../img/icons/success.svg'); }
+.ffid-icon--sync { --ffid-icon-small: url('../img/icons/16/sync.svg'); --ffid-icon-master: url('../img/icons/sync.svg'); }
+.ffid-icon--warning { --ffid-icon-small: url('../img/icons/16/warning.svg'); --ffid-icon-master: url('../img/icons/warning.svg'); }

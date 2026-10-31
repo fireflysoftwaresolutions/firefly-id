@@ -13,3 +13,8 @@ presentation. Credential-field errors
 are presented in that shared alert. Upstream protocol and form actions are retained.
 Manrope is distributed under the SIL Open Font License, Version 1.1;
 the font's license is included alongside the font.
+
+Functional icons derive from Lucide Icons, with Feather-derived icons under
+their ISC and MIT terms. Their complete license is assets/icons/LICENSE and
+is included in the theme archive. Firefly visual treatments do not replace
+upstream copyright, license, or attribution notices.

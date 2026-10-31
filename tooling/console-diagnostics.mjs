@@ -79,6 +79,14 @@ export function observeConsole(page) {
       secureContext: window.isSecureContext,
       cryptoRandomUUID: typeof window.crypto?.randomUUID === 'function',
       cryptoDigest: typeof window.crypto?.subtle?.digest === 'function',
+      viewportWidth: innerWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      layout: Object.fromEntries(['.pf-v5-c-masthead', '.pf-v5-c-masthead__main', '.pf-v5-c-masthead__content',
+        '.pf-v5-c-toolbar__content-section', '.pf-v5-c-page__sidebar', '.pf-v5-c-page__main'].map(selector => {
+        const element = document.querySelector(selector);
+        const box = element?.getBoundingClientRect();
+        return [selector, box ? { width: Math.round(box.width), x: Math.round(box.x) } : null];
+      })),
     }));
     await writeFile(`${directory}/${surface}-diagnostics.json`, JSON.stringify({ structure, errors, failures, accountRequests }, null, 2));
     // Never capture credential, action-token, OTP enrollment or arbitrary error pages.

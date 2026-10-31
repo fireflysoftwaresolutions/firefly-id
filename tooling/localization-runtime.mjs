@@ -26,12 +26,12 @@ const server = createServer((request, response) => {
 await new Promise((ok, fail) => server.listen(3000, '127.0.0.1', ok).once('error', fail));
 const browser = await chromium.launch();
 
-function authorization(locale, extra = {}) {
+function authorization(extra = {}) {
   const verifier = randomBytes(48).toString('base64url');
   const state = randomBytes(24).toString('base64url');
   const url = new URL(metadata.authorization_endpoint);
   url.search = new URLSearchParams({ client_id: 'sandbox-web', response_type: 'code', redirect_uri: redirect,
-    scope: 'openid profile email', ui_locales: locale, state, nonce: randomBytes(24).toString('base64url'),
+    scope: 'openid profile email', state, nonce: randomBytes(24).toString('base64url'),
     code_challenge_method: 'S256', code_challenge: createHash('sha256').update(verifier).digest('base64url'), ...extra });
   return { url, verifier, state };
 }
@@ -41,26 +41,77 @@ async function assertLocale(page, locale) {
   await page.evaluate(() => document.fonts.ready);
   assert.ok(await page.evaluate(() => document.fonts.check('16px Manrope')));
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  const selector = page.locator('.ffid-footer #login-select-toggle');
+  assert.equal(await selector.count(), 1);
+  assert.equal(await selector.locator('option').count(), 2);
+  assert.equal(await page.locator('.pf-v5-c-login__main-header #login-select-toggle').count(), 0);
+  const bounds = await selector.boundingBox();
+  assert.ok(bounds && bounds.height >= 32 && bounds.width <= 200);
+  const contentBottoms = await page.locator('#kc-page-title, main form').evaluateAll(elements => elements
+    .map(element => element.getBoundingClientRect()).filter(rect => rect.width && rect.height).map(rect => rect.bottom));
+  assert.ok(contentBottoms.every(bottom => bounds.y >= bottom));
+  const fontSize = await selector.evaluate(element => parseFloat(getComputedStyle(element).fontSize));
+  assert.ok(fontSize >= 12 && fontSize <= 13);
+  assert.ok(await selector.getAttribute('aria-label'));
 }
 
 try {
+  for (const scenario of [
+    { browserLocale: 'fr-FR', expected: 'en', label: 'unsupported browser language defaults to English', extra: {} },
+    { browserLocale: 'en-US', expected: 'es', label: 'explicit application language overrides browser', extra: { ui_locales: 'es' } },
+  ]) {
+    const context = await browser.newContext({ locale: scenario.browserLocale,
+      viewport: { width: 1440, height: 1000 }, colorScheme: 'light' });
+    try {
+      phase = scenario.label;
+      const page = await context.newPage();
+      page.setDefaultTimeout(20000);
+      const auth = authorization(scenario.extra);
+      if (!scenario.extra.ui_locales) assert.equal(auth.url.searchParams.has('ui_locales'), false);
+      await page.goto(auth.url.href);
+      await page.locator('#username').waitFor();
+      await assertLocale(page, scenario.expected);
+      await page.screenshot({ path: `${directory}/${scenario.extra.ui_locales ? 'application-override' : 'browser-fallback'}-login.png`, fullPage: true });
+      results.push(scenario.label);
+    } finally { await context.close(); }
+  }
   for (const locale of ['en', 'es']) {
     const context = await browser.newContext({ locale: locale === 'es' ? 'es-ES' : 'en-US',
       viewport: { width: 1440, height: 1000 }, colorScheme: 'light' });
     const page = await context.newPage();
     page.setDefaultTimeout(20000);
     try {
-      phase = `localized ${locale} sign-in presentation`;
-      const auth = authorization(locale);
+      phase = `automatic browser ${locale} sign-in presentation`;
+      const auth = authorization();
+      assert.equal(auth.url.searchParams.has('ui_locales'), false);
       await page.goto(auth.url.href);
       await page.locator('#username').waitFor();
       await assertLocale(page, locale);
-      assert.equal(await page.locator('#login-select-toggle option').count(), 2);
       await page.screenshot({ path: `${directory}/${locale}-login-desktop-light.png`, fullPage: true });
       await page.setViewportSize({ width: 390, height: 844 });
       await page.emulateMedia({ colorScheme: 'dark' });
       await assertLocale(page, locale);
       await page.screenshot({ path: `${directory}/${locale}-login-mobile-dark.png`, fullPage: true });
+
+      phase = `native footer ${locale} language override and keyboard focus`;
+      const alternate = locale === 'es' ? 'en' : 'es';
+      for (const selected of [alternate, locale]) {
+        const selector = page.locator('.ffid-footer #login-select-toggle');
+        await page.keyboard.press('Tab');
+        await selector.focus();
+        assert.ok(await selector.evaluate(element => element === document.activeElement && element.matches(':focus-visible')));
+        const nativeUrl = await selector.locator('option').evaluateAll((options, language) => {
+          const current = new URL(location.href);
+          const option = options.find(item => new URL(item.value, current).searchParams.get('kc_locale') === language);
+          return option?.value;
+        }, selected);
+        assert.ok(nativeUrl);
+        await Promise.all([page.waitForEvent('domcontentloaded'), selector.selectOption(nativeUrl)]);
+        await page.locator('#username').waitFor();
+        await assertLocale(page, selected);
+      }
+      await page.locator('.ffid-footer #login-select-toggle').focus();
+      await page.screenshot({ path: `${directory}/${locale}-locale-footer-mobile-dark.png`, fullPage: true });
 
       phase = `localized ${locale} generic sign-in refusal`;
       await page.locator('#username').fill(credentials.customers.username);
@@ -101,7 +152,7 @@ try {
       assert.equal(afterLogout.status, 400);
 
       phase = `localized ${locale} recovery and generic acknowledgement`;
-      await page.goto(authorization(locale).url.href);
+      await page.goto(authorization().url.href);
       await page.locator('a[href*="/login-actions/reset-credentials"]').click();
       await page.locator('#kc-reset-password-form').waitFor();
       await assertLocale(page, locale);
@@ -114,11 +165,11 @@ try {
         ? 'Si hay una cuenta que cumpla los requisitos' : 'If an eligible account matches'));
 
       phase = `localized ${locale} protocol error presentation`;
-      await page.goto(authorization(locale, { client_id: 'unknown-localization-fixture' }).url.href);
+      await page.goto(authorization({ client_id: 'unknown-localization-fixture' }).url.href);
       await page.locator('#kc-error-message').waitFor();
       await assertLocale(page, locale);
       await page.screenshot({ path: `${directory}/${locale}-error-mobile-dark.png`, fullPage: true });
-      results.push(`${locale}: login, generic refusal, code/PKCE, logout/refresh refusal, recovery and protocol error`);
+      results.push(`${locale}: browser language, native footer override, generic refusal, code/PKCE, logout/refresh refusal, recovery and protocol error`);
       console.log(`PASS localized ${locale} identity journeys`);
     } finally { await context.close(); }
   }

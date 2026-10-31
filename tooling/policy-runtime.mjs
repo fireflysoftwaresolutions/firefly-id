@@ -550,8 +550,18 @@ async function main() {
     try {
       phase = 'administrative credentials route navigation';
       await adminPage.goto(credentialTarget);
-      phase = 'administrative native reset-password control';
-      await adminPage.getByTestId('resetPasswordBtn').first().click();
+      phase = 'administrative credentials full reload into the selected realm';
+      await adminPage.reload();
+      phase = 'administrative native credentials tab';
+      await adminPage.getByTestId('credentials').waitFor({ state: 'visible' });
+      await adminPage.getByTestId('credentials').click();
+      phase = 'administrative native password credential row';
+      const passwordRow = adminPage.locator('tr').filter({
+        has: adminPage.getByTestId('credentialType').filter({ hasText: /^Password$/i }),
+      });
+      await passwordRow.waitFor({ state: 'visible' });
+      phase = 'administrative password-row reset control';
+      await passwordRow.getByTestId('resetPasswordBtn').click();
       phase = 'administrative reset-password dialog and native input fields';
       await adminPage.getByRole('dialog').waitFor();
       await adminPage.locator('#userCredentials-form').waitFor({ state: 'visible' });
@@ -567,6 +577,9 @@ async function main() {
           return {
             surfaceIsAdmin: document.body?.dataset.pageId === 'admin',
             resetControlPresent: Boolean(document.querySelector('[data-testid="resetPasswordBtn"]')),
+            credentialsTabPresent: Boolean(document.querySelector('[data-testid="credentials"]')),
+            passwordRowPresent: [...document.querySelectorAll('[data-testid="credentialType"]')]
+              .some(element => /^Password$/i.test(element.textContent.trim())),
             credentialFormPresent: Boolean(document.querySelector('#userCredentials-form')),
             dialogPresent: Boolean(document.querySelector('[role="dialog"]')),
             loginFormPresent: Boolean(document.querySelector('#kc-login')),
