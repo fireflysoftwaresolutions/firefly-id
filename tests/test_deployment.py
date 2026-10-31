@@ -60,6 +60,7 @@ class DeploymentGenerationTest(unittest.TestCase):
                 for name in ('tenant_id', 'party_id', 'staff_actor_id'):
                     self.assertEqual(protected[name]['permissions']['edit'], ['admin'])
                 for client in realm['clients']:
+                    self.assertIn('basic', client['defaultClientScopes'])
                     self.assertFalse(client['directAccessGrantsEnabled'])
                     self.assertFalse(client['implicitFlowEnabled'])
                     self.assertFalse(client['serviceAccountsEnabled'])

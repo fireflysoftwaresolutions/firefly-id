@@ -50,7 +50,7 @@ def client(client_id, port, kind, secret=None):
                        'post.logout.redirect.uris': f'http://localhost:{port}/signed-out',
                        'oauth2.device.authorization.grant.enabled': 'false',
                        'oidc.ciba.grant.enabled': 'false'},
-        'defaultClientScopes': ['profile', 'email'], 'optionalClientScopes': [],
+        'defaultClientScopes': ['basic', 'profile', 'email'], 'optionalClientScopes': [],
         'protocolMappers': [
             {'name': name, 'protocol': 'openid-connect',
              'protocolMapper': 'oidc-usermodel-attribute-mapper',
