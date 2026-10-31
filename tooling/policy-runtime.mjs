@@ -188,7 +188,32 @@ async function main() {
     const masterEvidence = resolve('.work/policy-runtime');
     await mkdir(masterEvidence, { recursive: true });
     await adminPage.screenshot({ path: `${masterEvidence}/master-branded.png`, fullPage: true });
-    passed('actual master welcome reflects Firefly Identity at desktop light size and retains the native temporary-administrator warning');
+    for (const width of [320, 390, 768, 1440]) {
+      await adminPage.setViewportSize({ width, height: width < 768 ? 844 : 1000 });
+      if (width < 768 && await adminPage.locator('.pf-v5-c-page__sidebar.pf-m-expanded').count()) {
+        await adminPage.locator('.pf-v5-c-masthead__toggle button').click();
+      }
+      for (const colorScheme of ['light', 'dark']) {
+        await adminPage.emulateMedia({ colorScheme });
+        await adminPage.waitForFunction(dark => document.documentElement.classList.contains('pf-v5-theme-dark') === dark, colorScheme === 'dark');
+        const bounds = await adminPage.evaluate(() => {
+          const description = document.querySelector('.keycloak__dashboard_welcome_tab');
+          const section = description?.closest('.pf-v5-c-page__main-section');
+          const links = [...(section?.querySelectorAll('.pf-v5-c-action-list a') || [])];
+          return { fits: links.length === 3 && links.every(link => {
+            const box = link.getBoundingClientRect();
+            return box.left >= 0 && box.right <= innerWidth;
+          }), descriptionWidth: description?.getBoundingClientRect().width || 0,
+          minimumWidth: Math.min(480, (section?.getBoundingClientRect().width || innerWidth) - 48),
+          pageFits: document.documentElement.scrollWidth <= innerWidth };
+        });
+        assert.ok(bounds.fits && bounds.pageFits && bounds.descriptionWidth >= bounds.minimumWidth, 'Branded master layout clips actions or compresses its description');
+        await adminPage.screenshot({ path: `${masterEvidence}/master-branded-${width}-${colorScheme}.png`, fullPage: true });
+      }
+    }
+    await adminPage.setViewportSize({ width: 1440, height: 1000 });
+    await adminPage.emulateMedia({ colorScheme: 'light' });
+    passed('actual branded master welcome retains its native administrator warning and readable actions at 320, 390, 768 and 1440 pixels in both modes');
 
     phase = 'effective imported population policies';
     for (const population of ['customers', 'workforce', 'institutions']) {

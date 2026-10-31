@@ -12,8 +12,30 @@ a { text-underline-offset: .2em; }
 :focus-visible { outline: 3px solid var(--ffid-color-gold); outline-offset: 3px; }
 .pf-v5-theme-dark :focus-visible { outline-color: var(--ffid-color-amber); }
 .pf-v5-c-masthead, .pf-v5-c-page__header { background: var(--ffid-color-charcoal); }
+.pf-v5-c-masthead .pf-v5-c-toolbar { background: transparent; }
 .pf-v5-c-brand { width: 184px; max-height: 44px; }
 .pf-v5-c-page__sidebar { background: var(--ffid-color-ink); }
+.keycloak__dashboard_welcome_tab {
+  grid-column: 1 / -1;
+  width: 100%;
+  max-width: 65ch;
+}
+.keycloak__dashboard_welcome_tab h3 {
+  color: var(--ffid-text-muted);
+  font: var(--ffid-font-body-weight) var(--ffid-font-body-size)/var(--ffid-font-body-line-height) var(--ffid-font-family);
+}
+[data-testid='welcomeTitle'] {
+  --pf-v5-global--FontWeight--bold: var(--ffid-font-title-weight);
+  font-size: var(--ffid-font-title-size);
+  line-height: var(--ffid-font-title-line-height);
+  letter-spacing: var(--ffid-font-title-tracking);
+  text-wrap: balance;
+}
+.pf-v5-c-page__main-section:has([data-testid='welcomeTitle']) .pf-v5-c-action-list {
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .pf-v5-c-form { --pf-v5-c-form--Gap: 24px; }
 .pf-v5-c-form__label { font: var(--ffid-font-label-weight) var(--ffid-font-label-size)/var(--ffid-font-label-line-height) var(--ffid-font-family); letter-spacing: var(--ffid-font-label-tracking); }
 .pf-v5-c-form-control { --pf-v5-c-form-control--Color: var(--ffid-text); --pf-v5-c-form-control--BackgroundColor: var(--ffid-surface); min-height: 44px; border: 1px solid var(--ffid-border-control); border-radius: var(--ffid-radius-control); }
@@ -63,6 +85,8 @@ a { text-underline-offset: .2em; }
   .pf-v5-c-masthead .pf-v5-c-toolbar { width: 100%; min-width: 0; }
   .pf-v5-c-masthead .pf-v5-c-toolbar__content-section { min-width: 0; flex-wrap: wrap; }
   .pf-v5-c-masthead .pf-v5-c-toolbar__group { min-width: 0; }
+  /* Override the native important desktop indentation utility at phone widths. */
+  .pf-v5-c-page__main-section:has([data-testid='welcomeTitle']) .pf-v5-l-grid.pf-v5-u-ml-lg { margin-inline: 0 !important; }
 }
 @media (prefers-color-scheme: dark) { .keycloak__loading-container { color: var(--ffid-color-paper); background: var(--ffid-color-charcoal); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }

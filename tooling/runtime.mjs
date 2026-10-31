@@ -77,6 +77,24 @@ async function assertConsoleContrast(target, surface, dark) {
   assert.ok(results.every(sample => sample.contrast >= 4.5), 'Rendered console text contrast is below the selected 4.5:1 threshold');
 }
 
+async function assertWelcomeLayout(target) {
+  const layout = await target.evaluate(() => {
+    const description = document.querySelector('.keycloak__dashboard_welcome_tab');
+    const section = description?.closest('.pf-v5-c-page__main-section');
+    const bounds = element => {
+      const { left, right, width } = element.getBoundingClientRect();
+      return { left, right, width };
+    };
+    return { viewport: innerWidth, description: description ? bounds(description) : null,
+      section: section ? bounds(section) : null,
+      links: [...(section?.querySelectorAll('.pf-v5-c-action-list a') || [])].map(bounds) };
+  });
+  assert.ok(layout.description && layout.section, 'Native administrative welcome content is unavailable');
+  assert.ok(layout.description.width >= Math.min(480, layout.section.width - 48), 'Welcome description is compressed into a narrow grid column');
+  assert.equal(layout.links.length, 3, 'Native administrative resource links are missing');
+  assert.ok(layout.links.every(link => link.left >= 0 && link.right <= layout.viewport), 'Administrative resource links are clipped outside the viewport');
+}
+
 function authorization({ challenge, state, nonce, ...extra }) {
   const url = new URL(metadata.authorization_endpoint);
   url.search = form({ client_id: clientId, response_type: 'code', redirect_uri: redirect,
@@ -339,6 +357,7 @@ try {
   await adminPage.evaluate(() => document.fonts.ready);
   assert.ok(await adminPage.evaluate(() => document.fonts.check('16px Manrope')));
   await assertConsoleContrast(adminPage, 'admin-light', false);
+  await assertWelcomeLayout(adminPage);
   await adminPage.screenshot({ path: `${evidence}/admin-desktop-light.png`, fullPage: true });
   await adminPage.emulateMedia({ colorScheme: 'dark' });
   await assertConsoleContrast(adminPage, 'admin-desktop-dark', true);
@@ -348,10 +367,12 @@ try {
   if (await sidebar.count()) await adminPage.locator('.pf-v5-c-masthead__toggle button').click();
   await adminPage.emulateMedia({ colorScheme: 'light' });
   await assertConsoleContrast(adminPage, 'admin-mobile-light', false);
+  await assertWelcomeLayout(adminPage);
   assert.ok(await adminPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await adminPage.screenshot({ path: `${evidence}/admin-mobile-light.png`, fullPage: true });
   await adminPage.emulateMedia({ colorScheme: 'dark' });
   await assertConsoleContrast(adminPage, 'admin-dark', true);
+  await assertWelcomeLayout(adminPage);
   assert.ok(await adminPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Administration layout overflows the mobile viewport');
   await adminPage.screenshot({ path: `${evidence}/admin-mobile-dark.png`, fullPage: true });
   await adminContext.close();
