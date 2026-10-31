@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>io.firefly.id</groupId>
+  <artifactId>firefly-id-native-extensions</artifactId>
+  <version>26.10.1-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>Firefly Identity Native Extensions</name>
+  <description>Version-pinned native identity controls and their actual Domain integration.</description>
+  <modules><module>native-recovery</module><module>native-domain-gateway</module></modules>
+</project>

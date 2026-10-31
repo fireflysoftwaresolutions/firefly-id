@@ -150,6 +150,14 @@ input::placeholder { color: var(--ffid-muted); opacity: 1; }
 #backToApplication:hover { background: var(--ffid-color-stone); }
 .pf-v5-c-tile { background: var(--ffid-surface); color: var(--ffid-ink); }
 .kc-recovery-codes-list { font-variant-numeric: tabular-nums; }
+.ffid-native-journey > p { margin: 0 0 24px; color: var(--ffid-muted); }
+.ffid-native-journey > .pf-v5-c-alert { margin-bottom: 24px; }
+.ffid-native-journey .pf-v5-c-alert { gap: 8px; align-items: start; }
+.ffid-journey-return { display: inline-flex; align-items: center; min-height: 44px; margin-top: 16px; }
+.ffid-credential-status { margin: 0 0 24px; }
+.ffid-credential-status > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; padding-block: 12px; border-bottom: 1px solid var(--ffid-line); }
+.ffid-credential-status dt { color: var(--ffid-muted); }
+.ffid-credential-status dd { margin: 0; text-align: end; overflow-wrap: anywhere; }
 
 @media (max-width: 900px) {
   .pf-v5-c-login__container { max-width: 480px; margin-block: 0; align-self: start; grid-template-columns: minmax(0, 1fr); grid-template-areas: "header" "main"; gap: 28px; }

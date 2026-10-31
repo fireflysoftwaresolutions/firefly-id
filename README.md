@@ -2,15 +2,28 @@
 
 # Firefly Identity
 
-Firefly Identity is the first-party customer identity and access management (CIAM) distribution for the Firefly ecosystem. It brings a consistent identity experience to customer, workforce, and institutional applications, with a Firefly design system and a dedicated PostgreSQL identity store.
+Firefly Identity provides customer identity and access management (CIAM) for OpenPlatform and the wider Firefly ecosystem. It gives customers a consistent place to sign in, manage their account and recover access, while keeping employee and administrative identities under separate security policies. It combines a branded Keycloak distribution, dedicated identity storage, a reproducible sandbox and explicit application integration contracts.
 
 The distribution packages Keycloak 26.8.1 through supported themes and configuration. OpenPlatform applications retain their business identities, permissions, consent, and persistence. Jafly remains an independent framework: applications integrate through its generic security ports and may select another identity provider.
 
-**Status:** initial implementation, under qualification. Source checks and packaged artifacts are distinct from actual provider, Jafly, consumer, and production acceptance. Current evidence and remaining work are recorded in [implementation progress](docs/progress.md).
+**Current qualification:** real Keycloak browser/OIDC/account/admin/recovery journeys, separate customer/workforce policies, protected-profile integrity, workforce TOTP and the published Jafly integration have passed the [recorded hosted workflow](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41248049445). Native two-factor permanent unlock and support-PIN implementation are being completed under the [native recovery design](docs/superpowers/specs/2026-10-31-native-recovery-design.md). Production rollout, assisted identity proofing and platform-wide workforce delegation have separate acceptance gates. Read [implementation evidence](docs/progress.md) for exact revisions and scope.
+
+## Who uses it
+
+| Population | Typical journey | Security boundary |
+| --- | --- | --- |
+| Customers | Sign in to an application, manage their profile, verify email and recover access | Customer issuer, managed party link and customer-specific credential/session policy |
+| Employees and operators | Access OpenPlatform terminals and back offices | Workforce issuer, managed staff link, mandatory MFA and employee-specific policy |
+| Identity administrators | Configure clients, realms, credentials and authentication controls | Separate privileged administration, restricted ingress and independent operational controls |
+| Applications and services | Verify the identity relevant to a particular request | Intended audience, exact issuer, current caller state and operation/resource authorization at every receiving service |
+
+An identity link identifies the person or staff member. It does not by itself authorize access to an account, a payment, a customer record or another tenant. An employee acting for a customer retains the employee audit identity and needs an explicit, current and narrowly scoped delegation from the owning platform service.
 
 ## Start with the sandbox
 
 Requirements: Python 3.11+, Docker Compose v2, a local DNS/hosts entry for `id.firefly.test`, and at least 12 GiB free disk before pulling or starting the stack. Source checks and theme packaging need no image downloads.
+
+Use the sandbox to understand the distribution and run synthetic journeys. Use the production references to prepare a reviewed deployment; sandbox identities, HTTP endpoints and local SMTP are not production configuration.
 
 ```sh
 make check
@@ -34,6 +47,16 @@ The Firefly theme uses self-hosted Manrope, canonical Firefly colors and isometr
 
 Inheritance supplies these flows; each enabled flow still requires runtime and visual qualification. Production self-registration, authentication strength, recovery policies, and federation are explicit deployment choices. See [theme architecture and flow coverage](docs/themes.md).
 
+English and Spanish authentication journeys follow native Keycloak locale negotiation, with a discreet optional footer control. The shared design uses self-hosted Manrope, optical functional icons, consistent focus/spacing and matching light/dark surfaces. The administrative and account consoles use the same identity and token system. Web and branded email footers recognize Keycloak alongside © 2026 Firefly Software Foundation Inc.; distribution licenses and notices remain included.
+
+## Authentication, recovery and support are different operations
+
+The selected default permanently blocks ordinary authentication after three recorded failures. Waiting or changing a password does not unlock that account. Public failures do not identify the incorrect factor, expose whether the account exists or reveal a remaining-attempt counter.
+
+Secure unlock requires a separate recovery transaction bound to the actual current lock, previously enrolled independent knowledge and possession factors, one-time authorization and an atomic native state transition. It finishes with fresh sign-in rather than restoring old sessions. Accounts with a lost factor, an administrative/fraud/employment hold or an unqualified external credential store require their separately approved assisted process. [Permanent recovery](docs/permanent-recovery.md) explains ownership, native behavior and the implementation/qualification boundary.
+
+The planned telephone/customer-support PIN is a separate CIAM knowledge credential with strong-authenticated lifecycle management. A support verification does not become possession proof, a payment permission, an account unlock or workforce delegation. Business case/call ownership and BPO authority stay with their actual platform owners; the [native design](docs/superpowers/specs/2026-10-31-native-recovery-design.md#support-pin) records that contract and its current implementation scope.
+
 ## Fit with OpenPlatform
 
 ```mermaid
@@ -49,6 +72,10 @@ flowchart LR
 ```
 
 An authenticated subject is identified by its verified issuer and opaque subject. The platform tenant namespace is preserved separately from the Configuration-owned resource tenant UUID. Server-managed party and staff links connect identities to their true business owners; they do not grant financial authority. Machine authentication does not substitute for signed human proof.
+
+The security model is zero trust across service boundaries. Experience, Domain and Core validate their own incoming identity and current authorization; an authenticated gateway or service-to-service connection does not perform those decisions for them. The receiver checks token signature, issuer, audience and time, then the actor's current permitted action, resource, tenant and applicable obligations. Unavailable or indeterminate authorization refuses the operation. Existing signed JWTs need explicit current-state enforcement for immediate revocation; offline signature validation alone cannot provide it.
+
+Jafly supplies independent, provider-neutral security abstractions based on Spring Security. Firefly Identity is one possible provider integration, and its native credential/recovery code stays outside the framework. Source candidates, published framework defaults and actual consumer adoption are tracked separately in the integration matrix.
 
 The [integration matrix](docs/integration-contract.md) records actual public source and candidate contracts, Jafly configuration, and required consumer migrations. It separates released artifacts, main branches, and open pull requests. [Architecture](docs/architecture.md) explains institution boundaries and identity lifecycle; [Jafly integration](docs/jafly.md) covers the framework-independent receiver contract.
 
@@ -67,6 +94,8 @@ The [integration matrix](docs/integration-contract.md) records actual public sou
 | [Operations](docs/operations.md) | Deployment, health, key/client lifecycle, backup and upgrades |
 | [Troubleshooting](docs/troubleshooting.md) | Import, discovery, callbacks, mail, and theme failures |
 | [Brand](docs/brand.md) | Editable identity, variants, provenance, and usage |
+
+For a first evaluation, follow Sandbox → Themes → Authentication policies. For an application integration, follow Architecture → Provider claims → Integration contract → Jafly. For deployment preparation, follow Security → Operations → Troubleshooting and verify the exact current evidence. Native recovery implementers should read the [recovery protocol and ownership design](docs/superpowers/specs/2026-10-31-native-recovery-design.md) alongside the permanent-recovery guide.
 
 ## Build and contribute
 

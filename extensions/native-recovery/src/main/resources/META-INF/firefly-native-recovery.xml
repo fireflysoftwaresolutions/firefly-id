@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+  <changeSet id="firefly-native-recovery-1" author="firefly-id">
+    <createTable tableName="ff_native_state">
+      <column name="id" type="VARCHAR(1024)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="realm_id" type="VARCHAR(1024)"></column>
+      <column name="subject" type="VARCHAR(1024)"></column>
+      <column name="generation" type="VARCHAR(1024)"></column>
+      <column name="credential_revision" type="VARCHAR(1024)"></column>
+      <column name="locked" type="BOOLEAN"></column>
+      <column name="hold" type="BOOLEAN"></column>
+      <column name="bootstrap_attempts" type="INT"></column>
+      <column name="knowledge_attempts" type="INT"></column>
+      <column name="possession_attempts" type="INT"></column>
+      <column name="locked_at" type="BIGINT"></column>
+      <column name="pin_credential_id" type="VARCHAR(1024)"></column>
+      <column name="pin_key_version" type="VARCHAR(1024)"></column>
+      <column name="pin_generation" type="VARCHAR(1024)"></column>
+      <column name="pin_failures" type="INT"></column>
+      <column name="pin_held" type="BOOLEAN"></column>
+      <column name="pin_created_at" type="BIGINT"></column>
+      <column name="pin_replaced_at" type="BIGINT"></column>
+      <column name="pin_revoked_at" type="BIGINT"></column>
+    </createTable>
+    <createTable tableName="ff_native_ceremony">
+      <column name="id" type="VARCHAR(1024)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="realm_id" type="VARCHAR(1024)"></column>
+      <column name="subject" type="VARCHAR(1024)"></column>
+      <column name="csrf_digest" type="VARCHAR(1024)"></column>
+      <column name="expires_at" type="BIGINT"></column>
+      <column name="stage" type="VARCHAR(1024)"></column>
+      <column name="generation" type="VARCHAR(1024)"></column>
+      <column name="binding_json" type="VARCHAR(8192)"></column>
+      <column name="owner_link" type="VARCHAR(1024)"></column>
+      <column name="operation_id" type="VARCHAR(1024)"></column>
+      <column name="knowledge_challenge_id" type="VARCHAR(1024)"></column>
+      <column name="possession_challenge_id" type="VARCHAR(1024)"></column>
+    </createTable>
+    <createTable tableName="ff_native_attestation">
+      <column name="id" type="VARCHAR(1024)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="realm_id" type="VARCHAR(1024)"></column>
+      <column name="subject" type="VARCHAR(1024)"></column>
+      <column name="generation" type="VARCHAR(1024)"></column>
+      <column name="credential_revision" type="VARCHAR(1024)"></column>
+      <column name="ceremony_id" type="VARCHAR(1024)"></column>
+      <column name="operation_id" type="VARCHAR(1024)"></column>
+      <column name="challenge_id" type="VARCHAR(1024)"></column>
+      <column name="reservation_id" type="VARCHAR(1024)"></column>
+      <column name="provider_challenge_id" type="VARCHAR(1024)"></column>
+      <column name="category" type="VARCHAR(1024)"></column>
+      <column name="credential_id" type="VARCHAR(1024)"></column>
+      <column name="expires_at" type="BIGINT"></column>
+    </createTable>
+    <createTable tableName="ff_native_execution">
+      <column name="id" type="VARCHAR(1024)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="realm_id" type="VARCHAR(1024)"></column>
+      <column name="subject" type="VARCHAR(1024)"></column>
+      <column name="generation" type="VARCHAR(1024)"></column>
+      <column name="operation_id" type="VARCHAR(1024)"></column>
+      <column name="binding_digest" type="VARCHAR(1024)"></column>
+      <column name="outcome" type="VARCHAR(1024)"></column>
+      <column name="completed_at" type="BIGINT"></column>
+    </createTable>
+    <createTable tableName="ff_native_audit">
+      <column name="id" type="VARCHAR(1024)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="realm_id" type="VARCHAR(1024)"></column>
+      <column name="subject" type="VARCHAR(1024)"></column>
+      <column name="event_type" type="VARCHAR(1024)"></column>
+      <column name="reference_id" type="VARCHAR(1024)"></column>
+      <column name="occurred_at" type="BIGINT"></column>
+    </createTable>
+    <addColumn tableName="ff_native_attestation"><column name="verified" type="BOOLEAN" defaultValueBoolean="false"/><column name="completed" type="BOOLEAN" defaultValueBoolean="false"/></addColumn>
+    <addColumn tableName="ff_native_state"><column name="pin_reserved" type="INT" defaultValueNumeric="0"/></addColumn>
+    <addUniqueConstraint tableName="ff_native_state" columnNames="realm_id,subject" constraintName="ff_native_state_identity"/>
+    <addUniqueConstraint tableName="ff_native_attestation" columnNames="reservation_id" constraintName="ff_native_attestation_once"/>
+    <createIndex tableName="ff_native_ceremony" indexName="ff_native_ceremony_expiry"><column name="expires_at"/></createIndex>
+  </changeSet>
+  <changeSet id="firefly-native-issued-challenge-1" author="firefly-id">
+    <createTable tableName="ff_native_issued_challenge">
+      <column name="id" type="VARCHAR(128)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="ceremony_id" type="VARCHAR(128)"/><column name="operation_id" type="VARCHAR(64)"/>
+      <column name="reservation_id" type="VARCHAR(64)"><constraints unique="true"/></column>
+      <column name="category" type="VARCHAR(32)"/><column name="credential_id" type="VARCHAR(128)"/><column name="expires_at" type="BIGINT"/>
+    </createTable>
+  </changeSet>
+  <changeSet id="firefly-native-support-proof-1" author="firefly-id">
+    <createTable tableName="ff_native_support_proof">
+      <column name="id" type="VARCHAR(128)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="grant_digest" type="VARCHAR(128)"><constraints unique="true"/></column>
+      <column name="realm_id" type="VARCHAR(64)"/><column name="subject" type="VARCHAR(128)"/><column name="pin_generation" type="VARCHAR(128)"/>
+      <column name="expires_at" type="BIGINT"/><column name="verified" type="BOOLEAN"/>
+    </createTable>
+  </changeSet>
+  <changeSet id="firefly-native-totp-replay-1" author="firefly-id">
+    <createTable tableName="ff_native_totp_replay">
+      <column name="id" type="VARCHAR(128)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="expires_at" type="BIGINT"/>
+    </createTable>
+  </changeSet>
+  <changeSet id="firefly-native-audit-append-only-1" author="firefly-id" dbms="postgresql">
+    <sql splitStatements="false"><![CDATA[CREATE FUNCTION ff_native_audit_immutable() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Native audit is append only' USING ERRCODE = '42501'; END $$;]]></sql>
+    <sql>CREATE TRIGGER ff_native_audit_immutable BEFORE UPDATE OR DELETE ON ff_native_audit FOR EACH ROW EXECUTE FUNCTION ff_native_audit_immutable()</sql>
+    <sql>CREATE TRIGGER ff_native_audit_no_truncate BEFORE TRUNCATE ON ff_native_audit FOR EACH STATEMENT EXECUTE FUNCTION ff_native_audit_immutable()</sql>
+  </changeSet>
+</databaseChangeLog>

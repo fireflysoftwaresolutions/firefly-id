@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entity-mappings xmlns="https://jakarta.ee/xml/ns/persistence/orm" version="3.1">
+  <entity class="io.firefly.id.nativeauth.NativeState" access="FIELD"/>
+  <entity class="io.firefly.id.nativeauth.NativeCeremony" access="FIELD"/>
+  <entity class="io.firefly.id.nativeauth.NativeAttestation" access="FIELD"/>
+  <entity class="io.firefly.id.nativeauth.NativeExecution" access="FIELD"/>
+  <entity class="io.firefly.id.nativeauth.NativeAudit" access="FIELD"/>
+  <entity class="io.firefly.id.nativeauth.NativeIssuedChallenge" access="FIELD"/>
+  <entity class="io.firefly.id.nativeauth.NativeSupportProof" access="FIELD"/>
+  <entity class="io.firefly.id.nativeauth.NativeTotpReplay" access="FIELD"/>
+</entity-mappings>

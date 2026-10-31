@@ -1,5 +1,6 @@
 .work/
 .runtime/
+.qualification/
 .state/
 .superpowers/
 __pycache__/
