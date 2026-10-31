@@ -67,6 +67,7 @@ jobs:
           path: |
             .work/runtime/*.png
             .work/runtime/summary.json
+            .work/runtime/layout.json
           if-no-files-found: ignore
           retention-days: 7
       - name: Stop only the owned runtime

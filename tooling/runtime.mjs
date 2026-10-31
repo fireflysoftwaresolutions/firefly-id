@@ -19,6 +19,7 @@ assert.equal(metadata.issuer, issuer);
 const redirect = 'http://localhost:3000/oidc/callback';
 const clientId = 'sandbox-web';
 const results = [];
+let phase = 'initialization';
 const passed = name => { results.push(name); console.log(`PASS ${name}`); };
 const form = values => new URLSearchParams(values);
 const post = (url, values) => fetch(url, { method: 'POST', body: form(values) });
@@ -54,9 +55,11 @@ async function login({ capture = false } = {}) {
     pending = url => { clearTimeout(timer); pending = null; ok(url); };
   });
   try {
+    phase = 'login authorization page';
     await page.goto(authorization({ challenge, state, nonce }));
     if (await page.locator('#username').isVisible()) {
       if (capture) {
+        phase = 'login desktop presentation';
         await page.setViewportSize({ width: 1440, height: 1000 });
         await page.emulateMedia({ colorScheme: 'light' });
         await page.evaluate(() => document.fonts.ready);
@@ -65,24 +68,35 @@ async function login({ capture = false } = {}) {
         await page.setViewportSize({ width: 390, height: 844 });
         await page.emulateMedia({ colorScheme: 'dark' });
         await page.screenshot({ path: `${evidence}/login-mobile-dark.png`, fullPage: true });
+        phase = 'login mobile bounds';
+        await writeFile(`${evidence}/layout.json`, JSON.stringify(await page.evaluate(() => ({
+          viewport: innerWidth, document: document.documentElement.scrollWidth,
+          mainWidth: document.querySelector('main').getBoundingClientRect().width,
+          fontLoaded: document.fonts.check('16px Manrope'),
+        })), null, 2));
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       }
+      phase = 'login credential submission';
       await page.locator('#username').fill(credentials.customers.username);
       await page.locator('#password').fill(credentials.customers.password);
       await page.locator('#kc-login').click();
     }
     const callbackUrl = await callback;
+    phase = 'login callback state and code';
     assert.equal(callbackUrl.searchParams.get('state'), state);
     assert.ok(callbackUrl.searchParams.get('code'));
     const code = callbackUrl.searchParams.get('code');
     const exchange = await post(metadata.token_endpoint, { grant_type: 'authorization_code',
       client_id: clientId, redirect_uri: redirect, code, code_verifier: verifier });
+    phase = `code exchange HTTP ${exchange.status}`;
     assert.equal(exchange.status, 200, 'Code exchange failed');
     const tokens = await exchange.json();
+    phase = 'ID token signature, issuer, audience and nonce';
     const idPayload = await validateJwt(tokens.id_token, clientId);
     assert.equal(idPayload.nonce, nonce);
     const replay = await post(metadata.token_endpoint, { grant_type: 'authorization_code',
       client_id: clientId, redirect_uri: redirect, code, code_verifier: verifier });
+    phase = `code replay HTTP ${replay.status}`;
     assert.equal(replay.status, 400);
     return tokens;
   } finally { clearTimeout(timer); pending = null; }
@@ -124,6 +138,7 @@ try {
   passed('password grant disabled');
 
   let tokens = await login({ capture: true });
+  phase = 'customer access token signature and profile';
   const claims = await validateJwt(tokens.access_token, 'sandbox-api');
   assert.equal(claims.tenant_id, 'synthetic-tenant');
   assert.equal(claims.principal_kind, 'HUMAN');
@@ -225,6 +240,7 @@ try {
 } catch (error) {
   // Navigation errors can include credential-bearing action/logout URLs.
   reportFailure(error, results.at(-1) || 'none');
+  console.error(`Failed stage: ${phase}`);
   process.exitCode = 1;
 } finally {
   try {
