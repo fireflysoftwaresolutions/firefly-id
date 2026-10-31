@@ -44,7 +44,7 @@ function authorization({ challenge, state, nonce, ...extra }) {
   return url.href;
 }
 
-async function login({ capture = false } = {}) {
+async function login({ capture = false, checkReplay = false } = {}) {
   const verifier = randomBytes(48).toString('base64url');
   const challenge = createHash('sha256').update(verifier).digest('base64url');
   const state = randomBytes(24).toString('base64url');
@@ -98,10 +98,12 @@ async function login({ capture = false } = {}) {
     phase = 'ID token signature, issuer, audience and nonce';
     const idPayload = await validateJwt(tokens.id_token, clientId);
     assert.equal(idPayload.nonce, nonce);
-    const replay = await post(metadata.token_endpoint, { grant_type: 'authorization_code',
-      client_id: clientId, redirect_uri: redirect, code, code_verifier: verifier });
-    phase = `code replay HTTP ${replay.status}`;
-    assert.equal(replay.status, 400);
+    if (checkReplay) {
+      const replay = await post(metadata.token_endpoint, { grant_type: 'authorization_code',
+        client_id: clientId, redirect_uri: redirect, code, code_verifier: verifier });
+      phase = `code replay HTTP ${replay.status}`;
+      assert.equal(replay.status, 400);
+    }
     return tokens;
   } finally { clearTimeout(timer); pending = null; }
 }
@@ -172,24 +174,26 @@ try {
   assert.equal(claims.staff_actor_id, undefined);
   phase = 'synthetic party identity format';
   assert.match(claims.party_id, /^[a-f0-9-]{36}$/);
-  await writeFile(`${stateDir}/runtime-token.txt`, tokens.access_token, { mode: 0o600 });
-  passed('real code PKCE, state, nonce, JWKS, signed claims, code replay');
+  passed('real code PKCE, state, nonce, JWKS and signed claims');
   const otherRealm = await fetch(`${base}/realms/sandbox-workforce/protocol/openid-connect/userinfo`,
     { headers: { Authorization: `Bearer ${tokens.access_token}` } });
   assert.equal(otherRealm.status, 401);
   passed('cross-realm token refused');
 
+  phase = 'refresh rotation';
   const refresh = await post(metadata.token_endpoint, { grant_type: 'refresh_token',
     client_id: clientId, refresh_token: tokens.refresh_token });
   assert.equal(refresh.status, 200);
   const rotated = await refresh.json();
   assert.ok(rotated.refresh_token !== tokens.refresh_token, 'Refresh token did not rotate');
+  phase = 'refresh reuse rejection';
   const reuse = await post(metadata.token_endpoint, { grant_type: 'refresh_token',
     client_id: clientId, refresh_token: tokens.refresh_token });
   assert.equal(reuse.status, 400);
   passed('refresh rotation and reuse rejection');
 
   tokens = await login();
+  phase = 'account console';
   await page.goto(`${issuer}/account/`);
   await page.getByRole('heading', { name: 'Personal info' }).waitFor();
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -201,6 +205,7 @@ try {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.screenshot({ path: `${evidence}/account-mobile-dark.png`, fullPage: true });
   passed('real account console and self-hosted Manrope');
+  phase = 'RP initiated logout';
   const logout = new URL(metadata.end_session_endpoint);
   logout.search = form({ id_token_hint: tokens.id_token,
     post_logout_redirect_uri: 'http://localhost:3000/signed-out', state: 'synthetic-logout' });
@@ -212,6 +217,7 @@ try {
   assert.equal(afterLogout.status, 400);
   passed('RP initiated logout invalidates refresh session');
 
+  phase = 'password recovery';
   const recoveryAuth = authorization({ challenge: 'a'.repeat(43), state: 'recovery', nonce: 'recovery' });
   await page.goto(recoveryAuth);
   const priorMailbox = await (await fetch('http://localhost:8025/api/v1/messages')).json();
@@ -243,6 +249,7 @@ try {
   await writeFile(`${stateDir}/credentials.json`, JSON.stringify(credentials, null, 2) + '\n', { mode: 0o600 });
   passed('synthetic recovery email, password reset and fresh credential login');
 
+  phase = 'master administration console';
   const adminContext = await browser.newContext();
   const adminPage = await adminContext.newPage();
   await adminPage.goto(`${base}/admin/master/console/`);
@@ -260,6 +267,11 @@ try {
   await adminPage.screenshot({ path: `${evidence}/admin-mobile-dark.png`, fullPage: true });
   await adminContext.close();
   passed('real master administration console and self-hosted Manrope');
+  await login({ checkReplay: true });
+  passed('authorization code replay refused in its own session');
+  await context.clearCookies();
+  const freshReceiverTokens = await login();
+  await writeFile(`${stateDir}/runtime-token.txt`, freshReceiverTokens.access_token, { mode: 0o600 });
   await writeFile(`${evidence}/summary.json`, JSON.stringify({ results,
     tokenShape: { exp: typeof claims.exp, nbf: typeof claims.nbf,
       client_id: typeof claims.client_id, tenant_id: typeof claims.tenant_id },

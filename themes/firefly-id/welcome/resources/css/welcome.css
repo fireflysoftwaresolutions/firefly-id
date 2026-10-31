@@ -5,6 +5,7 @@ main { max-width: 640px; padding: clamp(32px, 10vw, 120px) 24px; margin: auto; }
 img { display: block; max-width: 100%; height: auto; }
 h1 { margin: 64px 0 24px; font-size: clamp(36px, 6vw, 56px); line-height: 1.12; letter-spacing: -.035em; font-weight: 600; }
 p { max-width: 50ch; color: var(--muted); margin: 0 0 32px; }
+footer { margin-top: 64px; color: var(--muted); font-size: 12px; }
 a { color: var(--link); font-weight: 650; text-underline-offset: .3em; }
 :focus-visible { outline: 3px solid var(--link); outline-offset: 4px; }
 ::selection { color: #10110f; background: #ffb34a; }

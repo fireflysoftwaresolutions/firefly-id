@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "scope": "Engineering defaults for isolated synthetic realms; applicability review and live evidence are required for production.",
+  "defaults": {
+    "bruteForceProtected": true,
+    "permanentLockout": false,
+    "failureFactor": 3,
+    "bruteForceStrategy": "MULTIPLE",
+    "waitIncrementSeconds": 900,
+    "maxFailureWaitSeconds": 900,
+    "maxDeltaTimeSeconds": 43200,
+    "quickLoginCheckMilliSeconds": 0,
+    "minimumQuickLoginWaitSeconds": 60,
+    "maxTemporaryLockouts": 0
+  },
+  "profiles": {
+    "customers": {
+      "population": "Customer humans; no staff or business authority is inferred.",
+      "application": "new-realm-import",
+      "mfaRequired": false,
+      "realmSettings": {
+        "ssoSessionIdleTimeout": 300,
+        "accessTokenLifespan": 300,
+        "passwordPolicy": "length(16) and maxLength(128) and notUsername and notEmail and passwordHistory(5) and hashAlgorithm(argon2) and passwordBlacklist(firefly-baseline.txt)"
+      }
+    },
+    "workforce": {
+      "population": "Employee humans in a separate user store; browser password and OTP are required.",
+      "application": "new-realm-import",
+      "mfaRequired": true,
+      "realmSettings": {
+        "ssoSessionIdleTimeout": 900,
+        "accessTokenLifespan": 300,
+        "passwordPolicy": "length(20) and maxLength(128) and notUsername and notEmail and passwordHistory(10) and hashAlgorithm(argon2) and passwordBlacklist(firefly-baseline.txt)"
+      }
+    },
+    "institutions": {
+      "population": "Separate synthetic institutional human population; no machine or institutional authority is inferred.",
+      "application": "new-realm-import",
+      "mfaRequired": false,
+      "realmSettings": {
+        "ssoSessionIdleTimeout": 300,
+        "accessTokenLifespan": 300,
+        "passwordPolicy": "length(16) and maxLength(128) and notUsername and notEmail and passwordHistory(5) and hashAlgorithm(argon2) and passwordBlacklist(firefly-baseline.txt)"
+      }
+    },
+    "administrators": {
+      "population": "Separate master administrative plane; temporary bootstrap access is not permanent-administrator qualification.",
+      "application": "explicit-admin-api-after-bootstrap",
+      "mfaRequired": true,
+      "realmSettings": {
+        "ssoSessionIdleTimeout": 300,
+        "ssoSessionMaxLifespan": 3600,
+        "accessTokenLifespan": 60,
+        "passwordPolicy": "length(20) and maxLength(128) and notUsername and notEmail and passwordHistory(10) and hashAlgorithm(argon2) and passwordBlacklist(firefly-baseline.txt)"
+      }
+    }
+  }
+}

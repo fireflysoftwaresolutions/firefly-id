@@ -9,7 +9,7 @@
       <tr><td style="padding:32px;background:#ffffff;border-radius:12px;">
         <#nested>
       </td></tr>
-      <tr><td style="padding:24px 0 0;color:#62645b;font-size:13px;">Firefly Identity<br>Keep this message private. Never share your sign-in links or verification codes.</td></tr>
+      <tr><td style="padding:24px 0 0;color:#62645b;font-size:13px;">Firefly Identity<br>Keep this message private. Never share your sign-in links or verification codes.<br>© 2026 Firefly Software Foundation Inc.</td></tr>
     </table>
   </td></tr></table>
 </body>

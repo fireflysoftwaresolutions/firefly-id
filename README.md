@@ -62,6 +62,8 @@ The [integration matrix](docs/integration-contract.md) records actual public sou
 | [Jafly](docs/jafly.md) | Generic resource-server integration and live-provider test |
 | [Themes](docs/themes.md) | Flow coverage, packaging, accessibility, customization |
 | [Security](docs/security.md) | Identity proof, protected claims, grants, proxy and secrets |
+| [Authentication policies](docs/authentication-policies.md) | Separate customer/employee requirements, three-failure lock, passwords and EU applicability |
+| [Provider claims](docs/provider-claim-profile.md) | Actual issued claim types and qualified receiver expectations |
 | [Operations](docs/operations.md) | Deployment, health, key/client lifecycle, backup and upgrades |
 | [Troubleshooting](docs/troubleshooting.md) | Import, discovery, callbacks, mail, and theme failures |
 | [Brand](docs/brand.md) | Editable identity, variants, provenance, and usage |
@@ -73,3 +75,5 @@ The [integration matrix](docs/integration-contract.md) records actual public sou
 The hosted workflow runs source checks and an isolated provider/browser/Jafly qualification lane using synthetic identities. Its results must be read at their actual scope. Do not add production credentials, tokens, database dumps, or generated sandbox state to issues, pull requests, or artifacts.
 
 Versions use `YY.MM.Patch`, with a numeric patch counter for the month. Firefly Identity versions are separate from upstream Keycloak and the coordinated Jafly framework release train. Software licensing and protected brand rights are described in [LICENSE](LICENSE), [NOTICE](NOTICE), and [brand usage](docs/brand.md).
+
+© 2026 Firefly Software Foundation Inc.

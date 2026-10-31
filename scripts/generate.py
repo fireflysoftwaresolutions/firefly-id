@@ -10,11 +10,41 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE_TYPE = 'org.keycloak.userprofile.UserProfileProvider'
+POLICIES_PATH = ROOT / 'config/authentication-policies.json'
 
 
 def write(path, content, mode=0o644):
     path.write_text(content)
     path.chmod(mode)
+
+
+def authentication_policy(kind):
+    policies = json.loads(POLICIES_PATH.read_text())
+    if policies['schemaVersion'] != 1:
+        raise ValueError('Unsupported authentication policy schema')
+    selected = policies['profiles'][kind]
+    return {**policies['defaults'], **selected['realmSettings']}, selected['mfaRequired']
+
+
+def workforce_browser_flows():
+    return [
+        {'alias': 'firefly-workforce-browser', 'providerId': 'basic-flow',
+         'description': 'Workforce session or mandatory password and OTP',
+         'topLevel': True, 'builtIn': False,
+         'authenticationExecutions': [
+             {'authenticator': 'auth-cookie', 'authenticatorFlow': False,
+              'requirement': 'ALTERNATIVE', 'priority': 10},
+             {'flowAlias': 'firefly-workforce-forms', 'authenticatorFlow': True,
+              'requirement': 'ALTERNATIVE', 'priority': 20}]},
+        {'alias': 'firefly-workforce-forms', 'providerId': 'basic-flow',
+         'description': 'Workforce password and required OTP, including enrollment',
+         'topLevel': False, 'builtIn': False,
+         'authenticationExecutions': [
+             {'authenticator': 'auth-username-password-form', 'authenticatorFlow': False,
+              'requirement': 'REQUIRED', 'priority': 10},
+             {'authenticator': 'auth-otp-form', 'authenticatorFlow': False,
+              'requirement': 'REQUIRED', 'priority': 20}]},
+    ]
 
 
 def profile():
@@ -78,7 +108,7 @@ def client(client_id, port, kind, secret=None):
     return result
 
 
-def realm(kind, password, backend_secret, verification_password=None):
+def realm(kind, password, backend_secret, verification_password=None, policy_fixture=None):
     name = 'sandbox-' + kind
     attrs = {'tenant_id': ['synthetic-tenant']}
     if kind == 'workforce':
@@ -91,12 +121,9 @@ def realm(kind, password, backend_secret, verification_password=None):
         'registrationAllowed': False, 'registrationEmailAsUsername': False,
         'editUsernameAllowed': False, 'resetPasswordAllowed': True,
         'rememberMe': False, 'verifyEmail': True, 'loginWithEmailAllowed': True,
-        'duplicateEmailsAllowed': False, 'bruteForceProtected': True,
-        'permanentLockout': False, 'failureFactor': 5, 'waitIncrementSeconds': 60,
-        'maxFailureWaitSeconds': 900, 'accessTokenLifespan': 300,
+        'duplicateEmailsAllowed': False, 'accessTokenLifespan': 300,
         'ssoSessionIdleTimeout': 1800, 'ssoSessionMaxLifespan': 28800,
         'revokeRefreshToken': True, 'refreshTokenMaxReuse': 0,
-        'passwordPolicy': 'length(14) and digits(1) and upperCase(1) and lowerCase(1)',
         'loginTheme': 'firefly-id', 'accountTheme': 'firefly-id',
         'adminTheme': 'firefly-id', 'emailTheme': 'firefly-id',
         'internationalizationEnabled': False, 'supportedLocales': ['en'],
@@ -114,11 +141,24 @@ def realm(kind, password, backend_secret, verification_password=None):
                    'lastName': kind.capitalize(), 'attributes': attrs,
                    'credentials': [{'type': 'password', 'value': password, 'temporary': False}]}],
     }
-    if kind == 'workforce':
+    policy, mfa_required = authentication_policy(kind)
+    result.update(policy)
+    if mfa_required:
         result.update({'otpPolicyType': 'totp', 'otpPolicyAlgorithm': 'HmacSHA1',
                        'otpPolicyDigits': 6, 'otpPolicyPeriod': 30,
-                       'otpPolicyLookAheadWindow': 1, 'otpPolicyCodeReusable': False})
+                       'otpPolicyLookAheadWindow': 1, 'otpPolicyCodeReusable': False,
+                       'browserFlow': 'firefly-workforce-browser',
+                       'authenticationFlows': workforce_browser_flows()})
         result['users'][0]['requiredActions'] = ['CONFIGURE_TOTP']
+    if policy_fixture is not None:
+        linkage = 'staff_actor_id' if kind == 'workforce' else 'party_id'
+        result['users'].append({
+            'username': policy_fixture['username'], 'email': policy_fixture['email'],
+            'enabled': True, 'emailVerified': True, 'firstName': 'Synthetic',
+            'lastName': 'Policy fixture',
+            'attributes': {'tenant_id': ['synthetic-tenant'], linkage: [str(uuid.uuid4())]},
+            'credentials': [{'type': 'password', 'value': policy_fixture['password'], 'temporary': False}],
+        })
     if kind == 'customers' and verification_password is not None:
         result['users'].append({
             'username': 'synthetic-verify-email', 'email': 'verify-email@example.invalid',
@@ -168,6 +208,8 @@ def compose(output, project, theme_dir):
                          'secrets': ['db-password', 'admin-password'],
                          'volumes': [mount(ROOT / 'deploy/keycloak-entrypoint.sh', '/opt/firefly/entrypoint.sh'),
                                      mount(output / 'realms', '/opt/keycloak/data/import'),
+                                     mount(ROOT / 'config/password-blacklist.txt',
+                                           '/opt/keycloak/data/password-blacklists/firefly-baseline.txt'),
                                      mount(theme_dir, '/opt/keycloak/themes/firefly-id')],
                          'ports': ['127.0.0.1:8180:8180', '127.0.0.1:9000:9000'],
                          'depends_on': {'postgres': {'condition': 'service_healthy'},
@@ -200,6 +242,10 @@ def main():
     output = args.output.absolute()
     if output.exists() or output.is_symlink():
         parser.error('Output already exists; preserve retained secrets and database. Choose a new empty path.')
+    for kind in ('customers', 'workforce', 'institutions', 'administrators'):
+        authentication_policy(kind)
+    if not (ROOT / 'config/password-blacklist.txt').is_file():
+        parser.error('Required baseline password denylist is missing; no state was generated.')
     os.umask(0o077)
     output.mkdir(parents=True, mode=0o700)
     for directory in ('secrets', 'realms'):
@@ -215,8 +261,14 @@ def main():
     for kind in ('customers', 'workforce', 'institutions'):
         password = 'Aa1' + secrets.token_urlsafe(36)
         backend_secret = secrets.token_urlsafe(36)
+        policy_fixture = None
+        if kind in ('customers', 'workforce'):
+            policy_fixture = {'username': 'synthetic-policy-' + kind,
+                              'email': 'policy-' + kind + '@example.invalid',
+                              'password': 'Aa1' + secrets.token_urlsafe(36)}
+            credentials['policy_' + kind] = policy_fixture
         write(output / 'realms' / ('sandbox-' + kind + '-realm.json'),
-              json.dumps(realm(kind, password, backend_secret, verification_password), indent=2) + '\n')
+              json.dumps(realm(kind, password, backend_secret, verification_password, policy_fixture), indent=2) + '\n')
         credentials[kind] = {'username': 'synthetic-' + kind, 'password': password,
                              'backend_client_secret': backend_secret}
     # Files are mounted read-only and readable by container UID 1000. Parent directories

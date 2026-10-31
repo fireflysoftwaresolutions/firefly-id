@@ -19,6 +19,7 @@
     <#if adminConsoleEnabled>
       <a href="${adminUrl}">Open administration</a>
     </#if>
+    <footer>© 2026 Firefly Software Foundation Inc.</footer>
   </main>
 </body>
 </html>

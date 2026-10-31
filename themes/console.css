@@ -22,6 +22,11 @@
   --pf-v5-global--link--Color: #ffb34a;
 }
 body { font-family: Manrope, sans-serif; caret-color: #855414; scrollbar-color: #62645b #f3f1eb; }
+body[data-page-id='admin'], body[data-page-id='account'] { display: flex; flex-direction: column; height: 100svh; }
+body[data-page-id] > #app { flex: 1; min-height: 0; height: auto; }
+#app .pf-v5-c-page { min-height: 0; height: 100%; }
+#ffid-copyright { flex: none; padding: 8px 16px; background: var(--pf-v5-global--BackgroundColor--200); color: var(--pf-v5-global--Color--200); font: 12px/1.5 Manrope, sans-serif; text-align: center; }
+button[data-password-toggle], button[aria-label='Show password'], button[aria-label='Hide password'], button[aria-label='showPassword'], button[aria-label='hidePassword'] { display: none; }
 ::selection { color: #10110f; background: #ffb34a; }
 a { text-underline-offset: .2em; }
 :focus-visible { outline: 3px solid #855414; outline-offset: 3px; }

@@ -2,7 +2,7 @@
 
 The theme is named `firefly-id` for login, account, admin, email and welcome. A supported global default also brands the master realm when no explicit realm theme is selected. It extends Keycloak 26.8.1's supported themes: `keycloak.v2` login, `keycloak.v3` account, `keycloak.v2` administration and `base` email. The authoritative mechanism is [upstream theme inheritance](https://www.keycloak.org/ui-customization/themes).
 
-Protocol forms and authenticator logic remain inherited. Firefly supplies CSS, the login footer, English presentation messages, transactional email layout, the logo and locally served Manrope. The stock server still generates action links, CSRF/action tokens, WebAuthn challenges, credential actions, account APIs and session behavior. Do not copy an old full template to change one color or bypass a required action in browser code.
+Protocol forms and authenticator logic remain inherited. A narrow copy of the exact upstream 26.8.1 field macros removes password-visibility buttons while preserving labels, masked inputs, autocomplete, validation and recovery semantics. Firefly supplies CSS, the login footer, English presentation messages, transactional email layout, the logo and locally served Manrope. The stock server still generates action links, CSRF/action tokens, WebAuthn challenges, credential actions, account APIs and session behavior. Do not copy an old full template to change one color or bypass a required action in browser code.
 
 ## Flow coverage
 
@@ -29,3 +29,5 @@ Review desktop and narrow layouts in both color schemes, keyboard focus, real er
 Authentication forms share a responsive isometric composition across login, logout, recovery, verification and required actions. The [artwork guide](isometric-backgrounds.md) records actual website/brand-kit sources, geometric depth ordering and the reduced mobile scene. The artwork remains presentation; server controls still own each journey.
 
 The custom copy currently supports American English. Upstream translations alone do not qualify the branded copy in another locale. Add complete translations, then review actual screens and emails before advertising another locale.
+
+The account/admin consoles load a supported theme script that hides and disables their English password-reveal controls and preserves masked fields. This is a separately maintained presentation adaptation: the upstream React component's reveal option is not a realm property. Real administration reset-password dialogs must be rechecked on upgrades. It does not claim to prevent the owner of a browser from inspecting their own input value. Copyright appears in all scoped web surfaces and branded HTML email.

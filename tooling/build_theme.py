@@ -18,6 +18,8 @@ def build(output: Path) -> Path:
         prefix = f"theme/firefly-id/{kind}/resources/"
         if kind in ("account", "admin"):
             entries[prefix + "css/firefly-console.css"] = (ROOT / "themes/console.css").read_bytes()
+            entries[prefix + "js/copyright.js"] = (ROOT / "themes/console-copyright.js").read_bytes()
+            entries[prefix + "js/presentation-policy.js"] = (ROOT / "themes/console-policy.js").read_bytes()
         for variant in ("light", "dark"):
             entries[prefix + f"img/wordmark-{variant}.svg"] = (ROOT / f"assets/brand/firefly-id-{variant}.svg").read_bytes()
         entries[prefix + "img/favicon.svg"] = (ROOT / "assets/brand/favicon.svg").read_bytes()

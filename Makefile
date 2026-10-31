@@ -5,6 +5,7 @@ check:
 	bash -n deploy/keycloak-entrypoint.sh deploy/postgres/init.sh
 	node --check tooling/runtime.mjs
 	node --check tooling/extended-runtime.mjs
+	node --check tooling/policy-runtime.mjs
 	node --test tests/*.test.mjs
 	git diff --check
 

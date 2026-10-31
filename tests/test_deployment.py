@@ -120,6 +120,96 @@ class DeploymentGenerationTest(unittest.TestCase):
             for account in credentials.values():
                 self.assertNotIn(account['password'], result.stdout)
 
+    def test_population_policies_are_loaded_from_configuration_and_enforce_three_failures(self):
+        configured = json.loads((ROOT / 'config/authentication-policies.json').read_text())
+        with tempfile.TemporaryDirectory() as parent:
+            output = pathlib.Path(parent) / 'sandbox'
+            result = self.run_generator(output, '--mode', 'sandbox')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for kind, minimum, history in [('customers', 16, 5), ('workforce', 20, 10), ('institutions', 16, 5)]:
+                with self.subTest(population=kind):
+                    realm = json.loads((output / f'realms/sandbox-{kind}-realm.json').read_text())
+                    policy = realm['passwordPolicy']
+                    self.assertEqual(policy, configured['profiles'][kind]['realmSettings']['passwordPolicy'])
+                    for required in (f'length({minimum})', 'maxLength(128)', f'passwordHistory({history})',
+                                     'notUsername', 'notEmail', 'hashAlgorithm(argon2)',
+                                     'passwordBlacklist(firefly-baseline.txt)'):
+                        self.assertIn(required, policy.split(' and '))
+                    for unnecessary in ('digits(', 'upperCase(', 'lowerCase(', 'specialChars(', 'forceExpiredPasswordChange('):
+                        self.assertNotIn(unnecessary, policy)
+                    self.assertTrue(realm['bruteForceProtected'])
+                    self.assertFalse(realm['permanentLockout'])
+                    self.assertEqual(realm['failureFactor'], 3)
+                    self.assertEqual(realm['bruteForceStrategy'], 'MULTIPLE')
+                    self.assertEqual(realm['waitIncrementSeconds'], 900)
+                    self.assertEqual(realm['maxFailureWaitSeconds'], 900)
+                    self.assertEqual(realm['quickLoginCheckMilliSeconds'], 0)
+                    self.assertGreater(realm['maxDeltaTimeSeconds'], realm['maxFailureWaitSeconds'])
+                    self.assertEqual(realm['ssoSessionIdleTimeout'], 900 if kind == 'workforce' else 300)
+                    self.assertEqual(realm['ssoSessionMaxLifespan'], 28800)
+                    self.assertEqual(realm['accessTokenLifespan'], 300)
+            self.assertTrue(configured['profiles']['workforce']['mfaRequired'])
+            self.assertTrue(configured['profiles']['administrators']['mfaRequired'])
+            self.assertEqual(configured['profiles']['administrators']['application'], 'explicit-admin-api-after-bootstrap')
+            administration = configured['profiles']['administrators']['realmSettings']
+            self.assertEqual(administration['ssoSessionIdleTimeout'], 300)
+            self.assertEqual(administration['ssoSessionMaxLifespan'], 3600)
+            self.assertEqual(administration['accessTokenLifespan'], 60)
+
+    def test_generator_consumes_policy_changes_instead_of_duplicating_a_hardcoded_policy(self):
+        import importlib.util
+        from unittest.mock import patch
+        spec = importlib.util.spec_from_file_location('generate_policy', ROOT / 'scripts/generate.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        configured = json.loads((ROOT / 'config/authentication-policies.json').read_text())
+        configured['profiles']['customers']['realmSettings']['passwordPolicy'] = 'length(24) and maxLength(128)'
+        with tempfile.TemporaryDirectory() as parent:
+            path = pathlib.Path(parent) / 'policies.json'
+            path.write_text(json.dumps(configured))
+            with patch.object(module, 'POLICIES_PATH', path):
+                realm = module.realm('customers', 'random-test-password-without-a-server', 'random-test-client-secret')
+            self.assertEqual(realm['passwordPolicy'], 'length(24) and maxLength(128)')
+
+    def test_workforce_browser_requires_otp_even_for_users_without_an_imported_required_action(self):
+        with tempfile.TemporaryDirectory() as parent:
+            output = pathlib.Path(parent) / 'sandbox'
+            self.assertEqual(self.run_generator(output, '--mode', 'sandbox').returncode, 0)
+            realm = json.loads((output / 'realms/sandbox-workforce-realm.json').read_text())
+            flows = {flow['alias']: flow for flow in realm['authenticationFlows']}
+            browser = flows[realm['browserFlow']]
+            self.assertTrue(browser['topLevel'])
+            forms = next(execution for execution in browser['authenticationExecutions'] if execution['authenticatorFlow'])
+            executions = flows[forms['flowAlias']]['authenticationExecutions']
+            self.assertEqual([(execution['authenticator'], execution['requirement']) for execution in executions],
+                             [('auth-username-password-form', 'REQUIRED'), ('auth-otp-form', 'REQUIRED')])
+            self.assertFalse(any(execution['requirement'] == 'CONDITIONAL' for execution in executions))
+
+    def test_policy_fixtures_and_denylist_mount_do_not_reuse_main_accounts_or_expose_credentials(self):
+        with tempfile.TemporaryDirectory() as parent:
+            output = pathlib.Path(parent) / 'sandbox'
+            result = self.run_generator(output, '--mode', 'sandbox')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            credentials = json.loads((output / 'credentials.json').read_text())
+            for key, kind in [('policy_customers', 'customers'), ('policy_workforce', 'workforce')]:
+                fixture = credentials[key]
+                self.assertNotEqual(fixture['username'], credentials[kind]['username'])
+                self.assertNotEqual(fixture['password'], credentials[kind]['password'])
+                self.assertNotIn(fixture['password'], result.stdout + result.stderr)
+                realm = json.loads((output / f'realms/sandbox-{kind}-realm.json').read_text())
+                user = next(user for user in realm['users'] if user['username'] == fixture['username'])
+                self.assertEqual(user['credentials'][0]['value'], fixture['password'])
+                self.assertTrue(user['emailVerified'])
+            compose = json.loads((output / 'compose.json').read_text())
+            mount = next(volume for volume in compose['services']['keycloak']['volumes']
+                         if volume['target'] == '/opt/keycloak/data/password-blacklists/firefly-baseline.txt')
+            self.assertEqual(mount['source'], str(ROOT / 'config/password-blacklist.txt'))
+            self.assertTrue(mount['read_only'])
+            denied = (ROOT / 'config/password-blacklist.txt').read_text().splitlines()
+            self.assertGreaterEqual(len(denied), 8)
+            self.assertTrue(all(len(value) >= 20 for value in denied))
+            self.assertIn('firefly identity customer password', denied)
+
     def test_generated_compose_has_private_pinned_database_and_reachable_issuer(self):
         with tempfile.TemporaryDirectory() as parent:
             output = pathlib.Path(parent) / 'sandbox'
@@ -153,6 +243,21 @@ assert.equal(totpCode(secret, 59, 8), '94287082');
 assert.equal(totpCode(secret, 59), '287082');
 assert.equal(totpCode(secret, 0), '755224');
 assert.throws(() => totpCode('invalid-secret!', 59));
+"""
+        result = subprocess.run(['node', '--input-type=module', '-e', script],
+                                cwd=ROOT, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_public_policy_assertions_reject_attempt_counts_and_account_status(self):
+        script = """
+import assert from 'node:assert/strict';
+import { normalizePublicText, assertNoPublicDisclosure } from './tooling/policy-runtime.mjs';
+assert.equal(normalizePublicText('  Unable\\n to sign in.  '), 'Unable to sign in.');
+assertNoPublicDisclosure('Unable to sign in. Check your details and try again.');
+for (const text of ['2 attempts remaining', 'Remaining attempts: 2', 'Account is disabled', 'Unknown user', 'User not found',
+  'Account temporarily locked', 'This email is registered', '1 attempt left']) {
+  assert.throws(() => assertNoPublicDisclosure(text));
+}
 """
         result = subprocess.run(['node', '--input-type=module', '-e', script],
                                 cwd=ROOT, text=True, capture_output=True)

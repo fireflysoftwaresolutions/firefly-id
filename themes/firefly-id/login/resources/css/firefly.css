@@ -80,7 +80,7 @@ a:hover { color: var(--ffid-ink); text-decoration: underline; }
   content: "";
   display: block;
   width: 100%;
-  aspect-ratio: 2.25;
+  aspect-ratio: 1.62;
   margin-top: 48px;
   background: url('../img/authentication-light.svg') center / contain no-repeat;
 }
@@ -150,9 +150,8 @@ input::placeholder { color: var(--ffid-muted); opacity: 1; }
   .pf-v5-c-login__container { max-width: 480px; grid-template-columns: minmax(0, 1fr); grid-template-areas: "header" "main"; gap: 28px; }
   #kc-header-wrapper { width: min(100%, 290px); height: 52px; margin-inline: auto; background-position: center; }
   #kc-header { padding-top: 0; }
-  #kc-header::after { display: none; }
-  .pf-v5-c-login::before { content: ""; position: absolute; inset: 0; background: url('../img/authentication-mobile-light.svg') center top / min(110vw, 560px) auto no-repeat; opacity: .1; pointer-events: none; }
-  .pf-v5-theme-dark .pf-v5-c-login::before { background-image: url('../img/authentication-mobile-dark.svg'); opacity: .08; }
+  #kc-header::after { display: block; height: 168px; aspect-ratio: auto; margin-top: 16px; background-image: url('../img/authentication-mobile-light.svg'); }
+  .pf-v5-theme-dark #kc-header::after { background-image: url('../img/authentication-mobile-dark.svg'); }
 }
 @media (max-width: 540px) {
   .pf-v5-c-login { padding: 24px 16px; }
