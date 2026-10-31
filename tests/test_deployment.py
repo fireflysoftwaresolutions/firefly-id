@@ -63,10 +63,17 @@ class DeploymentGenerationTest(unittest.TestCase):
                 for name in ('tenant_id', 'party_id', 'staff_actor_id'):
                     self.assertEqual(protected[name]['permissions']['edit'], ['admin'])
                 for client in realm['clients']:
-                    self.assertIn('basic', client['defaultClientScopes'])
                     self.assertFalse(client['directAccessGrantsEnabled'])
                     self.assertFalse(client['implicitFlowEnabled'])
                     self.assertFalse(client['serviceAccountsEnabled'])
+                    if client['clientId'] == 'sandbox-api':
+                        self.assertFalse(client['standardFlowEnabled'])
+                        self.assertFalse(client['publicClient'])
+                        self.assertEqual(client['defaultClientScopes'], [])
+                        self.assertEqual(client['protocolMappers'], [])
+                        self.assertEqual(client['redirectUris'], [])
+                        continue
+                    self.assertIn('basic', client['defaultClientScopes'])
                     self.assertTrue(client['standardFlowEnabled'])
                     self.assertEqual(client['attributes']['pkce.code.challenge.method'], 'S256')
                     self.assertFalse(any('*' in uri for uri in client['redirectUris']))
@@ -82,6 +89,8 @@ class DeploymentGenerationTest(unittest.TestCase):
                     self.assertRegex(user_attrs['party_id'][0], r'^[a-f0-9-]{36}$')
                     expected_kind = 'HUMAN'
                 for app_client in realm['clients']:
+                    if app_client['clientId'] == 'sandbox-api':
+                        continue
                     mappers = {m['name']: m for m in app_client['protocolMappers']}
                     self.assertEqual(mappers['principal_kind']['config']['claim.value'], expected_kind)
                     self.assertEqual(mappers['client_id']['config']['claim.value'], app_client['clientId'])
@@ -90,6 +99,9 @@ class DeploymentGenerationTest(unittest.TestCase):
                     else:
                         self.assertNotIn('staff_actor_id', mappers)
                 self.assertEqual(realm['smtpServer']['host'], 'mailpit')
+                for user in realm['users']:
+                    self.assertEqual(user['clientRoles'], {'account': ['manage-account', 'view-profile']})
+                    self.assertNotIn('realmRoles', user)
                 self.assertEqual(realm['users'][0]['email'].split('@')[1], 'example.invalid')
 
     def test_extended_accounts_are_separate_and_require_server_owned_verification_and_mfa(self):

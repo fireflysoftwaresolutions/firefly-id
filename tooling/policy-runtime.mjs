@@ -400,13 +400,13 @@ async function main() {
     assert.equal(issuedAccess.iss, metadataCache.get('customers').issuer);
     assert.equal(issuedAccess.client_id, CLIENT);
     assert.ok(typeof issuedAccess.exp === 'number' && issuedAccess.exp > Date.now() / 1000);
-    assert.ok(credentials.customers.backend_client_secret, 'Confidential introspection client required');
+    assert.ok(credentials.customers.introspection_client_secret, 'Audience-bound confidential introspection receiver required');
     const introspectionEndpoint = new URL(metadataCache.get('customers').introspection_endpoint);
     assert.equal(introspectionEndpoint.origin, BASE);
     assert.equal(introspectionEndpoint.pathname, '/realms/sandbox-customers/protocol/openid-connect/token/introspect');
-    async function introspectPreviouslyIssuedAccess() {
+    async function introspectPreviouslyIssuedAccess(clientId = 'sandbox-api', secret = credentials.customers.introspection_client_secret) {
       const response = await request(introspectionEndpoint.href, { method: 'POST', body: new URLSearchParams({
-        client_id: 'sandbox-backend', client_secret: credentials.customers.backend_client_secret,
+        client_id: clientId, client_secret: secret,
         token: previouslyIssued.access_token, token_type_hint: 'access_token',
       }) });
       assert.equal(response.status, 200, 'Authenticated native introspection refused');
@@ -417,7 +417,14 @@ async function main() {
       return result;
     }
     phase = 'pre-block native confidential-client introspection';
+    assert.equal((await introspectPreviouslyIssuedAccess('sandbox-backend', credentials.customers.backend_client_secret)).active,
+      false, 'Introspection accepted a confidential client outside the issued audience');
     assert.equal((await introspectPreviouslyIssuedAccess()).active, true, 'Fresh browser-issued access token is not active');
+    const receiverGrant = await request(metadataCache.get('customers').token_endpoint, {
+      method: 'POST', body: new URLSearchParams({ grant_type: 'client_credentials', client_id: 'sandbox-api',
+        client_secret: credentials.customers.introspection_client_secret }),
+    });
+    assert.equal(receiverGrant.status, 400, 'Introspection receiver unexpectedly issued a machine token');
     phase = 'recovery fixture exact third-failure blocking';
     for (let attempt = 0; attempt < 3; attempt++) assert.deepEqual(await refused(recovery), baseline);
     const recoveryUserUrl = api('customers', `/users/${recovery.id}`);

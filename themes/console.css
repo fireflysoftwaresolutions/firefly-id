@@ -54,6 +54,7 @@ a { text-underline-offset: .2em; }
 .ffid-error-dialog .pf-v5-c-modal-box__header { padding: 32px 32px 20px; }
 .ffid-error-brand { display: block; width: min(100%, 250px); height: 44px; object-fit: contain; object-position: left; margin-bottom: 32px; }
 .ffid-error-dialog .pf-v5-c-modal-box__title { font: 600 28px/1.25 Manrope, sans-serif; letter-spacing: -.025em; color: inherit; }
+.ffid-error-dialog .pf-v5-c-modal-box__title-text { white-space: normal; overflow: visible; text-overflow: clip; }
 .ffid-error-dialog .pf-v5-c-modal-box__body { padding: 0 32px; color: #62645b; font: 16px/1.65 Manrope, sans-serif; }
 .ffid-error-dialog .pf-v5-c-modal-box__footer { padding: 24px 32px 32px; }
 .ffid-error-dialog .pf-v5-c-button.pf-m-primary { min-width: 132px; background: #ffb34a; color: #10110f; }

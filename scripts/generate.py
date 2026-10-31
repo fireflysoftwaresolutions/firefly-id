@@ -108,7 +108,21 @@ def client(client_id, port, kind, secret=None):
     return result
 
 
-def realm(kind, password, backend_secret, verification_password=None, policy_fixture=None):
+def receiver_client(secret):
+    return {
+        'clientId': 'sandbox-api', 'name': 'Synthetic audience-bound introspection receiver',
+        'protocol': 'openid-connect', 'enabled': True, 'publicClient': False,
+        'clientAuthenticatorType': 'client-secret', 'secret': secret,
+        'standardFlowEnabled': False, 'directAccessGrantsEnabled': False,
+        'implicitFlowEnabled': False, 'serviceAccountsEnabled': False,
+        'fullScopeAllowed': False, 'redirectUris': [], 'webOrigins': [],
+        'defaultClientScopes': [], 'optionalClientScopes': [], 'protocolMappers': [],
+        'attributes': {'oauth2.device.authorization.grant.enabled': 'false',
+                       'oidc.ciba.grant.enabled': 'false'},
+    }
+
+
+def realm(kind, password, backend_secret, verification_password=None, policy_fixture=None, receiver_secret=None):
     name = 'sandbox-' + kind
     attrs = {'tenant_id': ['synthetic-tenant']}
     if kind == 'workforce':
@@ -141,6 +155,8 @@ def realm(kind, password, backend_secret, verification_password=None, policy_fix
                    'lastName': kind.capitalize(), 'attributes': attrs,
                    'credentials': [{'type': 'password', 'value': password, 'temporary': False}]}],
     }
+    if receiver_secret is not None:
+        result['clients'].append(receiver_client(receiver_secret))
     policy, mfa_required = authentication_policy(kind)
     result.update(policy)
     if mfa_required:
@@ -167,6 +183,10 @@ def realm(kind, password, backend_secret, verification_password=None, policy_fix
             'attributes': {'tenant_id': ['synthetic-tenant'], 'party_id': [str(uuid.uuid4())]},
             'credentials': [{'type': 'password', 'value': verification_password, 'temporary': False}],
         })
+    # Realm import intentionally bypasses automatic default-role assignment upstream.
+    # These native account roles permit self service only, with no business/admin grant.
+    for user in result['users']:
+        user['clientRoles'] = {'account': ['manage-account', 'view-profile']}
     return result
 
 
@@ -261,6 +281,7 @@ def main():
     for kind in ('customers', 'workforce', 'institutions'):
         password = 'Aa1' + secrets.token_urlsafe(36)
         backend_secret = secrets.token_urlsafe(36)
+        receiver_secret = secrets.token_urlsafe(36)
         policy_fixture = None
         if kind in ('customers', 'workforce'):
             policy_fixture = {'username': 'synthetic-policy-' + kind,
@@ -268,9 +289,10 @@ def main():
                               'password': 'Aa1' + secrets.token_urlsafe(36)}
             credentials['policy_' + kind] = policy_fixture
         write(output / 'realms' / ('sandbox-' + kind + '-realm.json'),
-              json.dumps(realm(kind, password, backend_secret, verification_password, policy_fixture), indent=2) + '\n')
+              json.dumps(realm(kind, password, backend_secret, verification_password, policy_fixture, receiver_secret), indent=2) + '\n')
         credentials[kind] = {'username': 'synthetic-' + kind, 'password': password,
-                             'backend_client_secret': backend_secret}
+                             'backend_client_secret': backend_secret,
+                             'introspection_client_secret': receiver_secret}
     # Files are mounted read-only and readable by container UID 1000. Parent directories
     # remain owner-only on the host; local Compose does not remap secret-file ownership.
     (output / 'realms').chmod(0o755)

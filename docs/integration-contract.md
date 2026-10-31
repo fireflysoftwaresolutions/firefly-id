@@ -81,7 +81,7 @@ Application code obtains the verified principal through `SecurityContextPort.cur
 
 ## Sandbox names and pending deployment bindings
 
-The local example realms are `sandbox-customers`, `sandbox-workforce`, and `sandbox-institutions`; example clients are `sandbox-web` and `sandbox-backend`. They do not establish a production identity mapping.
+The local example realms are `sandbox-customers`, `sandbox-workforce`, and `sandbox-institutions`; interactive clients are `sandbox-web` and `sandbox-backend`. The separately registered confidential `sandbox-api` receiver matches the already selected access-token audience. It has a separate random secret and all token grants/service accounts disabled; it authenticates only the native audience-bound introspection probe and does not create a MACHINE principal. Keycloak 26.8.1 refuses introspection from a client outside the token audience. The fixture checks that refusal and does not enable the upstream audience-check bypass. These examples do not establish a production identity mapping or credential rollout.
 
 Before integration, record each exact issuer URL, receiver audience, JWKS URL, client registration ID, and the issuer-declared signed claim used for a delegating client. Do not infer an audience from a base URL or assume a client ID is an audience. Do not select between client claims by permissive fallback. The candidate table records concrete existing claim names; deploying their party/staff semantics, realm binding, and authoritative mapping still requires an approved owner profile. This review does not create a global profile.
 
