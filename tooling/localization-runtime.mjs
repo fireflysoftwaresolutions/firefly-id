@@ -61,6 +61,13 @@ async function captureMobile(page, locale, surface) {
     await page.emulateMedia({ colorScheme: scheme });
     await page.waitForFunction(dark => document.documentElement.classList.contains('pf-v5-theme-dark') === dark, scheme === 'dark');
     await assertLocale(page, locale);
+    const header = await page.locator('#kc-header').boundingBox();
+    assert.ok(header && header.y >= 16 && header.y <= 32, 'Mobile journey header drifts vertically with form length');
+    if (surface === 'logout') {
+      const description = await page.locator('#kc-logout-confirm .instruction').boundingBox();
+      const action = await page.locator('#kc-logout').boundingBox();
+      assert.ok(description && action && action.y - description.y - description.height >= 20, 'Logout action lacks separation from its instruction');
+    }
     await page.screenshot({ path: `${directory}/${locale}-${surface}-mobile-${scheme}.png`, fullPage: true });
   }
 }

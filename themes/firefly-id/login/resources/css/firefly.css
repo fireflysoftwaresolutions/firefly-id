@@ -144,6 +144,7 @@ input::placeholder { color: var(--ffid-muted); opacity: 1; }
 .pf-v5-c-alert { border-radius: 8px; }
 #kc-error-message { color: var(--ffid-muted); font-size: 16px; line-height: 1.65; }
 #kc-error-message .instruction { margin: 0 0 20px; }
+#kc-logout-confirm .instruction { margin: 0 0 24px; }
 #kc-error-message #traceId { border-top: 1px solid var(--ffid-line); padding-top: 16px; font-size: 13px; }
 #backToApplication { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; margin-top: 8px; padding: 10px 20px; border-radius: 8px; background: var(--ffid-action); color: var(--ffid-color-charcoal); font-weight: 650; text-decoration: none; }
 #backToApplication:hover { background: var(--ffid-color-stone); }
@@ -151,7 +152,7 @@ input::placeholder { color: var(--ffid-muted); opacity: 1; }
 .kc-recovery-codes-list { font-variant-numeric: tabular-nums; }
 
 @media (max-width: 900px) {
-  .pf-v5-c-login__container { max-width: 480px; grid-template-columns: minmax(0, 1fr); grid-template-areas: "header" "main"; gap: 28px; }
+  .pf-v5-c-login__container { max-width: 480px; margin-block: 0; align-self: start; grid-template-columns: minmax(0, 1fr); grid-template-areas: "header" "main"; gap: 28px; }
   #kc-header-wrapper { width: min(100%, 290px); height: 52px; margin-inline: auto; background-position: center; }
   #kc-header { padding-top: 0; }
   #kc-header::after { display: block; height: 168px; aspect-ratio: auto; margin-top: 16px; background-image: url('../img/authentication-mobile-light.svg'); }
