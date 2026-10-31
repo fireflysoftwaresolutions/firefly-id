@@ -22,7 +22,7 @@ public class NativeAttestation {
     public String operationId;
     @Column(name="challenge_id", length=1024)
     public String challengeId;
-    @Column(name="reservation_id", length=1024)
+    @Column(name="reservation_id", length=1024, unique=true)
     public String reservationId;
     @Column(name="provider_challenge_id", length=1024)
     public String providerChallengeId;

@@ -8,6 +8,7 @@ check:
 	node --check tooling/policy-runtime.mjs
 	node --check tooling/localization-runtime.mjs
 	node --check tooling/receiver-audience-runtime.mjs
+	node --check tooling/configuration-lookup-runtime.mjs
 	node --input-type=module --check < themes/console-policy.js
 	node --test tests/*.test.mjs
 	git diff --check

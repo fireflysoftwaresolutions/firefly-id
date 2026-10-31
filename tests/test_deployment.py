@@ -26,6 +26,46 @@ class DeploymentGenerationTest(unittest.TestCase):
             self.assertIn('production contract', result.stderr.lower())
             self.assertFalse(output.exists())
 
+    def test_optional_configuration_lookup_client_is_isolated_from_human_clients(self):
+        with tempfile.TemporaryDirectory() as parent:
+            output = pathlib.Path(parent) / 'sandbox'
+            result = self.run_generator(output, '--mode', 'sandbox',
+                    '--configuration-lookup-client-id', 'configuration-lookup',
+                    '--configuration-lookup-realm', 'customers',
+                    '--configuration-lookup-tenant', 'synthetic-platform-namespace')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            customer = json.loads((output / 'realms/sandbox-customers-realm.json').read_text())
+            service = next(client for client in customer['clients'] if client['clientId'] == 'configuration-lookup')
+            self.assertTrue(service['serviceAccountsEnabled'])
+            self.assertFalse(service['publicClient'])
+            for grant in ('standardFlowEnabled', 'directAccessGrantsEnabled', 'implicitFlowEnabled', 'fullScopeAllowed'):
+                self.assertFalse(service[grant])
+            self.assertEqual(service['redirectUris'], [])
+            self.assertEqual(service['optionalClientScopes'], [])
+            self.assertEqual(service['defaultClientScopes'], ['basic'])
+            claims = {mapper['config']['claim.name']: mapper['config'].get('claim.value')
+                      for mapper in service['protocolMappers'] if 'claim.name' in mapper['config']}
+            self.assertEqual(claims, {'tenant_id': 'synthetic-platform-namespace', 'client_id': 'configuration-lookup', 'principal_kind': 'MACHINE'})
+            self.assertFalse(any(client['serviceAccountsEnabled'] for client in customer['clients'] if client is not service))
+            secret = (output / 'secrets/configuration-lookup-client-secret').read_text().strip()
+            self.assertGreaterEqual(len(secret), 48)
+            self.assertEqual(service['secret'], secret)
+            self.assertNotIn(secret, result.stdout + result.stderr)
+            metadata = json.loads((output / 'configuration-lookup-client.json').read_text())
+            self.assertNotIn('subject', metadata)
+            self.assertNotIn(secret, json.dumps(metadata))
+            self.assertEqual(metadata['audience'], 'sandbox-api')
+
+    def test_lookup_provisioning_rejects_incomplete_or_conflicting_input_before_state_creation(self):
+        for inputs in [('--configuration-lookup-client-id', 'configuration-lookup'),
+                       ('--configuration-lookup-client-id', 'sandbox-api', '--configuration-lookup-realm', 'customers', '--configuration-lookup-tenant', 'opaque'),
+                       ('--configuration-lookup-client-id', 'lookup', '--configuration-lookup-realm', 'customers', '--configuration-lookup-tenant', 'opaque\nnamespace')]:
+            with self.subTest(inputs=inputs), tempfile.TemporaryDirectory() as parent:
+                output = pathlib.Path(parent) / 'sandbox'
+                result = self.run_generator(output, '--mode', 'sandbox', *inputs)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+
     def test_sandbox_generation_is_explicit_and_cannot_overwrite_retained_state(self):
         with tempfile.TemporaryDirectory() as parent:
             output = pathlib.Path(parent) / 'sandbox'

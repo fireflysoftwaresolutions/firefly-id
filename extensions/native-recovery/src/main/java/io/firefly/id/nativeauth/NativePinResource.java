@@ -12,6 +12,7 @@ public final class NativePinResource {
     private final KeycloakSession session;
     NativePinResource(KeycloakSession session) { this.session = session; }
     private String subject() {
+        require("https".equals(session.getContext().getUri().getBaseUri().getScheme()));
         require("HUMAN".equals(NativeProfile.of(session.getContext().getRealm()).population()));
         var auth = AuthenticationManager.authenticateIdentityCookie(session, session.getContext().getRealm(), true);
         require(auth != null && auth.user() != null && auth.user().isEnabled() && !auth.user().isServiceAccount()); return auth.user().getId();
@@ -36,7 +37,7 @@ public final class NativePinResource {
                 boolean result = "PIN_REVOKE".equals(ceremony.stage); ceremony.csrfDigest = null; ceremony.stage = "USED"; return result;
             });
             boolean success = new NativePinEngine(session).replace(subject, password, otp, pin, confirmation, revoke);
-            return view(subject, "STATUS", success ? null : "fireflyPinGenericError");
+            return view(subject, "STATUS", success ? null : "ffidPinFailed");
         } catch (Exception refusal) { return refused(); }
     }
     private Response view(String subject, String stage, String message) {
@@ -48,15 +49,18 @@ public final class NativePinResource {
             c.expiresAt = System.currentTimeMillis() + 120000; store.em.persist(c); return c.id;
         });
         NativeContracts.PinStatus status = new NativePinEngine(session).status(subject);
-        NativeProfile profile = NativeProfile.of(session.getContext().getRealm()); String base = profile.issuer() + "/native-recovery/support-pin";
+        NativeProfile profile = NativeProfile.of(session.getContext().getRealm()); String base = profile.issuer() + "/" + NativeContracts.EXTENSION + "/support-pin";
         Response response = session.getProvider(LoginFormsProvider.class).setAttribute("stage", stage).setAttribute("csrf", csrf)
-                .setAttribute("actionUrl", base).setAttribute("accountUrl", profile.issuer() + "/account")
+                .setAttribute("actionUrl", "STATUS".equals(stage) ? base + "/set" : base).setAttribute("accountUrl", profile.issuer() + "/account")
                 .setAttribute("revokeUrl", base + "/revoke").setAttribute("pinStatus", status.status())
                 .setAttribute("replacedAt", status.replacedAt() == null ? null : status.replacedAt().toString())
                 .setAttribute("messageKey", message).createForm("firefly-support-pin.ftl");
         return Response.fromResponse(response).header("Cache-Control", "no-store").cookie(new NewCookie.Builder(COOKIE).value(ceremonyId)
-                .path("/realms/" + session.getContext().getRealm().getName() + "/native-recovery/support-pin").secure(true).httpOnly(true)
+                .path("/realms/" + session.getContext().getRealm().getName() + "/" + NativeContracts.EXTENSION + "/support-pin").secure(true).httpOnly(true)
                 .sameSite(NewCookie.SameSite.STRICT).maxAge(120).build()).build();
     }
-    private Response refused() { return Response.status(403).header("Cache-Control", "no-store").entity("The support credential action cannot be completed.").build(); }
+    private Response refused() {
+        Response response = session.getProvider(LoginFormsProvider.class).setError("ffidPinFailed").createErrorPage(Response.Status.FORBIDDEN);
+        return Response.fromResponse(response).header("Cache-Control", "no-store").build();
+    }
 }

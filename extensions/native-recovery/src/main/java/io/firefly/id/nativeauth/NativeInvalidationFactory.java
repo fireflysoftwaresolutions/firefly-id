@@ -33,7 +33,7 @@ public final class NativeInvalidationFactory implements EventListenerProviderFac
                 try { state = store.state(subject, false); } catch (NativeRefusal missing) { return; }
                 if (admin && state.locked && user.isEnabled()) { veto(session); return; }
                 if (state.locked) { state.hold = true; store.audit(subject, "RECOVERY_HOLD", state.generation); }
-                state.credentialRevision = store.revision(user);
+                state.credentialRevision = store.revision(user, false);
                 if (state.pinCredentialId != null) { state.pinHeld = true; store.audit(subject, "PIN_INVALIDATED", state.pinGeneration); }
             } catch (Exception error) { veto(session); }
         }
@@ -44,7 +44,8 @@ public final class NativeInvalidationFactory implements EventListenerProviderFac
             if (event.getError() != null || event.getResourcePath() == null) return;
             String[] path = event.getResourcePath().split("/");
             if (path.length >= 2 && "users".equals(path[0])) invalidate(path[1], true);
-            else if (event.getResourcePath().startsWith("attack-detection/brute-force")) veto(session);
+            else if (session.getContext().getRealm().getAttribute("firefly.native-recovery.population") != null
+                    && event.getResourcePath().startsWith("attack-detection/brute-force")) veto(session);
         }
         @Override public void close() { }
     }; }

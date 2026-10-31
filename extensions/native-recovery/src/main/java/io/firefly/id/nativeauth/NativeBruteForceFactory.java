@@ -50,6 +50,7 @@ public final class NativeBruteForceFactory implements BruteForceProtectorFactory
             private BruteForceProtector selected(RealmModel realm, UserModel user) {
                 return realm.getAttribute("firefly.native-recovery.population") != null
                         && org.keycloak.storage.StorageId.isLocalStorage(user.getId()) && !user.isFederated() && !user.isServiceAccount()
+                        && !new NativeStore(session).isAdministrator(user)
                         ? managedProtector : fallback;
             }
             @Override public void failedLogin(RealmModel realm, UserModel user, ClientConnection connection, UriInfo uri, Set<String> categories) { selected(realm, user).failedLogin(realm, user, connection, uri, categories); }

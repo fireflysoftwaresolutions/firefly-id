@@ -358,6 +358,7 @@ try {
   await adminPage.locator('#password').fill((await readFile(`${stateDir}/secrets/admin-password`, 'utf8')).trim());
   await adminPage.locator('#kc-login').click();
   await adminPage.locator('.pf-v5-c-masthead').waitFor({ timeout: 30000 });
+  await adminPage.getByTestId('welcomeTitle').waitFor({ state: 'visible' });
   await adminPage.setViewportSize({ width: 1440, height: 1000 });
   await adminPage.emulateMedia({ colorScheme: 'light' });
   await adminPage.evaluate(() => document.fonts.ready);

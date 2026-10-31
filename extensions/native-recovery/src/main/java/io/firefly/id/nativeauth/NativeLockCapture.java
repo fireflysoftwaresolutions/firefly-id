@@ -15,7 +15,7 @@ final class NativeLockCapture {
         NativeState state = store.state(subject, true);
         if (state.locked) return;
         state.generation = UUID.randomUUID().toString(); state.locked = true; state.lockedAt = System.currentTimeMillis();
-        state.credentialRevision = store.revision(user); state.bootstrapAttempts = 0; state.knowledgeAttempts = 0; state.possessionAttempts = 0;
+        state.credentialRevision = store.revision(user, false); state.bootstrapAttempts = 0; state.knowledgeAttempts = 0; state.possessionAttempts = 0;
         store.audit(subject, "PERMANENT_LOCK_CAPTURED", state.generation);
     }
 }

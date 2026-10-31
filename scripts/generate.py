@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import uuid
@@ -120,6 +121,27 @@ def receiver_client(secret):
         'attributes': {'oauth2.device.authorization.grant.enabled': 'false',
                        'oidc.ciba.grant.enabled': 'false'},
     }
+
+
+def configuration_lookup_client(client_id, tenant, secret):
+    result = receiver_client(secret)
+    audience = result['clientId']
+    result.update({'clientId': client_id, 'name': 'Optional synthetic Configuration lookup service',
+                   'serviceAccountsEnabled': True, 'authorizationServicesEnabled': False,
+                   'defaultClientScopes': ['basic']})
+    result['attributes']['standard.token.exchange.enabled'] = 'false'
+    result['protocolMappers'] = [
+        {'name': name, 'protocol': 'openid-connect', 'protocolMapper': 'oidc-hardcoded-claim-mapper',
+         'consentRequired': False,
+         'config': {'claim.name': name, 'claim.value': value, 'jsonType.label': 'String',
+                    'id.token.claim': 'false', 'access.token.claim': 'true', 'userinfo.token.claim': 'false'}}
+        for name, value in [('tenant_id', tenant), ('client_id', client_id), ('principal_kind', 'MACHINE')]
+    ]
+    result['protocolMappers'].append({
+        'name': 'configuration-receiver-audience', 'protocol': 'openid-connect',
+        'protocolMapper': 'oidc-audience-mapper', 'consentRequired': False,
+        'config': {'included.custom.audience': audience, 'id.token.claim': 'false', 'access.token.claim': 'true'}})
+    return result
 
 
 def realm(kind, password, backend_secret, verification_password=None, policy_fixture=None, receiver_secret=None):
@@ -252,9 +274,23 @@ def main():
     parser.add_argument('--mode', choices=['sandbox', 'production'], required=True)
     parser.add_argument('--output', type=Path, default=ROOT / '.state/sandbox')
     parser.add_argument('--theme-dir', type=Path, default=ROOT / 'dist/themes/firefly-id')
+    parser.add_argument('--configuration-lookup-client-id')
+    parser.add_argument('--configuration-lookup-realm', choices=['customers', 'workforce', 'institutions'])
+    parser.add_argument('--configuration-lookup-tenant')
     args = parser.parse_args()
     if args.mode == 'production':
         parser.error('Production contract is not selected. Approve realm/client/claim and deployment contracts first; no production generator is enabled.')
+    lookup = (args.configuration_lookup_client_id, args.configuration_lookup_realm, args.configuration_lookup_tenant)
+    if any(value is not None for value in lookup):
+        if not all(value is not None for value in lookup):
+            parser.error('Configuration lookup provisioning requires explicit client ID, realm and opaque tenant.')
+        if (not re.fullmatch(r'[a-z][a-z0-9.-]{2,79}', lookup[0])
+                or lookup[0] in {'sandbox-api', 'sandbox-web', 'sandbox-backend', 'account', 'account-console',
+                                 'admin-cli', 'security-admin-console', 'realm-management', 'broker'}):
+            parser.error('Configuration lookup requires a distinct nonreserved client ID.')
+        if (not lookup[2] or lookup[2] != lookup[2].strip() or len(lookup[2].encode('utf-8')) > 1024
+                or any(ord(char) < 32 or ord(char) == 127 for char in lookup[2])):
+            parser.error('Configuration lookup requires a bounded, control-free opaque tenant.')
     theme_dir = args.theme_dir.resolve()
     if not all((theme_dir / kind / 'theme.properties').is_file()
                for kind in ('login', 'account', 'admin', 'email', 'welcome')):
@@ -288,8 +324,19 @@ def main():
                               'email': 'policy-' + kind + '@example.invalid',
                               'password': 'Aa1' + secrets.token_urlsafe(36)}
             credentials['policy_' + kind] = policy_fixture
-        write(output / 'realms' / ('sandbox-' + kind + '-realm.json'),
-              json.dumps(realm(kind, password, backend_secret, verification_password, policy_fixture, receiver_secret), indent=2) + '\n')
+        realm_data = realm(kind, password, backend_secret, verification_password, policy_fixture, receiver_secret)
+        if kind == args.configuration_lookup_realm:
+            lookup_secret = secrets.token_urlsafe(48)
+            realm_data['clients'].append(configuration_lookup_client(lookup[0], lookup[2], lookup_secret))
+            write(output / 'secrets/configuration-lookup-client-secret', lookup_secret + '\n', 0o600)
+            issuer = f'http://id.firefly.test:8180/realms/sandbox-{kind}'
+            write(output / 'configuration-lookup-client.json', json.dumps({
+                'status': 'configured-not-issued', 'issuer': issuer, 'client_id': lookup[0],
+                'tenant_id': lookup[2], 'audience': 'sandbox-api',
+                'token_endpoint': issuer + '/protocol/openid-connect/token',
+                'jwks_uri': issuer + '/protocol/openid-connect/certs',
+                'secret_file': 'secrets/configuration-lookup-client-secret'}, indent=2) + '\n', 0o600)
+        write(output / 'realms' / ('sandbox-' + kind + '-realm.json'), json.dumps(realm_data, indent=2) + '\n')
         credentials[kind] = {'username': 'synthetic-' + kind, 'password': password,
                              'backend_client_secret': backend_secret,
                              'introspection_client_secret': receiver_secret}

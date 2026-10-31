@@ -20,6 +20,10 @@ public record NativeProfile(String issuer, String population, String clientId, S
         int ttl;
         try { ttl = Integer.parseInt(attribute(realm, "ttl-seconds")); } catch (Exception error) { throw new NativeRefusal(); }
         require(ttl > 0 && ttl <= ("STAFF".equals(population) ? 180 : 300));
+        require(!attribute(realm, "domain-audience").equals(attribute(realm, "core-audience"))
+                && !attribute(realm, "core-workload-client-id").equals(attribute(realm, "domain-workload-client-id"))
+                && !attribute(realm, "client-id").equals(attribute(realm, "core-workload-client-id"))
+                && !attribute(realm, "client-id").equals(attribute(realm, "domain-workload-client-id")));
         return new NativeProfile(issuer, population, attribute(realm, "client-id"), attribute(realm, "tenant-attribute"),
                 attribute(realm, "link-attribute"), origin, attribute(realm, "domain-audience"),
                 attribute(realm, "core-audience"), attribute(realm, "core-workload-client-id"),

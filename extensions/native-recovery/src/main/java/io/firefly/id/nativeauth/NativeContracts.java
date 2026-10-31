@@ -6,6 +6,7 @@ import java.util.UUID;
 /** Product-private protocol. No credential value belongs in these records. */
 public final class NativeContracts {
     private NativeContracts() { }
+    public static final String EXTENSION = "firefly-recovery";
     public static final String PURPOSE = "PERMANENT_AUTHENTICATION_UNLOCK";
     public static final String PROVIDER = "firefly-keycloak-native-v1";
     public record Binding(String issuer, String tenant, String clientId, String delegatingClientId,

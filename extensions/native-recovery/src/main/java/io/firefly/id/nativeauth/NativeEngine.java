@@ -107,7 +107,7 @@ final class NativeEngine {
         });
     }
     String attest(String id, Reservation reservation, String secret) {
-        String proofId = NativePhases.run(request, session -> {
+        NativeReservationFence.Prepared prepared = NativePhases.run(request, session -> {
             NativeStore store = new NativeStore(session); NativeCeremony c = store.ceremony(id);
             var user = store.local(c.subject, true); var state = store.state(c.subject, false); store.eligible(state, user); currentOwner(session, c, user);
             require(reservation != null && reservation.operationId().toString().equals(c.operationId)
@@ -116,25 +116,30 @@ final class NativeEngine {
             boolean knowledge = "KNOWLEDGE".equals(reservation.category());
             require(knowledge || "POSSESSION".equals(reservation.category()));
             require(reservation.challengeId().toString().equals(knowledge ? c.knowledgeChallengeId : c.possessionChallengeId));
-            if (knowledge) { require(state.knowledgeAttempts < 3); state.knowledgeAttempts++; }
-            else { require(state.possessionAttempts < 3); state.possessionAttempts++; }
             NativeIssuedChallenge issued = store.em.find(NativeIssuedChallenge.class, reservation.providerChallengeId());
             require(issued != null && issued.ceremonyId.equals(c.id) && issued.operationId.equals(c.operationId)
                     && issued.category.equals(reservation.category()) && issued.expiresAt > System.currentTimeMillis());
             CredentialModel credential = knowledge ? password(user) : enrolledTotp(user, state);
             require(credential.getId().equals(issued.credentialId));
+            var existing = store.em.createQuery("select p from NativeAttestation p where p.reservationId = :reservation", NativeAttestation.class)
+                    .setParameter("reservation", reservation.reservationId().toString()).getResultList();
+            require(existing.size() <= 1);
+            if (!existing.isEmpty()) return NativeReservationFence.reuse(existing.get(0), c, state, reservation, credential.getId());
+            if (knowledge) { require(state.knowledgeAttempts < 3); state.knowledgeAttempts++; }
+            else { require(state.possessionAttempts < 3); state.possessionAttempts++; }
             NativeAttestation proof = new NativeAttestation(); proof.id = randomToken(); proof.realmId = c.realmId; proof.subject = c.subject;
             proof.generation = state.generation; proof.credentialRevision = state.credentialRevision; proof.ceremonyId = c.id;
             proof.operationId = reservation.operationId().toString(); proof.challengeId = reservation.challengeId().toString();
             proof.reservationId = reservation.reservationId().toString(); proof.providerChallengeId = reservation.providerChallengeId();
             proof.category = reservation.category(); proof.credentialId = credential.getId();
             proof.expiresAt = Math.min(c.expiresAt, reservation.expiresAt().toEpochMilli()); store.em.persist(proof);
-            store.audit(c.subject, "NATIVE_FACTOR_RESERVED", proof.id); return proof.id;
+            store.audit(c.subject, "NATIVE_FACTOR_RESERVED", proof.id); return new NativeReservationFence.Prepared(proof.id, true);
         });
+        if (!prepared.verify()) return prepared.attestationId();
         return NativePhases.run(request, session -> {
-            NativeStore store = new NativeStore(session); NativeAttestation proof = store.em.find(NativeAttestation.class, proofId, LockModeType.PESSIMISTIC_WRITE);
+            NativeStore store = new NativeStore(session); NativeAttestation proof = store.em.find(NativeAttestation.class, prepared.attestationId(), LockModeType.PESSIMISTIC_WRITE);
             var user = store.local(proof.subject, true); var state = store.state(proof.subject, false); store.eligible(state, user);
-            require(!proof.verified && proof.expiresAt > System.currentTimeMillis() && proof.generation.equals(state.generation)
+            require(!proof.completed && !proof.verified && proof.expiresAt > System.currentTimeMillis() && proof.generation.equals(state.generation)
                     && proof.credentialRevision.equals(store.revision(user)));
             boolean valid;
             try { valid = "KNOWLEDGE".equals(proof.category) ? passwordValid(session, user, secret)

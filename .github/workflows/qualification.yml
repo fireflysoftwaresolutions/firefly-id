@@ -52,7 +52,7 @@ jobs:
         id: owned-runtime
         run: |
           python3 tooling/build_theme.py
-          python3 scripts/generate.py --mode sandbox
+          python3 scripts/generate.py --mode sandbox --configuration-lookup-client-id configuration-lookup --configuration-lookup-realm customers --configuration-lookup-tenant synthetic-platform-namespace
           printf '\n127.0.0.1 id.firefly.test\n' | sudo tee -a /etc/hosts >/dev/null
           python3 scripts/sandbox.py preflight
           python3 scripts/sandbox.py pull
@@ -63,8 +63,10 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npx playwright install --with-deps chromium
-      - name: Compile the genuine Jafly fixture before issuing short-lived tokens
-        run: mvn -B -ntp -f examples/jafly/pom.xml test-compile
+      - name: Compile the genuine Jafly fixtures before issuing short-lived tokens
+        run: |
+          mvn -B -ntp -f examples/jafly/pom.xml test-compile
+          mvn -B -ntp -f examples/configuration-lookup/pom.xml test-compile
       - name: Real OIDC browser and recovery flows
         run: node tooling/runtime.mjs
       - name: Genuine published Jafly resource-server integration
@@ -82,6 +84,16 @@ jobs:
       - name: English and Spanish identity journeys
         if: ${{ !cancelled() && steps.owned-runtime.outcome == 'success' && steps.browser-tools.outcome == 'success' }}
         run: node tooling/localization-runtime.mjs
+      - name: Optional Configuration lookup service issuance
+        run: node tooling/configuration-lookup-runtime.mjs
+      - name: Published Jafly validates the issued service principal
+        env:
+          FIREFLY_ID_LOOKUP_TOKEN_FILE: ${{ github.workspace }}/.state/sandbox/configuration-lookup-token.txt
+          FIREFLY_ID_LOOKUP_ISSUER: http://id.firefly.test:8180/realms/sandbox-customers
+          FIREFLY_ID_LOOKUP_AUDIENCE: sandbox-api
+          FIREFLY_ID_LOOKUP_TENANT: synthetic-platform-namespace
+          FIREFLY_ID_LOOKUP_CLIENT_ID: configuration-lookup
+        run: mvn -B -ntp -f examples/configuration-lookup/pom.xml test
       - name: Preserve redacted visual and result evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -102,6 +114,7 @@ jobs:
             .work/receiver-audiences/summary.json
             .work/localization-runtime/*.png
             .work/localization-runtime/summary.json
+            .work/configuration-lookup/*.json
           if-no-files-found: ignore
           retention-days: 7
       - name: Stop only the owned runtime

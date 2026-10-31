@@ -15,7 +15,7 @@ public final class NativeSupportPinService {
     private final KeycloakSession request;
     public NativeSupportPinService(KeycloakSession request) { this.request = request; }
     public VerificationReference verify(String signedSupportContext, String pin) {
-        requirePin(pin);
+        requirePin(pin); require(signedSupportContext != null && signedSupportContext.length() <= 16384);
         var factories = ServiceLoader.load(NativeSupportAuthorization.Factory.class, getClass().getClassLoader()).stream()
                 .map(ServiceLoader.Provider::get).filter(NativeSupportAuthorization.Factory::isQualified).toList();
         require(factories.size() == 1);
@@ -30,7 +30,7 @@ public final class NativeSupportPinService {
         String proofId = NativePhases.run(request, session -> {
             NativeProfile profile = NativeProfile.of(session.getContext().getRealm());
             require("HUMAN".equals(profile.population()) && profile.issuer().equals(grant.targetIssuer()) && session.getContext().getRealm().getName().equals(grant.realm()));
-            NativeStore store = new NativeStore(session); var user = store.local(grant.subject(), true); var state = store.state(grant.subject(), false);
+            NativeStore store = new NativeStore(session); var user = store.local(grant.subject(), true); store.requireSelfService(user); var state = store.state(grant.subject(), false);
             require(user.isEnabled() && profile.tenant(user).equals(grant.tenant()) && profile.link(user).equals(grant.customerLink())
                     && !state.locked && !state.hold && !state.pinHeld && state.pinCredentialId != null && state.pinFailures + state.pinReserved < 3 && state.pinRevokedAt == 0);
             NativeSupportProof proof = new NativeSupportProof(); proof.id = randomToken(); proof.grantDigest = digest(NativeActor.json(grant));
@@ -38,9 +38,13 @@ public final class NativeSupportPinService {
             proof.expiresAt = grant.expiresAt().toEpochMilli(); store.em.persist(proof); state.pinReserved++;
             store.audit(user.getId(), "SUPPORT_PIN_RESERVED", proof.id); return proof.id;
         });
+        require(grant.equals(authority.authorize(signedSupportContext)));
         boolean valid = NativePhases.run(request, session -> {
-            NativeStore store = new NativeStore(session); var user = store.local(grant.subject(), true); var state = store.state(grant.subject(), false);
+            NativeStore store = new NativeStore(session); var user = store.local(grant.subject(), true); store.requireSelfService(user); var state = store.state(grant.subject(), false);
             var proof = store.em.find(NativeSupportProof.class, proofId);
+            NativeProfile profile = NativeProfile.of(session.getContext().getRealm());
+            require(user.isEnabled() && !state.locked && !state.hold && profile.tenant(user).equals(grant.tenant())
+                    && profile.link(user).equals(grant.customerLink()) && grant.expiresAt().isAfter(Instant.now()));
             require(proof != null && !proof.verified && proof.expiresAt > System.currentTimeMillis() && state.pinGeneration.equals(proof.pinGeneration)
                     && !state.pinHeld && state.pinFailures < 3 && state.pinReserved > 0 && state.pinCredentialId != null && state.pinRevokedAt == 0);
             String keyed = NativePinProtection.keyed(proof.realmId, proof.subject, pin, state.pinKeyVersion);

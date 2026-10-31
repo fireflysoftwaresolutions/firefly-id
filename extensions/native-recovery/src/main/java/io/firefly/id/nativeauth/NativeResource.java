@@ -17,7 +17,7 @@ public final class NativeResource {
     public NativeResource(KeycloakSession session) { this.session = session; }
     @GET @Produces(MediaType.TEXT_HTML)
     public Response page() {
-        try {
+        try { require("https".equals(session.getContext().getUri().getBaseUri().getScheme()));
             var existing = session.getContext().getRequestHeaders().getCookies().get(COOKIE);
             if (existing != null) {
                 try { return render(new NativeEngine(session).resume(existing.getValue()), null, false); }
@@ -32,10 +32,12 @@ public final class NativeResource {
             @FormParam("otp") String otp, @FormParam("csrf") String csrf) {
         NativeEngine engine = new NativeEngine(session); NativeEngine.View view;
         try {
+            require("https".equals(session.getContext().getUri().getBaseUri().getScheme()));
             NativeProfile profile = NativeProfile.of(session.getContext().getRealm());
             requireOrigin(session.getContext().getRequestHeaders().getHeaderString("Origin"), profile.origin());
             String id = cookie();
             String stage = NativePhases.run(session, child -> new NativeStore(child).ceremony(id).stage);
+            require(NativeEngine.PASSWORD.equals(stage) || NativeEngine.TOTP.equals(stage));
             view = engine.consumeCsrf(id, csrf, stage);
             if (NativeEngine.PASSWORD.equals(stage)) {
                 require(username != null && username.length() <= 254 && password != null && password.length() <= 1024);
@@ -64,12 +66,12 @@ public final class NativeResource {
                 try { gateway.recordExecution(actor.assertion(), verified, execution.outcome()); }
                 catch (Exception transport) { /* Native committed journal remains authoritative for reconciliation. */ }
                 return render(engine.stage(id, NativeEngine.COMPLETE, view.csrf()), null, false);
-            } catch (Exception generic) { return render(engine.stage(id, NativeEngine.TOTP, view.csrf()), "fireflyRecoveryGenericError", false); }
+            } catch (Exception generic) { return render(engine.stage(id, NativeEngine.TOTP, view.csrf()), "ffidRecoveryFailed", false); }
         } catch (Exception generic) { return unavailable(); }
     }
     @POST @Path("rpc/{route}") @Consumes(MediaType.APPLICATION_JSON) @Produces(MediaType.APPLICATION_JSON)
     public Response rpc(@PathParam("route") String route, Rpc rpc) {
-        try { return Response.ok(new NativeRpcService(session).call(route, rpc)).header("Cache-Control", "no-store").build(); }
+        try { return Response.ok(NativeWire.json(new NativeRpcService(session).call(route, rpc))).header("Cache-Control", "no-store").build(); }
         catch (Exception refusal) { return Response.status(403).entity(java.util.Map.of("error", "native_recovery_refused")).header("Cache-Control", "no-store").build(); }
     }
     @Path("support-pin") public NativePinResource supportPin() { return new NativePinResource(session); }
@@ -83,12 +85,15 @@ public final class NativeResource {
     private Response render(NativeEngine.View view, String message, boolean setCookie) {
         NativeProfile profile = NativeProfile.of(session.getContext().getRealm());
         Response response = session.getProvider(LoginFormsProvider.class).setAttribute("stage", view.stage()).setAttribute("csrf", view.csrf())
-                .setAttribute("actionUrl", profile.issuer() + "/native-recovery").setAttribute("signInUrl", profile.issuer() + "/account")
+                .setAttribute("actionUrl", profile.issuer() + "/" + NativeContracts.EXTENSION).setAttribute("signInUrl", profile.issuer() + "/account")
                 .setAttribute("messageKey", message).createForm("firefly-recovery.ftl");
         var builder = Response.fromResponse(response).header("Cache-Control", "no-store");
-        if (setCookie) builder.cookie(new NewCookie.Builder(COOKIE).value(view.ceremonyId()).path("/realms/" + session.getContext().getRealm().getName() + "/native-recovery")
+        if (setCookie) builder.cookie(new NewCookie.Builder(COOKIE).value(view.ceremonyId()).path("/realms/" + session.getContext().getRealm().getName() + "/" + NativeContracts.EXTENSION)
                 .httpOnly(true).secure(true).sameSite(NewCookie.SameSite.STRICT).maxAge(profile.ttlSeconds()).build());
         return builder.build();
     }
-    private Response unavailable() { return Response.status(400).header("Cache-Control", "no-store").entity("Recovery is unavailable or cannot be completed.").build(); }
+    private Response unavailable() {
+        Response response = session.getProvider(LoginFormsProvider.class).setError("ffidRecoveryFailed").createErrorPage(Response.Status.BAD_REQUEST);
+        return Response.fromResponse(response).header("Cache-Control", "no-store").build();
+    }
 }

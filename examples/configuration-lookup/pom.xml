@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent><groupId>org.fireflyframework</groupId><artifactId>fireflyframework-parent</artifactId><version>26.10.23</version><relativePath/></parent>
+  <groupId>io.fireflysoftware.id.examples</groupId>
+  <artifactId>firefly-id-configuration-lookup-contract</artifactId>
+  <version>26.10.1</version>
+  <name>Firefly Identity - Optional Configuration Service Issuance</name>
+  <dependencies>
+    <dependency><groupId>org.fireflyframework</groupId><artifactId>fireflyframework-security-resource-server</artifactId><version>26.10.23</version><scope>test</scope></dependency>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-webflux</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+  </dependencies>
+  <build><plugins>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId></plugin>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><configuration><failIfNoTests>true</failIfNoTests><trimStackTrace>true</trimStackTrace></configuration></plugin>
+  </plugins></build>
+</project>

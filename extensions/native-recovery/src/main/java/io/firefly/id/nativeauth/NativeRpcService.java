@@ -46,7 +46,7 @@ final class NativeRpcService {
             NativeStore store = new NativeStore(session); var user = store.local(ceremony.subject, true);
             NativeState state = store.state(ceremony.subject, false);
             boolean recording = "RECORD_EXECUTION".equals(action);
-            if (recording) require(hasJournal(store, ceremony, rpc.binding()));
+            if (recording) require(hasJournal(store, ceremony, rpc.binding(), domain ? rpc.operationId() : null, domain));
             else { store.eligible(state, user); NativeEngine.currentOwner(session, ceremony, user); require(state.generation.equals(ceremony.generation)); }
             return switch (route) {
                 case "admit" -> {
@@ -92,7 +92,7 @@ final class NativeRpcService {
                     require(recording && rpc.executionId() != null);
                     var journal = store.em.find(NativeExecution.class, rpc.executionId().toString());
                     require(journal != null && journal.subject.equals(ceremony.subject) && journal.realmId.equals(ceremony.realmId)
-                            && journal.generation.equals(ceremony.generation) && journal.bindingDigest.equals(digest(NativeActor.json(rpc.binding()))));
+                            && journal.generation.equals(ceremony.generation) && (!domain || rpc.operationId() != null && journal.operationId.equals(rpc.operationId().toString())) && journal.bindingDigest.equals(digest(NativeActor.json(rpc.binding()))));
                     yield new Execution(rpc.binding(), rpc.executionId(), journal.outcome);
                 }
                 case "reject" -> {
@@ -110,10 +110,12 @@ final class NativeRpcService {
         try { String value = new String(Base64.getDecoder().decode(header.substring(6)), StandardCharsets.UTF_8); return value.substring(0, value.indexOf(':')); }
         catch (Exception error) { throw new NativeRefusal(); }
     }
-    private static boolean hasJournal(NativeStore store, NativeCeremony ceremony, Binding binding) {
-        return !store.em.createQuery("select e from NativeExecution e where e.realmId = :realm and e.subject = :subject and e.generation = :generation and e.bindingDigest = :binding", NativeExecution.class)
+    private static boolean hasJournal(NativeStore store, NativeCeremony ceremony, Binding binding, UUID operationId, boolean exactOperation) {
+        if (exactOperation) require(operationId != null);
+        return store.em.createQuery("select e from NativeExecution e where e.realmId = :realm and e.subject = :subject and e.generation = :generation and e.bindingDigest = :binding", NativeExecution.class)
                 .setParameter("realm", ceremony.realmId).setParameter("subject", ceremony.subject).setParameter("generation", ceremony.generation)
-                .setParameter("binding", digest(NativeActor.json(binding))).getResultList().isEmpty();
+                .setParameter("binding", digest(NativeActor.json(binding))).getResultList().stream()
+                .anyMatch(journal -> !exactOperation || journal.operationId.equals(operationId.toString()));
     }
     private static String independence(NativeCeremony ceremony, String category, String credential) {
         return "native:" + digest(ceremony.realmId + ":" + ceremony.subject + ":" + category + ":" + credential);
