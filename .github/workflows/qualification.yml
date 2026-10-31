@@ -94,6 +94,8 @@ jobs:
             .work/runtime/*-diagnostics.json
             .work/extended-runtime/summary.json
             .work/policy-runtime/summary.json
+            .work/policy-runtime/*.png
+            .work/policy-runtime/admin-credentials-diagnostics.json
             .work/receiver-audiences/summary.json
             .work/localization-runtime/*.png
             .work/localization-runtime/summary.json

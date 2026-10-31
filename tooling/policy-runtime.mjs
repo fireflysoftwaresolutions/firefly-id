@@ -155,7 +155,13 @@ async function main() {
     }
     const expectedPolicy = population => ({ ...policies.defaults, ...policies.profiles[population].realmSettings });
     function assertPolicy(actual, expected) {
-      for (const [name, value] of Object.entries(expected)) assert.deepEqual(actual[name], value, 'Effective realm policy differs from selected profile');
+      for (const [name, value] of Object.entries(expected)) {
+        if (name === 'supportedLocales') {
+          assert.ok(Array.isArray(actual[name]), 'Effective supported locales must be an array');
+          assert.equal(actual[name].length, value.length, 'Effective locale count differs from selected profile');
+          assert.deepEqual(new Set(actual[name]), new Set(value), 'Effective locales differ from selected profile');
+        } else assert.deepEqual(actual[name], value, 'Effective realm policy differs from selected profile');
+      }
     }
 
     phase = 'master policy application through authenticated Admin REST API';
@@ -163,6 +169,26 @@ async function main() {
     assert.equal((await admin(api('master'), 'PUT', masterPolicy)).status, 204, 'Master policy application refused');
     assertPolicy(await adminJson(api('master')), masterPolicy);
     passed('master password and three-failure policy applied and read back through browser-authenticated Admin REST');
+
+    phase = 'branded master welcome page reload after policy application';
+    await adminPage.setViewportSize({ width: 1440, height: 1000 });
+    await adminPage.emulateMedia({ colorScheme: 'light' });
+    const masterWelcome = `${BASE}/admin/master/console/#/master/welcome`;
+    await adminPage.goto(masterWelcome);
+    await adminPage.reload();
+    await adminPage.getByTestId('welcomeTitle').waitFor({ state: 'visible' });
+    assert.ok((await adminPage.getByTestId('welcomeTitle').innerText()).includes('Firefly Identity'), 'Master welcome does not reflect the configured display name');
+    phase = 'master welcome retains native temporary-administrator warning';
+    await adminPage.locator('.pf-v5-c-banner.pf-m-gold').filter({ hasText: /temporary admin user/i }).waitFor({ state: 'visible' });
+    phase = 'safe branded master welcome screenshot';
+    assert.equal(adminPage.url(), masterWelcome, 'Master welcome route changed');
+    assert.ok(await adminPage.evaluate(() => document.body?.dataset.pageId === 'admin'
+      && !document.querySelector('#password, #passwordConfirmation, #otp, #totp, #totpSecret, #kc-totp-secret-key, #userCredentials-form')), 'Master screenshot is not a credential-free administrative welcome surface');
+    await adminPage.evaluate(() => document.fonts.ready);
+    const masterEvidence = resolve('.work/policy-runtime');
+    await mkdir(masterEvidence, { recursive: true });
+    await adminPage.screenshot({ path: `${masterEvidence}/master-branded.png`, fullPage: true });
+    passed('actual master welcome reflects Firefly Identity at desktop light size and retains the native temporary-administrator warning');
 
     phase = 'effective imported population policies';
     for (const population of ['customers', 'workforce', 'institutions']) {
@@ -517,12 +543,47 @@ async function main() {
     }
     passed('actual Admin REST enforces customer and employee minimum/maximum lengths, denylist, username/email exclusion and history; employee password alone stops at OTP enrollment');
 
-    phase = 'administrative password form masking';
+    phase = 'administrative credential fixture enabled-state readback';
     const uiFixture = manifest.users.find(user => user.population === 'customers' && user.id);
-    await adminPage.goto(`${BASE}/admin/master/console/#/sandbox-customers/users/${uiFixture.id}/credentials`);
-    await adminPage.getByRole('button', { name: /^(?:Reset|Set) password$/i }).first().click();
-    await adminPage.getByRole('dialog').waitFor();
-    await assertMaskedPasswordControls(adminPage);
+    assert.equal((await adminJson(api('customers', `/users/${uiFixture.id}`))).enabled, true, 'Credential UI fixture must remain enabled');
+    const credentialTarget = `${BASE}/admin/master/console/#/sandbox-customers/users/${uiFixture.id}/credentials`;
+    try {
+      phase = 'administrative credentials route navigation';
+      await adminPage.goto(credentialTarget);
+      phase = 'administrative native reset-password control';
+      await adminPage.getByTestId('resetPasswordBtn').first().click();
+      phase = 'administrative reset-password dialog and native input fields';
+      await adminPage.getByRole('dialog').waitFor();
+      await adminPage.locator('#userCredentials-form').waitFor({ state: 'visible' });
+      await adminPage.getByTestId('passwordField').waitFor({ state: 'visible' });
+      await adminPage.getByTestId('passwordConfirmationField').waitFor({ state: 'visible' });
+      phase = 'administrative password inputs masked and reveal controls unavailable';
+      await assertMaskedPasswordControls(adminPage);
+    } catch (error) {
+      try {
+        const structure = await adminPage.evaluate(() => {
+          const fields = [...document.querySelectorAll('#userCredentials-form input')]
+            .filter(input => ['password', 'passwordConfirmation'].includes(input.name || input.id));
+          return {
+            surfaceIsAdmin: document.body?.dataset.pageId === 'admin',
+            resetControlPresent: Boolean(document.querySelector('[data-testid="resetPasswordBtn"]')),
+            credentialFormPresent: Boolean(document.querySelector('#userCredentials-form')),
+            dialogPresent: Boolean(document.querySelector('[role="dialog"]')),
+            loginFormPresent: Boolean(document.querySelector('#kc-login')),
+            loading: Boolean(document.querySelector('.keycloak__loading-container')),
+            passwordFieldCount: Math.min(fields.length, 10),
+            passwordFieldsMasked: fields.length > 0 && fields.every(input => input.type === 'password'),
+            passwordFieldsEmpty: fields.every(input => input.value === ''),
+          };
+        });
+        const evidence = resolve('.work/policy-runtime');
+        await mkdir(evidence, { recursive: true });
+        await writeFile(`${evidence}/admin-credentials-diagnostics.json`, JSON.stringify({
+          routeMatches: adminPage.url() === credentialTarget, ...structure,
+        }, null, 2) + '\n');
+      } catch (diagnosticError) { reportFailure(diagnosticError, 'administrative credential structural diagnostics'); }
+      throw error;
+    }
     passed('actual administrative credential dialog keeps passwords masked and exposes no available reveal control');
 
     const evidence = resolve('.work/policy-runtime');

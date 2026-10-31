@@ -138,9 +138,10 @@ async function main() {
       const state = randomBytes(24).toString('base64url');
       const nonce = randomBytes(24).toString('base64url');
       let timer;
+      let callbackReceived = false;
       const callback = new Promise((ok, fail) => {
         timer = setTimeout(() => fail(new Error('Extended callback deadline exceeded')), 120000);
-        pending.set(state, url => { clearTimeout(timer); pending.delete(state); ok(url); });
+        pending.set(state, url => { callbackReceived = true; clearTimeout(timer); pending.delete(state); ok(url); });
       });
       // Required-action UI work precedes awaiting the callback; keep failures handled meanwhile.
       callback.catch(() => {});
@@ -158,6 +159,7 @@ async function main() {
         }
       } catch (error) { cancel(); throw error; }
       return { context, page, metadata, cancel,
+        get callbackReceived() { return callbackReceived; },
         async finish() {
           try {
             const result = await callback;
@@ -374,23 +376,31 @@ async function main() {
         await protectedJson(filename, factor);
         passed(enrolledNow ? 'workforce real TOTP enrollment and signed STAFF identity' : 'workforce retained TOTP factor and signed STAFF identity');
       } finally { initial.cancel(); await initial.context.close(); }
+      phase = 'workforce fresh browser challenge authentication';
       const challenge = await startLogin('workforce', credentials.workforce);
       try {
-        phase = 'workforce wrong OTP refusal and real valid challenge';
+        phase = 'workforce fresh OTP challenge field';
         await challenge.page.locator('#otp').waitFor();
         const now = Date.now() / 1000;
         const validWindow = new Set([-30, 0, 30].map(offset => totpCode(factor.secret, now + offset)));
         let wrong = 0;
         while (validWindow.has(wrong.toString().padStart(6, '0'))) wrong++;
+        phase = 'workforce wrong OTP submission';
         await challenge.page.locator('#otp').fill(wrong.toString().padStart(6, '0'));
         await challenge.page.locator('#kc-login').click();
-        await challenge.page.locator('#input-error-otp-code').waitFor();
-        assert.ok(!challenge.page.url().startsWith(REDIRECT), 'Invalid OTP reached callback');
+        phase = 'workforce visible native OTP refusal without callback';
+        await challenge.page.locator('#input-error-otp').waitFor({ state: 'visible' });
+        assert.ok((await challenge.page.locator('#input-error-otp').innerText()).trim(), 'Native OTP error is empty');
+        assert.equal(await challenge.page.locator('#otp').getAttribute('aria-invalid'), 'true', 'Wrong OTP was not marked invalid');
+        assert.ok(!challenge.callbackReceived && !challenge.page.url().startsWith(REDIRECT), 'Invalid OTP reached callback');
+        phase = 'workforce fresh valid factor generation';
         const code = await nextCode();
         factor.lastAttemptedCounter = code.counter;
         await protectedJson(filename, factor);
+        phase = 'workforce valid OTP submission';
         await challenge.page.locator('#otp').fill(code.value);
         await challenge.page.locator('#kc-login').click();
+        phase = 'workforce valid OTP signed code exchange';
         const result = await challenge.finish();
         assert.equal(result.claims.principal_kind, 'STAFF');
         assert.equal(result.claims.tenant_id, 'synthetic-tenant');

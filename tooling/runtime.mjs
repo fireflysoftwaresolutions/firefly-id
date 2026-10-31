@@ -211,6 +211,7 @@ try {
   await page.screenshot({ path: `${evidence}/account-desktop-light.png`, fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: 'dark' });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Account layout overflows the mobile viewport');
   await page.screenshot({ path: `${evidence}/account-mobile-dark.png`, fullPage: true });
   passed('real account console and self-hosted Manrope');
   await captureAccountDiagnostics(evidence, 'account', { failure: false });
@@ -276,6 +277,7 @@ try {
   await adminPage.screenshot({ path: `${evidence}/admin-desktop-light.png`, fullPage: true });
   await adminPage.setViewportSize({ width: 390, height: 844 });
   await adminPage.emulateMedia({ colorScheme: 'dark' });
+  assert.ok(await adminPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Administration layout overflows the mobile viewport');
   await adminPage.screenshot({ path: `${evidence}/admin-mobile-dark.png`, fullPage: true });
   await adminContext.close();
   passed('real master administration console and self-hosted Manrope');

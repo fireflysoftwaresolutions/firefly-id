@@ -34,6 +34,14 @@ a { text-underline-offset: .2em; }
 .pf-v5-theme-dark :focus-visible { outline-color: #ffb34a; }
 .pf-v5-c-masthead, .pf-v5-c-page__header { background: #10110f; }
 .pf-v5-c-brand { width: 184px; max-height: 44px; }
+.pf-v5-c-page__sidebar { background: #272820; }
+.pf-v5-c-form { --pf-v5-c-form--Gap: 24px; }
+.pf-v5-c-form__label { font: 650 14px/1.5 Manrope, sans-serif; }
+.pf-v5-c-form-control { min-height: 44px; border: 1px solid #d8d4ca; border-radius: 8px; }
+.pf-v5-c-form-control::before, .pf-v5-c-form-control::after { border: 0; }
+.pf-v5-c-form-control:focus-within { outline: 2px solid #855414; outline-offset: 2px; }
+.pf-v5-theme-dark .pf-v5-c-form-control { border-color: #62645b; }
+.pf-v5-theme-dark .pf-v5-c-form-control:focus-within { outline-color: #ffb34a; }
 .pf-v5-c-button { min-height: 44px; border-radius: 8px; }
 .pf-v5-c-button.pf-m-primary {
   --pf-v5-c-button--m-primary--BackgroundColor: #ffb34a;

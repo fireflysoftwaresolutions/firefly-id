@@ -47,6 +47,8 @@ The policy runner first logs into the actual master administration console with 
 
 The private-loopback synthetic bootstrap remains usable to qualify the installation. Production admission requires permanent named administrators with approved phishing-resistant MFA/passkeys, least privilege, verified recovery, reviewed ingress, and removal of temporary bootstrap access after successful replacement. The production generator remains fail closed until a deployment contract is selected. A live administrative password/lockout readback alone does not qualify the administrative plane for production. [Supported Admin REST realm update](https://www.keycloak.org/docs-api/26.8.1/rest-api/index.html#_realms_admin).
 
+The selected master profile also applies the Firefly Identity display name and English/Spanish locale settings through that explicit administrative operation. Localized welcome copy and the family theme brand the management workspace. The native temporary-administrator warning remains visible; presentation does not qualify permanent administration or MFA.
+
 Retained application realms need an explicit reviewed migration and effective-policy readback. Preserve their users, factors, identity linkage, secrets and login-failure state. Do not delete/reimport realms, clear counters, rotate everyone or overwrite preserved credentials as a policy-update shortcut.
 
 ## What the European sources require

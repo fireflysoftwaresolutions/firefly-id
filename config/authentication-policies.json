@@ -49,6 +49,10 @@
       "application": "explicit-admin-api-after-bootstrap",
       "mfaRequired": true,
       "realmSettings": {
+        "displayName": "Firefly Identity",
+        "internationalizationEnabled": true,
+        "supportedLocales": ["en", "es"],
+        "defaultLocale": "en",
         "ssoSessionIdleTimeout": 300,
         "ssoSessionMaxLifespan": 3600,
         "accessTokenLifespan": 60,
