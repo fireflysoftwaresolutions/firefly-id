@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 import sys
 import xml.etree.ElementTree as ET
+import zipfile
 
 root = Path(__file__).resolve().parents[1]
 status = int(sys.argv[1])
@@ -27,6 +28,13 @@ for path in sorted((root / "extensions").glob("*/target/surefire-reports/TEST-*.
     reports.append(record)
 summary = {"maven_exit": status, "suites": reports,
            "scope": "Native extension compilation and tests; real provider/integration acceptance is separate."}
+if not status:
+    for module in ("native-recovery", "native-domain-gateway"):
+        artifact = root / "extensions" / module / "target" / ("firefly-id-" + module + "-26.10.1-SNAPSHOT.jar")
+        with zipfile.ZipFile(artifact) as archive:
+            assert archive.read("META-INF/LICENSE") == (root / "LICENSE").read_bytes()
+            assert archive.read("META-INF/NOTICE") == (root / "NOTICE").read_bytes()
+    summary["distribution_notices_verified"] = True
 target = root / ".qualification/native-build-summary.json"
 target.parent.mkdir(exist_ok=True)
 target.write_text(json.dumps(summary, indent=2) + "\n")

@@ -42,6 +42,10 @@ class NativeInvalidationDeletionTest {
         KeycloakSession session = mock(KeycloakSession.class, RETURNS_DEEP_STUBS);
         when(session.getContext().getRealm().getId()).thenReturn("realm");
         when(session.getContext().getRealm().getAttribute("firefly.native-recovery.population")).thenReturn("HUMAN");
+        EntityManager manager = mock(EntityManager.class);
+        JpaConnectionProvider provider = mock(JpaConnectionProvider.class);
+        when(provider.getEntityManager()).thenReturn(manager);
+        doReturn(provider).when(session).getProvider(JpaConnectionProvider.class);
         return session;
     }
     private static EntityManager em(KeycloakSession session) { return session.getProvider(JpaConnectionProvider.class).getEntityManager(); }
