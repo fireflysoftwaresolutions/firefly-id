@@ -126,7 +126,7 @@ def realm(kind, password, backend_secret, verification_password=None, policy_fix
         'revokeRefreshToken': True, 'refreshTokenMaxReuse': 0,
         'loginTheme': 'firefly-id', 'accountTheme': 'firefly-id',
         'adminTheme': 'firefly-id', 'emailTheme': 'firefly-id',
-        'internationalizationEnabled': False, 'supportedLocales': ['en'],
+        'internationalizationEnabled': True, 'supportedLocales': ['en', 'es'],
         'defaultLocale': 'en',
         'eventsEnabled': True, 'eventsExpiration': 604800,
         'adminEventsEnabled': True, 'adminEventsDetailsEnabled': False,

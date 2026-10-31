@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { consoleErrorGroup, consoleResourceGroup } from '../tooling/console-diagnostics.mjs';
+import { accountBearerShape, consoleErrorGroup, consoleResourceGroup } from '../tooling/console-diagnostics.mjs';
 
 test('console failure categories never retain credential-bearing URL or exception text', () => {
   const secret = 'PRIVATE_SENTINEL';
@@ -13,6 +13,17 @@ test('console failure categories never retain credential-bearing URL or exceptio
   for (const message of [`Web Crypto API unavailable ${secret}`, `Unexpected token ${secret}`, secret]) {
     assert.ok(!consoleErrorGroup(new Error(message)).includes(secret));
   }
+});
+
+test('account bearer diagnostics retain booleans only even for credential-bearing payloads', () => {
+  const payload = { sub: 'PRIVATE_SENTINEL', azp: 'account-console', aud: ['account'],
+    iss: 'http://id.firefly.test:8180/realms/sandbox-customers', exp: Date.now() / 1000 + 60,
+    resource_access: { account: { roles: ['manage-account', 'PRIVATE_SENTINEL'] } } };
+  const shape = accountBearerShape(`Bearer header.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.signature`);
+  assert.ok(Object.values(shape).every(value => typeof value === 'boolean'));
+  assert.ok(shape.subjectPresent && shape.audienceHasAccount && shape.manageAccountRolePresent);
+  assert.ok(!JSON.stringify(shape).includes('PRIVATE_SENTINEL'));
+  assert.deepEqual(accountBearerShape('Bearer undefined'), { bearerPresent: true, bearerJwtParseable: false });
 });
 
 test('console diagnostics distinguish shared assets, account APIs and initialization failures', () => {

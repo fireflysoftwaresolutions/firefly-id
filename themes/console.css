@@ -26,7 +26,7 @@ body[data-page-id='admin'], body[data-page-id='account'] { display: flex; flex-d
 body[data-page-id] > #app { flex: 1; min-height: 0; height: auto; }
 #app .pf-v5-c-page { min-height: 0; height: 100%; }
 #ffid-copyright { flex: none; padding: 8px 16px; background: var(--pf-v5-global--BackgroundColor--200); color: var(--pf-v5-global--Color--200); font: 12px/1.5 Manrope, sans-serif; text-align: center; }
-button[data-password-toggle], button[aria-label='Show password'], button[aria-label='Hide password'], button[aria-label='showPassword'], button[aria-label='hidePassword'] { display: none; }
+button[data-password-toggle], button[aria-label='Show password'], button[aria-label='Hide password'], button[aria-label='showPassword'], button[aria-label='hidePassword'], button[aria-label='Mostrar contraseña'], button[aria-label='Ocultar contraseña'], button[aria-label='Mostrar campo de contraseña en texto claro'], button[aria-label='Ocultar campo de contraseña en texto claro'] { display: none; }
 ::selection { color: #10110f; background: #ffb34a; }
 a { text-underline-offset: .2em; }
 :focus-visible { outline: 3px solid #855414; outline-offset: 3px; }
@@ -41,5 +41,30 @@ a { text-underline-offset: .2em; }
   --pf-v5-c-button--m-primary--hover--Color: #10110f;
 }
 .keycloak__loading-container { color: #272820; background: #f3f1eb; }
+.ffid-error-dialog {
+  width: min(540px, calc(100vw - 32px));
+  max-width: 540px;
+  border: 1px solid #d8d4ca;
+  border-radius: 16px;
+  background: #ffffff;
+  color: #272820;
+  box-shadow: 0 16px 48px rgb(16 17 15 / 12%);
+  overflow-wrap: anywhere;
+}
+.ffid-error-dialog .pf-v5-c-modal-box__header { padding: 32px 32px 20px; }
+.ffid-error-brand { display: block; width: min(100%, 250px); height: 44px; object-fit: contain; object-position: left; margin-bottom: 32px; }
+.ffid-error-dialog .pf-v5-c-modal-box__title { font: 600 28px/1.25 Manrope, sans-serif; letter-spacing: -.025em; color: inherit; }
+.ffid-error-dialog .pf-v5-c-modal-box__body { padding: 0 32px; color: #62645b; font: 16px/1.65 Manrope, sans-serif; }
+.ffid-error-dialog .pf-v5-c-modal-box__footer { padding: 24px 32px 32px; }
+.ffid-error-dialog .pf-v5-c-button.pf-m-primary { min-width: 132px; background: #ffb34a; color: #10110f; }
+.ffid-error-dialog .pf-v5-c-button.pf-m-primary:hover { background: #f3f1eb; color: #10110f; }
+.pf-v5-theme-dark .ffid-error-dialog { border-color: #474a42; background: #272820; color: #f3f1eb; }
+.pf-v5-theme-dark .ffid-error-dialog .pf-v5-c-modal-box__body { color: #bfb8ab; }
+@media (max-width: 540px) {
+  .ffid-error-dialog .pf-v5-c-modal-box__header { padding: 24px 24px 16px; }
+  .ffid-error-dialog .pf-v5-c-modal-box__body { padding-inline: 24px; }
+  .ffid-error-dialog .pf-v5-c-modal-box__footer { padding: 24px; }
+  .ffid-error-dialog .pf-v5-c-modal-box__title { font-size: 24px; }
+}
 @media (prefers-color-scheme: dark) { .keycloak__loading-container { color: #f3f1eb; background: #10110f; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }

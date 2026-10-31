@@ -51,6 +51,9 @@ class DeploymentGenerationTest(unittest.TestCase):
             for realm in realms:
                 self.assertFalse(realm['registrationAllowed'])
                 self.assertTrue(realm['resetPasswordAllowed'])
+                self.assertTrue(realm['internationalizationEnabled'])
+                self.assertEqual(realm['supportedLocales'], ['en', 'es'])
+                self.assertEqual(realm['defaultLocale'], 'en')
                 component = realm['components']['org.keycloak.userprofile.UserProfileProvider'][0]
                 profile = json.loads(component['config']['kc.user.profile.config'][0])
                 # Keycloak 26.8.1 UPConfig has ENABLED/ADMIN_VIEW/ADMIN_EDIT only;

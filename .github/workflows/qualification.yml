@@ -76,6 +76,9 @@ jobs:
       - name: Authentication policy and population isolation
         if: ${{ !cancelled() && steps.owned-runtime.outcome == 'success' && steps.browser-tools.outcome == 'success' }}
         run: node tooling/policy-runtime.mjs
+      - name: English and Spanish identity journeys
+        if: ${{ !cancelled() && steps.owned-runtime.outcome == 'success' && steps.browser-tools.outcome == 'success' }}
+        run: node tooling/localization-runtime.mjs
       - name: Preserve redacted visual and result evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -88,6 +91,8 @@ jobs:
             .work/runtime/*-diagnostics.json
             .work/extended-runtime/summary.json
             .work/policy-runtime/summary.json
+            .work/localization-runtime/*.png
+            .work/localization-runtime/summary.json
           if-no-files-found: ignore
           retention-days: 7
       - name: Stop only the owned runtime

@@ -377,21 +377,24 @@ async function main() {
     assert.ok(delivered, 'No fresh synthetic recovery mail arrived in the local sink');
     passed('known, unknown and disabled recovery acknowledgements match; fresh synthetic mail arrives in the local sink');
 
-    phase = 'old recovery link and refresh token cannot bypass permanent blocking';
+    phase = 'pre-block recovery mail retrieval';
     const mailResponse = await request(`http://localhost:8025/api/v1/message/${delivered.ID}`);
     assert.equal(mailResponse.status, 200);
     const mail = await mailResponse.json();
+    phase = 'pre-block recovery action extraction';
     const matched = mail.HTML.match(/href="([^"\s]*\/login-actions\/action-token[^"\s]*)"/);
     assert.ok(matched, 'Fresh server recovery action missing');
     const oldAction = new URL(matched[1].replaceAll('&amp;', '&'));
     assert.equal(oldAction.origin, BASE);
     assert.ok(oldAction.pathname.startsWith('/realms/sandbox-customers/login-actions/action-token'));
+    phase = 'pre-block recovery fixture browser authentication';
     const beforeBlock = await begin('customers');
     let previouslyIssued;
     try {
       await beforeBlock.submit(recovery.username, recovery.password);
       previouslyIssued = await beforeBlock.finish();
     } finally { await beforeBlock.close(); }
+    phase = 'pre-block browser token shape and confidential introspection endpoint';
     assert.ok(previouslyIssued.refresh_token, 'Actual browser-issued refresh token required');
     const issuedAccess = JSON.parse(Buffer.from(previouslyIssued.access_token.split('.')[1], 'base64url'));
     assert.equal(issuedAccess.iss, metadataCache.get('customers').issuer);
@@ -413,30 +416,37 @@ async function main() {
       if (result.sub !== undefined) assert.equal(result.sub, issuedAccess.sub);
       return result;
     }
+    phase = 'pre-block native confidential-client introspection';
     assert.equal((await introspectPreviouslyIssuedAccess()).active, true, 'Fresh browser-issued access token is not active');
+    phase = 'recovery fixture exact third-failure blocking';
     for (let attempt = 0; attempt < 3; attempt++) assert.deepEqual(await refused(recovery), baseline);
     const recoveryUserUrl = api('customers', `/users/${recovery.id}`);
     assertPermanentBlock((await permanentState(recovery)).user);
+    phase = 'blocked-user native confidential-client introspection';
     const blockedIntrospection = await introspectPreviouslyIssuedAccess();
     assert.ok(issuedAccess.exp > Date.now() / 1000, 'Access token expired before the disabled-user introspection check');
     assert.equal(blockedIntrospection.active, false, 'Native introspection accepted the disabled user');
     passed('native confidential-client introspection changes from active to inactive after permanent blocking while the browser-issued access token remains unexpired');
+    phase = 'blocked-user previously issued refresh token refusal';
     const refresh = await request(metadataCache.get('customers').token_endpoint, {
       method: 'POST', body: new URLSearchParams({ grant_type: 'refresh_token', client_id: CLIENT,
         refresh_token: previouslyIssued.refresh_token }),
     });
     assert.equal(refresh.status, 400, 'A previously issued refresh token bypassed permanent blocking');
     assert.equal((await refresh.json()).error, 'invalid_grant');
+    phase = 'blocked-user old recovery action navigation refusal';
     const blockedActionContext = await browser.newContext();
     try {
       const actionPage = await blockedActionContext.newPage();
       const response = await actionPage.goto(oldAction.href);
       assert.ok(response && response.status() >= 400 && response.status() < 500, 'Old recovery action was not refused');
+      phase = 'blocked-user old recovery action public response and form refusal';
       await publicMessage(actionPage);
       assert.equal(await actionPage.locator('#password-new, #password-confirm').count(), 0,
         'An old recovery action exposed password replacement for a blocked user');
       assert.ok(!actionPage.url().startsWith(REDIRECT), 'Old recovery action issued an authentication callback');
     } finally { await blockedActionContext.close(); }
+    phase = 'permanent block retained after old recovery and refresh probes';
     assertPermanentBlock(await adminJson(recoveryUserUrl));
     passed('a pre-block browser refresh token and pre-block reset link cannot issue new authentication or remove the native permanent block');
 

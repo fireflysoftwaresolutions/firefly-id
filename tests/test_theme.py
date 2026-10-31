@@ -1,5 +1,6 @@
 import importlib.util
 import hashlib
+import re
 import tempfile
 import unittest
 import zipfile
@@ -9,6 +10,29 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ThemePackagingTest(unittest.TestCase):
+    def test_bilingual_messages_preserve_placeholders_and_generic_signin_failures(self):
+        bundles = {}
+        for kind in ("login", "email", "account", "admin"):
+            bundles[kind] = {}
+            for locale in ("en", "es"):
+                source = ROOT / "themes/firefly-id" / kind / "messages" / f"messages_{locale}.properties"
+                messages = dict(line.split("=", 1) for line in source.read_text().splitlines()
+                                if line and not line.startswith("#"))
+                bundles[kind][locale] = messages
+            for key, english in bundles[kind]["en"].items():
+                with self.subTest(kind=kind, key=key):
+                    self.assertIn(key, bundles[kind]["es"])
+                    self.assertEqual(sorted(re.findall(r"\{\d+\}", english)),
+                                     sorted(re.findall(r"\{\d+\}", bundles[kind]["es"][key])))
+        errors = ("invalidUserMessage", "invalidUsernameMessage", "invalidUsernameOrEmailMessage",
+                  "invalidPasswordMessage", "accountDisabledMessage", "accountTemporarilyDisabledMessage",
+                  "accountPermanentlyDisabledMessage", "invalidTotpMessage",
+                  "accountTemporarilyDisabledMessageTotp", "accountPermanentlyDisabledMessageTotp")
+        for locale in ("en", "es"):
+            messages = bundles["login"][locale]
+            self.assertEqual({messages[key] for key in errors}, {messages["invalidUserMessage"]})
+            self.assertNotRegex(messages["invalidUserMessage"], r"\d|\{\d+\}")
+
     def test_advance_notice_preserves_the_exact_upstream_protocol_template(self):
         template = (ROOT / "themes/firefly-id/login/template.ftl").read_text()
         header, body = template.split('\n', 1)
