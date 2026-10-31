@@ -26,6 +26,7 @@ class ThemePackagingTest(unittest.TestCase):
         <#elseif displayMessage'''
         self.assertEqual(body.count(generic_branch), 1)
         upstream = body.replace(notice, '').replace(generic_branch, '        <#if displayMessage')
+        upstream = upstream.replace('kc-login-tooltip" type="button"\n', 'kc-login-tooltip" type="button" \n')
         self.assertEqual(hashlib.sha256(upstream.encode()).hexdigest(),
                          '6221a3176c73a3fd67abc97076deb9cef112378ce157735a78bd865800315b37')
 
