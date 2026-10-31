@@ -13,6 +13,12 @@
       <#if stage == "COMPLETE">
         <p>${msg("ffidRecoveryCompleteInstruction")}</p>
         <a class="${properties.kcButtonClass!} ${properties.kcButtonPrimaryClass!} ${properties.kcButtonBlockClass!}" href="${signInUrl}">${msg("doLogIn")}</a>
+        <#if auditRetry!false>
+          <form id="ffid-recovery-audit-retry" class="ffid-journey-return" action="${actionUrl}" method="post">
+            <input type="hidden" name="csrf" value="${csrf}" />
+            <button class="${properties.kcButtonClass!} ${properties.kcButtonSecondaryClass!}" type="submit">${msg("doContinue")}</button>
+          </form>
+        </#if>
       <#else>
         <p><#if stage == "TOTP">${msg("ffidRecoveryOtpInstruction")}<#else>${msg("ffidRecoveryInstruction")}</#if></p>
         <form id="ffid-native-recovery" class="${properties.kcFormClass!}" action="${actionUrl}" method="post">

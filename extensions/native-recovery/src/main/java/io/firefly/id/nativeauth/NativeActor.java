@@ -23,7 +23,7 @@ final class NativeActor {
         token.setOtherClaims("recovery_purpose", PURPOSE); token.setOtherClaims("recovery_ceremony_id", ceremony.id);
         token.setOtherClaims("recovery_lock_generation", ceremony.generation);
         token.setOtherClaims("recovery_realm", session.getContext().getRealm().getName());
-        token.setOtherClaims("scope", "firefly.recovery");
+        token.setScope("firefly.recovery");
         token.setOtherClaims("HUMAN".equals(profile.population()) ? "party_id" : "staff_actor_id", ceremony.ownerLink);
         return session.tokens().encode(token);
     }
@@ -39,7 +39,7 @@ final class NativeActor {
                 && token.getAudience() != null && Set.copyOf(Arrays.asList(token.getAudience())).equals(Set.of(profile.domainAudience(), profile.coreAudience())));
         var claims = token.getOtherClaims();
         require(Boolean.TRUE.equals(claims.get("recovery_only")) && PURPOSE.equals(claims.get("recovery_purpose"))
-                && "firefly.recovery".equals(claims.get("scope")) && profile.clientId().equals(claims.get("client_id"))
+                && "firefly.recovery".equals(token.getScope()) && profile.clientId().equals(claims.get("client_id"))
                 && profile.population().equals(claims.get("principal_kind")) && !claims.containsKey("roles") && !claims.containsKey("authorities"));
         require(!claims.containsKey("HUMAN".equals(profile.population()) ? "staff_actor_id" : "party_id"));
         Object ceremonyId = claims.get("recovery_ceremony_id"); require(ceremonyId instanceof String);
