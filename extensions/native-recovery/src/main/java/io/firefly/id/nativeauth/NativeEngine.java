@@ -31,11 +31,16 @@ final class NativeEngine {
     View resume(String id) {
         String csrf = randomToken();
         return NativePhases.run(request, session -> {
-            NativeCeremony c = new NativeStore(session).ceremony(id);
-            if ("PROCESSING".equals(c.stage)) c.stage = c.bindingJson == null ? PASSWORD : TOTP;
-            require(PASSWORD.equals(c.stage) || TOTP.equals(c.stage) || COMPLETE.equals(c.stage));
+            NativeStore store = new NativeStore(session); NativeCeremony c = store.ceremony(id);
+            c.stage = resumedStage(c.stage, c.bindingJson != null, journal(store, c) != null);
             c.csrfDigest = digest(csrf); return new View(c.id, csrf, c.stage);
         });
+    }
+    static String resumedStage(String stage, boolean admitted, boolean committed) {
+        if (committed) return COMPLETE;
+        if ("PROCESSING".equals(stage)) return admitted ? TOTP : PASSWORD;
+        if ("ADMITTED".equals(stage)) return TOTP;
+        require(PASSWORD.equals(stage) || TOTP.equals(stage) || COMPLETE.equals(stage)); return stage;
     }
     record CompletedFactor(Reservation reservation, String attestation) { }
     CompletedFactor completedPossession(String id) {
@@ -150,7 +155,46 @@ final class NativeEngine {
         });
     }
     View stage(String id, String next, String csrf) {
-        return NativePhases.run(request, session -> { var c = new NativeStore(session).ceremony(id); c.stage = next; return new View(c.id, csrf, next); });
+        return NativePhases.run(request, session -> {
+            NativeStore store = new NativeStore(session); var c = store.ceremony(id);
+            c.stage = journal(store, c) == null ? next : COMPLETE; return new View(c.id, csrf, c.stage);
+        });
+    }
+    boolean recordPending(String id) {
+        return NativePhases.run(request, session -> {
+            NativeStore store = new NativeStore(session); NativeCeremony c = store.ceremony(id); NativeExecution journal = journal(store, c);
+            if (journal == null) return false;
+            journal.authorization(c);
+            return !journal.recorded && journal.recordAttempts < 3 && c.expiresAt / 1000 > System.currentTimeMillis() / 1000;
+        });
+    }
+    private record PendingRecord(String assertion, Authorization authorization, String outcome) { }
+    boolean reconcile(String id, NativeCeremonyGateway gateway) {
+        PendingRecord pending = NativePhases.run(request, session -> {
+            NativeStore store = new NativeStore(session); NativeCeremony c = store.ceremony(id); NativeExecution journal = journal(store, c);
+            require(journal != null); Authorization authorization = journal.authorization(c);
+            if (!journal.reserveRecording(c, System.currentTimeMillis())) return null;
+            store.audit(c.subject, "NATIVE_EXECUTION_RECORD_RESERVED", journal.id);
+            return new PendingRecord(NativeActor.sign(session, c), authorization, journal.outcome);
+        });
+        if (pending == null) return NativePhases.run(request, session -> {
+            NativeStore store = new NativeStore(session); NativeCeremony c = store.ceremony(id); NativeExecution journal = journal(store, c);
+            require(journal != null); journal.authorization(c); return journal.recorded;
+        });
+        // This is the only external operation: the authorization is already committed and must never be consumed again.
+        gateway.recordExecution(pending.assertion(), pending.authorization(), pending.outcome());
+        return NativePhases.run(request, session -> {
+            NativeStore store = new NativeStore(session); NativeCeremony c = store.em.find(NativeCeremony.class, id, LockModeType.PESSIMISTIC_WRITE);
+            require(c != null && c.realmId.equals(session.getContext().getRealm().getId()));
+            NativeExecution journal = journal(store, c); require(journal != null); journal.requireAuthorization(c, pending.authorization());
+            if (!journal.recorded) { journal.recorded = true; store.audit(c.subject, "NATIVE_EXECUTION_RECORDED", journal.id); }
+            c.stage = COMPLETE; return true;
+        });
+    }
+    private static NativeExecution journal(NativeStore store, NativeCeremony ceremony) {
+        var journals = store.em.createQuery("select e from NativeExecution e where e.ceremonyId = :ceremony", NativeExecution.class)
+                .setParameter("ceremony", ceremony.id).setLockMode(LockModeType.PESSIMISTIC_WRITE).setMaxResults(2).getResultList();
+        require(journals.size() <= 1); return journals.isEmpty() ? null : journals.get(0);
     }
     Execution execute(String id, Authorization authorization) {
         return NativePhases.run(request, session -> {
@@ -158,7 +202,7 @@ final class NativeEngine {
             require(authorization != null && authorization.binding().equals(NativeActor.binding(c)) && authorization.operationId().toString().equals(c.operationId));
             var user = store.local(c.subject, true); var state = store.state(c.subject, false);
             NativeExecution existing = store.em.find(NativeExecution.class, authorization.executionId().toString(), LockModeType.PESSIMISTIC_WRITE);
-            if (existing != null) { require(existing.bindingDigest.equals(digest(NativeActor.json(authorization.binding()))) && existing.operationId.equals(c.operationId)); return new Execution(authorization.binding(), authorization.executionId(), existing.outcome); }
+            if (existing != null) { existing.requireAuthorization(c, authorization); return new Execution(authorization.binding(), authorization.executionId(), existing.outcome); }
             store.eligible(state, user); currentOwner(session, c, user); require(state.generation.equals(c.generation) && authorization.expiresAt().isAfter(Instant.now()));
             var proofs = store.em.createQuery("select p from NativeAttestation p where p.ceremonyId = :ceremony and p.operationId = :operation and p.verified = true", NativeAttestation.class)
                     .setParameter("ceremony", c.id).setParameter("operation", c.operationId).getResultList();
@@ -170,9 +214,7 @@ final class NativeEngine {
             session.users().setNotBeforeForUser(session.getContext().getRealm(), user, org.keycloak.common.util.Time.currentTime());
             session.loginFailures().removeUserLoginFailure(session.getContext().getRealm(), user.getId());
             user.removeAttribute(UserModel.DISABLED_REASON); user.setEnabled(true); state.locked = false; store.invalidateCache(user);
-            NativeExecution journal = new NativeExecution(); journal.id = authorization.executionId().toString(); journal.realmId = c.realmId;
-            journal.subject = c.subject; journal.generation = c.generation; journal.operationId = c.operationId;
-            journal.bindingDigest = digest(NativeActor.json(authorization.binding())); journal.outcome = "SUCCEEDED"; journal.completedAt = System.currentTimeMillis(); store.em.persist(journal);
+            NativeExecution journal = NativeExecution.committed(c, authorization, "SUCCEEDED", System.currentTimeMillis()); store.em.persist(journal);
             store.audit(c.subject, "NATIVE_UNLOCK_COMMITTED", journal.id); c.stage = COMPLETE;
             return new Execution(authorization.binding(), authorization.executionId(), "SUCCEEDED");
         });

@@ -102,4 +102,14 @@
     <sql>CREATE TRIGGER ff_native_audit_immutable BEFORE UPDATE OR DELETE ON ff_native_audit FOR EACH ROW EXECUTE FUNCTION ff_native_audit_immutable()</sql>
     <sql>CREATE TRIGGER ff_native_audit_no_truncate BEFORE TRUNCATE ON ff_native_audit FOR EACH STATEMENT EXECUTE FUNCTION ff_native_audit_immutable()</sql>
   </changeSet>
+  <changeSet id="firefly-native-execution-reconciliation-1" author="firefly-id">
+    <addColumn tableName="ff_native_execution">
+      <column name="ceremony_id" type="VARCHAR(1024)"/>
+      <column name="binding_json" type="VARCHAR(8192)"/>
+      <column name="authorization_expires_at" type="VARCHAR(64)"/>
+      <column name="record_attempts" type="INT" defaultValueNumeric="0"><constraints nullable="false"/></column>
+      <column name="recorded" type="BOOLEAN" defaultValueBoolean="false"><constraints nullable="false"/></column>
+    </addColumn>
+    <addUniqueConstraint tableName="ff_native_execution" columnNames="ceremony_id" constraintName="ff_native_execution_ceremony"/>
+  </changeSet>
 </databaseChangeLog>

@@ -1,0 +1,117 @@
+name: Real native recovery integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      domain_sha:
+        description: Exact Domain source commit with genuine producer SDK fixture
+        required: true
+        type: string
+      core_sha:
+        description: Exact qualified owning Core commit including narrow self policy
+        required: true
+        default: c91880ac092eec11ec4640a65a599a8a1d9d5c2a
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-integration-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  actual-native-core-domain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: fireflysoftwaresolutions/domain-common-sca
+          ref: ${{ inputs.domain_sha }}
+          path: .qualification/domain
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: fireflysoftwaresolutions/core-common-sca-mgmt
+          ref: ${{ inputs.core_sha }}
+          path: .qualification/domain/.qualification/core
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: fireflysoftwaresolutions/firefly-parent
+          ref: 6442bd51733ade4d5f4583e1afe812dd2c520b40
+          path: .qualification/domain/.qualification/firefly-parent
+      - name: Verify exact source inputs without mutation
+        env:
+          DOMAIN_PIN: ${{ inputs.domain_sha }}
+          CORE_PIN: ${{ inputs.core_sha }}
+        run: |
+          python3 - <<'PY'
+          import os,re,subprocess
+          from pathlib import Path
+          for key,path in [('DOMAIN_PIN','.qualification/domain'),('CORE_PIN','.qualification/domain/.qualification/core')]:
+              pin=os.environ[key]
+              assert re.fullmatch('[0-9a-f]{40}',pin)
+              assert subprocess.check_output(['git','-C',path,'rev-parse','HEAD'],text=True).strip()==pin
+          assert Path('.qualification/domain/tooling/recovery-core-source.txt').read_text().strip()==os.environ['CORE_PIN']
+          print('Immutable owning source pins match; released coordinates remain untouched.')
+          PY
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build and test actual native owner and Domain gateway
+        run: |
+          umask 077
+          mkdir -p .qualification
+          status=0
+          mvn -B -ntp -f extensions/pom.xml -Dmaven.repo.local="$RUNNER_TEMP/native-owner-m2" verify > .qualification/native-maven.log 2>&1 || status=$?
+          python3 tooling/summarize_native_build.py "$status"
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Build genuine producer SDK and actual Domain executable
+        working-directory: .qualification/domain
+        run: |
+          umask 077
+          python3 -m pip install --quiet --disable-pip-version-check PyYAML==6.0.3
+          python3 tooling/prepare_recovery_sdk_fixture.py
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Install pinned owned browser tooling
+        working-directory: tooling
+        run: |
+          npm ci --ignore-scripts
+          npx playwright install --with-deps chromium
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libnss3-tools
+      - name: Prepare isolated state and real TLS trust
+        run: |
+          python3 tooling/build_theme.py
+          python3 tooling/native_integration_fixture.py prepare
+      - name: Start actual native and owning service processes
+        run: python3 tooling/native_integration_fixture.py start
+      - name: Exercise genuine two-factor recovery and native PIN lifecycle
+        run: node tooling/native-runtime.mjs
+      - name: Preserve only bounded evidence and credential-free completion captures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: real-native-integration-evidence
+          path: |
+            .work/native-integration/summary.json
+            .work/native-integration/manifest.json
+            .work/native-integration/boot-summary.json
+            .work/native-integration/*-complete.png
+            .work/native-integration/customers-pin-*.png
+            .qualification/native-build-summary.json
+            .qualification/domain/.qualification/sdk-domain-summary.json
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Stop only this attempt's owned runtime
+        if: always()
+        run: |
+          state=".state/native-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/ownership.json"
+          if test -f "$state"; then python3 tooling/native_integration_fixture.py stop; fi

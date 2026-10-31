@@ -10,8 +10,21 @@ status = int(sys.argv[1])
 reports = []
 for path in sorted((root / "extensions").glob("*/target/surefire-reports/TEST-*.xml")):
     tree = ET.parse(path).getroot()
-    reports.append({"module": path.parts[-4], "suite": tree.get("name"),
-                    **{key: int(tree.get(key, "0")) for key in ("tests", "failures", "errors", "skipped")}})
+    record = {"module": path.parts[-4], "suite": tree.get("name"),
+              **{key: int(tree.get(key, "0")) for key in ("tests", "failures", "errors", "skipped")}}
+    problems = []
+    for case in tree.findall("testcase"):
+        for issue in list(case):
+            if issue.tag not in ("failure", "error"):
+                continue
+            name, kind = case.get("name", ""), issue.get("type", "")
+            frames = re.findall(r"(?m)^\s+at (io\.firefly\.[\w.$]+\([\w.]+:\d+\))", issue.text or "")
+            problems.append({"test": name if re.fullmatch(r"[\w$]+", name) else "parameterized-case",
+                             "type": kind if re.fullmatch(r"[\w.$]+", kind) else "unclassified",
+                             "source_frames": frames[:3]})
+    if problems:
+        record["problems"] = problems[:10]
+    reports.append(record)
 summary = {"maven_exit": status, "suites": reports,
            "scope": "Native extension compilation and tests; real provider/integration acceptance is separate."}
 target = root / ".qualification/native-build-summary.json"

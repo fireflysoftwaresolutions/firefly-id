@@ -37,8 +37,9 @@ public final class NativeResource {
             requireOrigin(session.getContext().getRequestHeaders().getHeaderString("Origin"), profile.origin());
             String id = cookie();
             String stage = NativePhases.run(session, child -> new NativeStore(child).ceremony(id).stage);
-            require(NativeEngine.PASSWORD.equals(stage) || NativeEngine.TOTP.equals(stage));
+            require(NativeEngine.PASSWORD.equals(stage) || NativeEngine.TOTP.equals(stage) || NativeEngine.COMPLETE.equals(stage));
             view = engine.consumeCsrf(id, csrf, stage);
+            if (NativeEngine.COMPLETE.equals(stage)) return complete(engine, id, view.csrf());
             if (NativeEngine.PASSWORD.equals(stage)) {
                 require(username != null && username.length() <= 254 && password != null && password.length() <= 1024);
                 try {
@@ -62,10 +63,8 @@ public final class NativeResource {
                 gateway.complete(actor.assertion(), reservation, attestation);
                 Authorization receipt = gateway.consume(actor.assertion(), started.operationId());
                 Authorization verified = gateway.verifyAuthorization(actor.assertion(), receipt); require(receipt.equals(verified));
-                Execution execution = engine.execute(id, verified);
-                try { gateway.recordExecution(actor.assertion(), verified, execution.outcome()); }
-                catch (Exception transport) { /* Native committed journal remains authoritative for reconciliation. */ }
-                return render(engine.stage(id, NativeEngine.COMPLETE, view.csrf()), null, false);
+                engine.execute(id, verified);
+                return complete(engine, id, view.csrf());
             } catch (Exception generic) { return render(engine.stage(id, NativeEngine.TOTP, view.csrf()), "ffidRecoveryFailed", false); }
         } catch (Exception generic) { return unavailable(); }
     }
@@ -79,6 +78,12 @@ public final class NativeResource {
         var factories = ServiceLoader.load(NativeCeremonyGateway.Factory.class, getClass().getClassLoader()).stream().map(ServiceLoader.Provider::get).filter(NativeCeremonyGateway.Factory::isQualified).toList();
         require(factories.size() == 1); var gateway = factories.get(0).create(session); require(gateway != null); return gateway;
     }
+    private Response complete(NativeEngine engine, String id, String csrf) {
+        boolean recorded = false;
+        try { recorded = engine.reconcile(id, gateway()); }
+        catch (Exception transport) { /* Leave the exact committed receipt available for bounded audit-only resume. */ }
+        return render(engine.stage(id, NativeEngine.COMPLETE, csrf), recorded ? null : "ffidRecoveryFailed", false);
+    }
     private String cookie() {
         var cookie = session.getContext().getRequestHeaders().getCookies().get(COOKIE); require(cookie != null); return cookie.getValue();
     }
@@ -86,6 +91,7 @@ public final class NativeResource {
         NativeProfile profile = NativeProfile.of(session.getContext().getRealm());
         Response response = session.getProvider(LoginFormsProvider.class).setAttribute("stage", view.stage()).setAttribute("csrf", view.csrf())
                 .setAttribute("actionUrl", profile.issuer() + "/" + NativeContracts.EXTENSION).setAttribute("signInUrl", profile.issuer() + "/account")
+                .setAttribute("auditRetry", NativeEngine.COMPLETE.equals(view.stage()) && new NativeEngine(session).recordPending(view.ceremonyId()))
                 .setAttribute("messageKey", message).createForm("firefly-recovery.ftl");
         var builder = Response.fromResponse(response).header("Cache-Control", "no-store");
         if (setCookie) builder.cookie(new NewCookie.Builder(COOKIE).value(view.ceremonyId()).path("/realms/" + session.getContext().getRealm().getName() + "/" + NativeContracts.EXTENSION)
