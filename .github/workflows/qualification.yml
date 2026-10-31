@@ -49,6 +49,7 @@ jobs:
           distribution: temurin
           java-version: '25'
       - name: Prepare owned synthetic runtime
+        id: owned-runtime
         run: |
           python3 tooling/build_theme.py
           python3 scripts/generate.py --mode sandbox
@@ -57,6 +58,7 @@ jobs:
           python3 scripts/sandbox.py pull
           python3 scripts/sandbox.py up
       - name: Install pinned browser test tools
+        id: browser-tools
         working-directory: tooling
         run: |
           npm ci --ignore-scripts
@@ -72,6 +74,7 @@ jobs:
       - name: Verification, protected profile and workforce MFA
         run: node tooling/extended-runtime.mjs
       - name: Authentication policy and population isolation
+        if: ${{ !cancelled() && steps.owned-runtime.outcome == 'success' && steps.browser-tools.outcome == 'success' }}
         run: node tooling/policy-runtime.mjs
       - name: Preserve redacted visual and result evidence
         if: always()
@@ -82,6 +85,7 @@ jobs:
             .work/runtime/*.png
             .work/runtime/summary.json
             .work/runtime/layout.json
+            .work/runtime/*-diagnostics.json
             .work/extended-runtime/summary.json
             .work/policy-runtime/summary.json
           if-no-files-found: ignore

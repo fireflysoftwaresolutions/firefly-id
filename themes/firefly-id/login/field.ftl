@@ -1,4 +1,4 @@
-<#-- Derived from Keycloak 26.8.1 under Apache-2.0. Password visibility controls are intentionally omitted; all other field semantics are retained. -->
+<#-- Derived from Keycloak 26.8.1 under Apache-2.0. Omits password visibility controls and presents login credential errors in the shared generic alert. -->
 <#macro group name label error="" required=false>
 
 <div class="${properties.kcFormGroupClass}">
@@ -43,6 +43,9 @@
 </#macro>
 
 <#macro input name label value="" required=false autocomplete="off" fieldName=name error=messagesPerField.get(fieldName) autofocus=false>
+  <#if pageId == "login" && (name == "username" || name == "password")>
+    <#local error="">
+  </#if>
   <@group name=name label=label error=error required=required>
     <span class="${properties.kcInputClass} <#if error?has_content>${properties.kcError}</#if>">
         <input id="${name}" name="${name}" value="${value}" type="text" autocomplete="${autocomplete}" <#if autofocus>autofocus</#if>
@@ -54,6 +57,9 @@
 </#macro>
 
 <#macro password name label value="" required=false forgotPassword=false fieldName=name error=messagesPerField.get(fieldName) autocomplete="off" autofocus=false>
+  <#if pageId == "login" && (name == "username" || name == "password")>
+    <#local error="">
+  </#if>
   <@group name=name label=label error=error required=required>
     <div class="${properties.kcInputGroup}">
       <div class="${properties.kcInputGroupItemClass} ${properties.kcFill}">

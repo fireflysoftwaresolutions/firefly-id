@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import tempfile
 import unittest
 import zipfile
@@ -8,12 +9,33 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ThemePackagingTest(unittest.TestCase):
+    def test_advance_notice_preserves_the_exact_upstream_protocol_template(self):
+        template = (ROOT / "themes/firefly-id/login/template.ftl").read_text()
+        header, body = template.split('\n', 1)
+        self.assertIn('Keycloak 26.8.1', header)
+        notice = '        <p id="ffid-access-policy" class="ffid-access-policy">${msg("ffidPermanentLockWarning")}</p>\n'
+        self.assertEqual(body.count(notice), 1)
+        self.assertLess(body.index(notice), body.index('<#nested "form">'))
+        generic_branch = '''        <#if pageId == "login" && ((message?? && message.type == 'error') || messagesPerField.existsError('username','password'))>
+            <div class="${properties.kcAlertClass!} pf-m-danger" role="alert" id="ffid-signin-error">
+                <div class="${properties.kcAlertIconClass!}">
+                    <span class="${properties.kcFeedbackErrorIcon!}"></span>
+                </div>
+                <span class="${properties.kcAlertTitleClass!} kc-feedback-text">${msg("invalidUserMessage")}</span>
+            </div>
+        <#elseif displayMessage'''
+        self.assertEqual(body.count(generic_branch), 1)
+        upstream = body.replace(notice, '').replace(generic_branch, '        <#if displayMessage')
+        self.assertEqual(hashlib.sha256(upstream.encode()).hexdigest(),
+                         '6221a3176c73a3fd67abc97076deb9cef112378ce157735a78bd865800315b37')
+
     def test_password_fields_are_masked_without_a_visibility_control(self):
         fields = (ROOT / "themes/firefly-id/login/field.ftl").read_text()
         self.assertIn('type="password"', fields)
         self.assertNotIn('data-password-toggle', fields)
         self.assertIn('autocomplete="${autocomplete}"', fields)
         self.assertIn('url.loginResetCredentialsUrl', fields)
+        self.assertEqual(fields.count('<#local error="">'), 2)
 
     def test_supported_parents_and_protocol_templates_are_inherited(self):
         for kind, parent in {"login": "keycloak.v2", "account": "keycloak.v3", "admin": "keycloak.v2", "email": "base", "welcome": "keycloak"}.items():

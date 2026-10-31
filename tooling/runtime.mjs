@@ -7,6 +7,7 @@ import { chromium } from 'playwright';
 import { reportFailure } from './safe-errors.mjs';
 import { isAuthorizationRefusal } from './protocol-assertions.mjs';
 import { selectNewRecoveryMessage } from './recovery-mail.mjs';
+import { observeConsole } from './console-diagnostics.mjs';
 
 const stateDir = resolve(process.env.FIREFLY_ID_STATE || '.state/sandbox');
 const evidence = resolve('.work/runtime');
@@ -34,6 +35,8 @@ await new Promise((ok, fail) => server.listen(3000, '127.0.0.1', ok).once('error
 const browser = await chromium.launch();
 const context = await browser.newContext();
 const page = await context.newPage();
+const captureAccountDiagnostics = observeConsole(page);
+let captureConsoleFailure;
 page.setDefaultTimeout(15000);
 
 function authorization({ challenge, state, nonce, ...extra }) {
@@ -58,6 +61,9 @@ async function login({ capture = false, checkReplay = false } = {}) {
     phase = 'login authorization page';
     await page.goto(authorization({ challenge, state, nonce }));
     if (await page.locator('#username').isVisible()) {
+      await page.locator('#ffid-access-policy').waitFor({ state: 'visible' });
+      assert.ok(await page.evaluate(() => document.querySelector('#ffid-access-policy').getBoundingClientRect().bottom
+        <= document.querySelector('#username').getBoundingClientRect().top), 'Advance warning must precede the credential fields');
       if (capture) {
         phase = 'login desktop presentation';
         await page.setViewportSize({ width: 1440, height: 1000 });
@@ -194,6 +200,7 @@ try {
 
   tokens = await login();
   phase = 'account console';
+  captureConsoleFailure = () => captureAccountDiagnostics(evidence, 'account');
   await page.goto(`${issuer}/account/`);
   await page.getByRole('heading', { name: 'Personal info' }).waitFor();
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -205,6 +212,7 @@ try {
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.screenshot({ path: `${evidence}/account-mobile-dark.png`, fullPage: true });
   passed('real account console and self-hosted Manrope');
+  captureConsoleFailure = undefined;
   phase = 'RP initiated logout';
   const logout = new URL(metadata.end_session_endpoint);
   logout.search = form({ id_token_hint: tokens.id_token,
@@ -252,6 +260,8 @@ try {
   phase = 'master administration console';
   const adminContext = await browser.newContext();
   const adminPage = await adminContext.newPage();
+  const captureAdminDiagnostics = observeConsole(adminPage);
+  captureConsoleFailure = () => captureAdminDiagnostics(evidence, 'admin');
   await adminPage.goto(`${base}/admin/master/console/`);
   await adminPage.locator('#username').fill('sandbox-bootstrap');
   await adminPage.locator('#password').fill((await readFile(`${stateDir}/secrets/admin-password`, 'utf8')).trim());
@@ -267,6 +277,7 @@ try {
   await adminPage.screenshot({ path: `${evidence}/admin-mobile-dark.png`, fullPage: true });
   await adminContext.close();
   passed('real master administration console and self-hosted Manrope');
+  captureConsoleFailure = undefined;
   await login({ checkReplay: true });
   passed('authorization code replay refused in its own session');
   await context.clearCookies();
@@ -280,6 +291,9 @@ try {
   // Navigation errors can include credential-bearing action/logout URLs.
   reportFailure(error, results.at(-1) || 'none');
   console.error(`Failed stage: ${phase}`);
+  if (captureConsoleFailure) {
+    try { await captureConsoleFailure(); } catch { console.error('Console diagnostics unavailable.'); }
+  }
   process.exitCode = 1;
 } finally {
   try {

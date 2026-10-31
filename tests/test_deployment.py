@@ -138,8 +138,9 @@ class DeploymentGenerationTest(unittest.TestCase):
                     for unnecessary in ('digits(', 'upperCase(', 'lowerCase(', 'specialChars(', 'forceExpiredPasswordChange('):
                         self.assertNotIn(unnecessary, policy)
                     self.assertTrue(realm['bruteForceProtected'])
-                    self.assertFalse(realm['permanentLockout'])
+                    self.assertTrue(realm['permanentLockout'])
                     self.assertEqual(realm['failureFactor'], 3)
+                    self.assertEqual(realm['maxTemporaryLockouts'], 0)
                     self.assertEqual(realm['bruteForceStrategy'], 'MULTIPLE')
                     self.assertEqual(realm['waitIncrementSeconds'], 900)
                     self.assertEqual(realm['maxFailureWaitSeconds'], 900)

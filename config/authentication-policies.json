@@ -3,7 +3,7 @@
   "scope": "Engineering defaults for isolated synthetic realms; applicability review and live evidence are required for production.",
   "defaults": {
     "bruteForceProtected": true,
-    "permanentLockout": false,
+    "permanentLockout": true,
     "failureFactor": 3,
     "bruteForceStrategy": "MULTIPLE",
     "waitIncrementSeconds": 900,
