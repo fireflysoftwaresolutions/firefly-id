@@ -5,6 +5,8 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { reportFailure } from './safe-errors.mjs';
+import { isAuthorizationRefusal } from './protocol-assertions.mjs';
+import { selectNewRecoveryMessage } from './recovery-mail.mjs';
 
 const stateDir = resolve(process.env.FIREFLY_ID_STATE || '.state/sandbox');
 const evidence = resolve('.work/runtime');
@@ -112,7 +114,7 @@ try {
     const url = authorization({ challenge: 'a'.repeat(43), state: 'synthetic', nonce: 'synthetic', ...extra });
     const response = await fetch(url, { redirect: 'manual' });
     const location = response.headers.get('location');
-    assert.ok(response.status >= 400 || (location?.startsWith(redirect) && new URL(location).searchParams.has('error')));
+    assert.ok(isAuthorizationRefusal(response.status, location, redirect));
     assert.ok(!response.headers.get('location')?.includes('attacker.invalid'));
     passed(name);
   }
@@ -170,13 +172,15 @@ try {
 
   const recoveryAuth = authorization({ challenge: 'a'.repeat(43), state: 'recovery', nonce: 'recovery' });
   await page.goto(recoveryAuth);
+  const priorMailbox = await (await fetch('http://localhost:8025/api/v1/messages')).json();
+  const priorMessageIds = new Set((priorMailbox.messages || []).map(message => message.ID));
   await page.getByRole('link', { name: 'Forgot Password?' }).click();
   await page.getByLabel('Username or email').fill(credentials.customers.username);
   await page.getByRole('button', { name: 'Submit' }).click();
   let message;
   for (let attempt = 0; attempt < 20; attempt++) {
     const mailbox = await (await fetch('http://localhost:8025/api/v1/messages')).json();
-    message = mailbox.messages?.find(item => item.To?.some(to => to.Address === 'customers@example.invalid'));
+    message = selectNewRecoveryMessage(mailbox.messages || [], priorMessageIds, 'customers@example.invalid');
     if (message) break;
     await new Promise(ok => setTimeout(ok, 500));
   }

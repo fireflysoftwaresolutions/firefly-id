@@ -139,7 +139,7 @@ def compose(output, project, theme_dir):
             'mailpit': {**common, 'image': images['mailpit']['image'],
                         'environment': {'MP_MAX_MESSAGES': '100', 'MP_MAX_AGE': '24h'},
                         'ports': ['127.0.0.1:8025:8025'], 'mem_limit': '128m',
-                        'networks': ['identity']},
+                        'networks': ['identity', 'ingress']},
             'keycloak': {**common, 'image': images['keycloak']['image'],
                          'entrypoint': ['/bin/bash', '/opt/firefly/entrypoint.sh'],
                          'command': ['start', '--import-realm', '--spi-theme--default=firefly-id'],
@@ -162,12 +162,13 @@ def compose(output, project, theme_dir):
                          'healthcheck': {'test': ['CMD', 'bash', '-ec',
                              "{ printf 'HEAD /health/ready HTTP/1.0\\r\\n\\r\\n' >&0; grep 'HTTP/1.0 200'; } 0<>/dev/tcp/localhost/9000"],
                              'interval': '10s', 'timeout': '5s', 'retries': 30, 'start_period': '60s'},
-                         'mem_limit': '1g', 'networks': {'identity': {'aliases': ['id.firefly.test']}}},
+                         'mem_limit': '1g', 'networks': {'identity': {'aliases': ['id.firefly.test']}, 'ingress': {}}},
         },
         'secrets': {name: {'file': str(output / 'secrets' / name)} for name in
                     ('postgres-admin-password', 'db-password', 'admin-password')},
         'volumes': {'database': {'labels': {'org.firefly-id.owner': project}}},
-        'networks': {'identity': {'internal': True, 'labels': {'org.firefly-id.owner': project}}},
+        'networks': {'identity': {'internal': True, 'labels': {'org.firefly-id.owner': project}},
+                     'ingress': {'labels': {'org.firefly-id.owner': project}}},
     }
 
 

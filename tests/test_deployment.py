@@ -96,6 +96,9 @@ class DeploymentGenerationTest(unittest.TestCase):
             compose = json.loads((output / 'compose.json').read_text())
             services = compose['services']
             self.assertNotIn('ports', services['postgres'])
+            self.assertEqual(services['postgres']['networks'], ['identity'])
+            self.assertIn('ingress', services['keycloak']['networks'])
+            self.assertIn('ingress', services['mailpit']['networks'])
             self.assertNotIn('1025', ' '.join(services['mailpit']['ports']))
             for service in services.values():
                 self.assertRegex(service['image'], r':[^:@]+@sha256:[a-f0-9]{64}$')
