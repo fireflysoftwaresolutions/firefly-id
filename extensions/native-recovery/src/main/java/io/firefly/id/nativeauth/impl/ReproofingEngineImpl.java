@@ -18,7 +18,7 @@ final class ReproofingEngineImpl {
     View create() {
         ReproofingKeyringImpl.configured().requireActive();
         return NativePhases.run(request, child -> {
-            var store = new ReproofingStoreImpl(child); store.initializePolicy(); var c = new ReproofingCeremonyImpl(); c.id = randomToken(); c.realmId = store.config.realm.getId();
+            var store = new ReproofingStoreImpl(child); store.initializePolicy(); ReproofingCryptoImpl.requireTotpPolicy(store.config.realm.getOTPPolicy()); var c = new ReproofingCeremonyImpl(); c.id = randomToken(); c.realmId = store.config.realm.getId();
             String csrf = randomToken(); c.csrfDigest = digest(csrf); c.stage = "IDENTIFY"; c.expiresAt = store.now() + store.config.ttl() * 1000L;
             store.em.persist(c); return new View(c.id, csrf, c.stage, null, null, false, false);
         });
@@ -57,7 +57,7 @@ final class ReproofingEngineImpl {
                         UUID.fromString(ReproofingStoreImpl.single(user, store.config.value("link-attribute"))), "HUMAN", "CREDENTIAL_REPLACEMENT", state.epoch, store.revision(user, ns), c.id);
                 c.subject = user.getId(); c.notificationDestination = seal(c.id + ":email", user.getEmail());
             } else {
-                store.decoyPolicy();
+                store.decoyPolicy(); ReproofingCryptoImpl.requireTotpPolicy(store.config.realm.getOTPPolicy());
                 b = new Binding(store.config.value("issuer"), store.config.realm.getName(), store.config.value("tenant"), UUID.randomUUID().toString(), UUID.randomUUID(),
                         "HUMAN", "CREDENTIAL_REPLACEMENT", UUID.randomUUID().toString(), randomToken(), c.id);
             }
@@ -150,8 +150,8 @@ final class ReproofingEngineImpl {
     private static Authorization authorization(ReproofingCeremonyImpl c) { return ReproofingWireImpl.read(c.authorizationJson, Authorization.class); }
     private static void passwordPolicy(KeycloakSession child, ReproofingStoreImpl store, UserModel user, String password) { var policy = child.getProvider(PasswordPolicyManagerProvider.class); require(policy != null && policy.validate(store.config.realm, user, password) == null); }
     private static boolean otpValid(ReproofingStoreImpl store, ReproofingCeremonyImpl c, String code) {
-        var policy = store.config.realm.getOTPPolicy(); require(OTPCredentialModel.TOTP.equals(policy.getType()) && !policy.isCodeReusable());
-        return java.security.MessageDigest.isEqual(ReproofingCryptoImpl.totp(open(c.id, c.encryptedTotp), store.now(), policy.getPeriod(), policy.getDigits(), policy.getAlgorithm()).getBytes(java.nio.charset.StandardCharsets.US_ASCII), code.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+        var policy = store.config.realm.getOTPPolicy(); ReproofingCryptoImpl.requireTotpPolicy(policy);
+        return ReproofingCryptoImpl.validTotp(open(c.id, c.encryptedTotp), store.now(), policy.getPeriod(), policy.getDigits(), policy.getAlgorithm(), policy.getLookAheadWindow(), code);
     }
     static String seal(String context, String value) { return ReproofingKeyringImpl.configured().seal(context, value); }
     static String open(String context, String value) { return ReproofingKeyringImpl.configured().open(context, value); }

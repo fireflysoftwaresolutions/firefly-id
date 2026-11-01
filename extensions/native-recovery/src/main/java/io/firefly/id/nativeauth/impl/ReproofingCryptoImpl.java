@@ -1,6 +1,11 @@
 package io.firefly.id.nativeauth.impl;
 
 import javax.crypto.Cipher;
+import org.keycloak.models.OTPPolicy;
+import org.keycloak.models.credential.OTPCredentialModel;
+import org.keycloak.models.utils.TimeBasedOTP;
+import org.keycloak.common.util.Base32;
+
 import javax.crypto.Mac;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -13,6 +18,27 @@ import static io.firefly.id.nativeauth.NativeSecurity.require;
 public final class ReproofingCryptoImpl {
     private static final SecureRandom RANDOM = new SecureRandom();
     private ReproofingCryptoImpl() { }
+    static void requireTotpPolicy(OTPPolicy policy) {
+        require(policy != null && OTPCredentialModel.TOTP.equals(policy.getType()) && !policy.isCodeReusable());
+        requireTotpParameters(policy.getPeriod(), policy.getDigits(), policy.getAlgorithm(), policy.getLookAheadWindow());
+    }
+    private static void requireTotpParameters(int period, int digits, String algorithm, int window) {
+        require(period >= 1 && period <= 300 && digits >= 6 && digits <= 8 && window >= 0 && window <= 10
+                && Set.of("HmacSHA1", "HmacSHA256", "HmacSHA512").contains(algorithm));
+    }
+    public static boolean validTotp(String secret, long databaseNow, int period, int digits, String algorithm, int window, String code) {
+        requireTotpParameters(period, digits, algorithm, window); require(databaseNow >= 0);
+        if (code == null || !code.matches("[0-9]{" + digits + "}")) return false;
+        byte[] key = null;
+        try {
+            key = Base32.decode(secret);
+            var clock = new GregorianCalendar(TimeZone.getTimeZone("UTC")); clock.setTimeInMillis(databaseNow);
+            var validator = new TimeBasedOTP(algorithm, digits, period, window); validator.setCalendar(clock);
+            return validator.validateTOTP(code, key);
+        } catch (Exception error) { throw refused(); }
+        finally { if (key != null) Arrays.fill(key, (byte) 0); }
+    }
+
     public static String seal(byte[] key, String context, String secret) { return seal(key, "v1", context, secret); }
     static String seal(byte[] key, String version, String context, String secret) {
         try {

@@ -46,6 +46,7 @@ final class ReproofingStoreImpl {
         require(state != null); return state;
     }
     boolean eligible(UserModel user, NativeState nativeState) {
+        ReproofingCryptoImpl.requireTotpPolicy(config.realm.getOTPPolicy());
         boolean customer = !administrator(user)
                 && user.isEmailVerified() && user.getEmail() != null && user.getEmail().length() <= 512
                 && config.value("tenant").equals(single(user, config.value("tenant-attribute")))
