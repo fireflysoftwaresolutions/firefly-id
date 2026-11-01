@@ -39,6 +39,8 @@ Management port 9000 belongs to an isolated monitoring network. The reference us
 
 These requirements are grounded in Keycloak's [production guide](https://www.keycloak.org/server/configuration-production), [reverse-proxy guidance](https://www.keycloak.org/server/reverseproxy) and [hostname configuration](https://www.keycloak.org/server/hostname). Qualify the exact installed version and proxy behavior rather than relying on a generic diagram.
 
+Preserve and measure the delivered CSP/frame restrictions, referrer policy, secure cookie behavior and other security response headers at the actual ingress. Do not disable a server boundary or add wildcard origins to repair a custom stylesheet. Approve HSTS against the institution's complete hostname/HTTPS deployment. Native ceremony cookies use their explicit Strict policy; ordinary Keycloak SSO/account cookies have different purposes and measured attributes. Forcing every cookie to one blanket SameSite value can break protocol journeys and must not replace an exact-version flow review.
+
 ## Protect storage, secrets and bootstrap
 
 Operate a dedicated identity database and nonsuperuser application login. Review schema privileges, encrypted transport, backup access, restore roles and separation from business Core records. Treat database/backup administrators as privileged readers of sensitive identity state. Use approved at-rest encryption and key ownership; a local Compose volume is not an enterprise encryption/retention policy.

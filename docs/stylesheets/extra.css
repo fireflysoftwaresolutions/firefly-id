@@ -39,7 +39,7 @@ body { font-family: Manrope, sans-serif; }
 :focus-visible { outline: 2px solid var(--md-accent-fg-color); outline-offset: 3px; }
 .md-grid { max-width: 80rem; }
 .md-header { box-shadow: none; border-bottom: 1px solid #474a42; }
-.md-header__button.md-logo { padding: .55rem .4rem; }
+.md-header__button.md-logo { display: block; padding: .55rem .4rem; }
 .md-header__button.md-logo img { height: 1.7rem; width: 10.3rem; }
 .md-header__title { font-size: .8rem; font-weight: 550; }
 .md-tabs { border-bottom: 1px solid #474a42; }
@@ -80,6 +80,8 @@ body { font-family: Manrope, sans-serif; }
 }
 @media (max-width: 720px) {
   .md-header__title { display: none; }
+  .md-header__button.md-logo { padding: .35rem .2rem; }
+  .md-header__button.md-logo img { width: 8.7rem; height: auto; }
   .md-main__inner { margin-top: 1rem; }
   .md-typeset h1 { font-size: 1.75rem; }
   .md-typeset .handbook-lead { font-size: .9rem; }

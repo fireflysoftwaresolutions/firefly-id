@@ -10,6 +10,12 @@ The distribution packages Keycloak 26.8.1 through supported themes and configura
 
 The [credential-loss recovery candidate](docs/credential-loss-recovery.md) adds independent Core KYCB/Domain proofing adapters, native local-customer password/TOTP replacement without the previous password, and an opt-in supervised notification poller. Its [actual Keycloak/Core/Domain lane](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41332055134) passed 25 controls with test-only signed proofing, automatic delivery/restart retention and private metrics isolation. KYC/KYB is the system of record; Domain integrates the future third-party verifier against the eIDAS design baseline. No real provider is selected or approved, and production remains disabled. [Progress](docs/progress.md) records exact source tests, runtime evidence and external acceptance gates.
 
+## Documentation
+
+The [Firefly Identity handbook](https://firefly-identity-handbook.me-1867.chatgpt.site/) is the owner-private documentation site. Its maintained [MkDocs source](mkdocs.yml) covers the selection of Keycloak, architecture, setup, exact defaults, customer/workforce/admin journeys, integration, branding, recovery, retained data and operations. The [EU/US controls matrix](docs/controls-matrix.md) identifies applicability, enforcement owners, actual evidence and production acceptance gates.
+
+Start with [the handbook index](docs/index.md), [configuration reference](docs/configuration-reference.md) or [regulated deployment](docs/regulated-deployment.md). [Documentation maintenance](docs/documentation.md) explains strict builds, generated references, local assets and browser qualification. Documentation publication is separate from production identity-service activation.
+
 ## Who uses it
 
 | Population | Typical journey | Security boundary |

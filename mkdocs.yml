@@ -27,6 +27,7 @@ theme:
     - navigation.top
     - navigation.footer
     - navigation.tracking
+    - navigation.path
     - search.suggest
     - search.highlight
     - content.code.copy

@@ -55,6 +55,8 @@ try {
         assert.ok(measured.h1 && measured.scrollWidth <= measured.width + 1, 'Reading surface overflows its viewport');
         assert.equal(measured.background, mode === 'dark' ? 'rgb(16, 17, 15)' : 'rgb(243, 241, 235)');
         assert.equal(measured.brokenImages, 0);
+        assert.ok(await page.locator('.md-header__button.md-logo').isVisible(), 'Product branding is missing from the masthead');
+        if (route) assert.ok(await page.locator('.md-path').isVisible(), 'Inner page has no breadcrumb trail');
         assert.match(measured.footer, /Firefly Software Foundation Inc\./); assert.match(measured.footer, /Keycloak/);
         summary.surfaces.push({ route, width, mode, fontLoaded: measured.fontLoaded, horizontalOverflow: false });
         if (['', 'controls-matrix/', 'configuration-reference/'].includes(route)) {
@@ -71,7 +73,8 @@ try {
       stage = `navigation-${width}-${mode}`;
       if (width === 390) {
         await page.locator('.md-header label[for="__drawer"]').click();
-        await page.locator('.md-sidebar--primary').getByText('Configure', { exact: true }).first().click();
+        await page.locator('.md-sidebar--primary .md-nav__item--active > .md-nav > label.md-nav__title').first().click();
+        await page.locator('.md-sidebar--primary label.md-nav__link').filter({ hasText: /^\s*Configure\s*$/ }).click();
         await page.locator('.md-sidebar--primary').getByRole('link', { name: 'Configuration reference', exact: true }).click();
       } else {
         await page.locator('.md-tabs').getByRole('link', { name: 'Configure', exact: true }).click();

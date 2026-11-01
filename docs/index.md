@@ -1,3 +1,8 @@
+---
+hide:
+  - path
+---
+
 # Firefly Identity handbook
 
 <p class="handbook-lead">Understand the identity service, configure it deliberately, integrate each trust boundary and operate it with evidence.</p>
