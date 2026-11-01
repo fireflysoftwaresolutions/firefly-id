@@ -67,7 +67,7 @@ final class ReproofingStoreImpl {
         var policyFence = ReproofingRealmPolicyImpl.lock(session); require(policyFence != null);
         return digest(ReproofingWireImpl.json(Arrays.asList(policyFence.revision, recovery == null ? 0L : recovery.invalidationVersion, credentials, user.getEmail(), user.isEmailVerified(), user.isEnabled(),
                 user.getFirstAttribute(UserModel.DISABLED_REASON), single(user, config.value("tenant-attribute")), single(user, config.value("link-attribute")),
-                effectiveRoles(user), session.users().getNotBeforeOfUser(config.realm, user),
+                effectiveRoles(user), user.getRequiredActionsStream().sorted().toList(), session.users().getNotBeforeOfUser(config.realm, user),
                 nativeState == null ? null : Arrays.asList(nativeState.hold, nativeState.locked, nativeState.generation, nativeState.pinCredentialId, nativeState.pinKeyVersion, nativeState.pinGeneration, nativeState.pinHeld, nativeState.pinRevokedAt, nativeState.pinCreatedAt, nativeState.pinReplacedAt, nativeState.pinFailures, nativeState.pinReserved),
                 config.realm.getPasswordPolicy().toString(), otp.getAlgorithm(), otp.getDigits(), otp.getPeriod(), otp.getType())));
     }

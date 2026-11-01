@@ -115,6 +115,7 @@ final class ReproofingEngineImpl {
             user.credentialManager().getStoredCredentialsStream().filter(v -> Set.of("otp", "firefly-support-pin").contains(v.getType())).map(org.keycloak.credential.CredentialModel::getId).toList().forEach(user.credentialManager()::removeStoredCredentialById);
             var replacementOtp = user.credentialManager().createStoredCredential(OTPCredentialModel.createTOTP(secret, policy.getDigits(), policy.getPeriod(), policy.getAlgorithm(), "base32"));
             require(replacementOtp != null && user.credentialManager().isValid(new UserCredentialModel(replacementOtp.getId(), OTPCredentialModel.TYPE, otp)));
+            ReproofingRequiredActionsImpl.complete(user);
             var ns = store.nativeState(user);
             if (ns != null) { ns.locked = false; ns.generation = UUID.randomUUID().toString(); ns.pinCredentialId = null; ns.pinGeneration = UUID.randomUUID().toString(); ns.pinRevokedAt = now; ns.pinHeld = true; }
             if (ns != null) ns.credentialRevision = NativePhases.credentialRevision(child, user);
