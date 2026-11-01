@@ -280,6 +280,19 @@ def fault_status(kind):
                       'verifyRaceArrivals': int(arrivals.read_text()) if arrivals.is_file() else 0}))
 
 
+def private_proof(kind):
+    if not faults_enabled() or kind not in ('customers', 'workforce'):
+        raise RuntimeError('Private proof fixture requires explicit hosted opt-in')
+    directory, owner = state()
+    profile = next(value for value in json.loads((directory / 'credentials.json').read_text())['profiles'] if value['kind'] == kind)
+    subject = profile['person']['id']
+    if not re.fullmatch(r'[0-9a-f-]{36}', subject): raise RuntimeError('Noncanonical fixture subject')
+    proof = psql(directory, owner, f"SELECT json_build_object('binding',c.binding_json::json,'operationId',p.operation_id,'challengeId',p.challenge_id,'reservationId',p.reservation_id,'providerChallengeId',p.provider_challenge_id,'category',p.category,'attestation',p.id,'action','COMPLETE_VERIFICATION') FROM ff_native_attestation p JOIN ff_native_ceremony c ON c.id=p.ceremony_id JOIN ff_native_state s ON s.subject=p.subject WHERE p.subject='{subject}' AND p.category='KNOWLEDGE' AND p.completed AND p.verified AND s.locked AND NOT s.hold AND p.expires_at > extract(epoch FROM clock_timestamp())*1000 AND NOT EXISTS (SELECT 1 FROM ff_native_execution e WHERE e.subject=p.subject);", 'native_kc')
+    value = json.loads(proof)
+    value['actorAssertion'] = (directory / 'secrets' / ('actor-' + kind)).read_text()
+    print(json.dumps(value))
+
+
 def serve_proxy(kind):
     if not faults_enabled(): raise RuntimeError('Owned transport faults require explicit hosted opt-in')
     directory, owner = state()
@@ -302,6 +315,8 @@ def serve_proxy(kind):
                     raise RuntimeError('Unsupported proxy route')
                 length = int(self.headers.get('Content-Length', '0'))
                 if length < 0 or length > 65536: raise RuntimeError('Bounded proxy input required')
+                actor = self.headers.get('Authorization', '')
+                if not actor.startswith('Bearer ') or len(actor) > 16391: raise RuntimeError('Actual bounded actor required')
                 request = urllib.request.Request(backend_origin(profile) + path.path, data=self.rfile.read(length), method='POST',
                     headers={key: self.headers[key] for key in ('Authorization', 'Content-Type', 'Accept') if key in self.headers})
                 try: response = opener.open(request, timeout=4)
@@ -310,6 +325,12 @@ def serve_proxy(kind):
                     payload = response.read(65537)
                     if len(payload) > 65536: raise RuntimeError('Bounded proxy output required')
                     status = response.status; content_type = response.headers.get('Content-Type', 'application/json')
+                if status == 201 and path.path == '/api/v1/sca/recovery-operations':
+                    with lock:
+                        actor_path = directory / 'secrets' / ('actor-' + kind)
+                        if not actor_path.exists():
+                            with os.fdopen(os.open(actor_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as captured:
+                                captured.write(actor[7:])
                 # Delay two REAL online verifications, each already accepted by real Domain/Core.
                 if path.path.endswith('/authorizations/verify') and status == 200:
                     marker = directory / ('verify-race-' + kind)
@@ -349,7 +370,7 @@ def snapshot(kind):
     directory, owner = state(); credentials = json.loads((directory / 'credentials.json').read_text())
     profile = next(p for p in credentials['profiles'] if p['kind'] == kind); subject = profile['person']['id']
     if not re.fullmatch(r'[0-9a-f-]{36}', subject): raise RuntimeError('Noncanonical fixture subject')
-    native = psql(directory, owner, f"SELECT coalesce((SELECT json_build_object('locked',locked,'hold',hold,'generation',generation,'bootstrap',bootstrap_attempts,'knowledge',knowledge_attempts,'possession',possession_attempts,'pinActive',(pin_credential_id IS NOT NULL AND pin_revoked_at=0)) FROM ff_native_state WHERE subject='{subject}'),'{{}}'::json)::jsonb || jsonb_build_object('executions',(SELECT count(*) FROM ff_native_execution WHERE subject='{subject}'),'executionId',(SELECT id FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'recorded',(SELECT recorded FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'recordAttempts',(SELECT record_attempts FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'unlockAudits',(SELECT count(*) FROM ff_native_audit WHERE subject='{subject}' AND event_type='NATIVE_UNLOCK_COMMITTED'),'recordAudits',(SELECT count(*) FROM ff_native_audit WHERE subject='{subject}' AND event_type='NATIVE_EXECUTION_RECORDED'),'maximumChecksPerReservation',(SELECT coalesce(max(total),0) FROM (SELECT count(*) total FROM ff_native_attestation WHERE subject='{subject}' GROUP BY reservation_id) q));", 'native_kc')
+    native = psql(directory, owner, f"SELECT coalesce((SELECT json_build_object('locked',locked,'hold',hold,'generation',generation,'bootstrap',bootstrap_attempts,'knowledge',knowledge_attempts,'possession',possession_attempts,'pinActive',(pin_credential_id IS NOT NULL AND pin_revoked_at=0)) FROM ff_native_state WHERE subject='{subject}'),'{{}}'::json)::jsonb || jsonb_build_object('executions',(SELECT count(*) FROM ff_native_execution WHERE subject='{subject}'),'executionId',(SELECT id FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'recorded',(SELECT recorded FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'recordAttempts',(SELECT record_attempts FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'unlockAudits',(SELECT count(*) FROM ff_native_audit WHERE subject='{subject}' AND event_type='NATIVE_UNLOCK_COMMITTED'),'recordAudits',(SELECT count(*) FROM ff_native_audit WHERE subject='{subject}' AND event_type='NATIVE_EXECUTION_RECORDED'),'attestations',(SELECT count(*) FROM ff_native_attestation WHERE subject='{subject}'),'maximumChecksPerReservation',(SELECT coalesce(max(total),0) FROM (SELECT count(*) total FROM ff_native_attestation WHERE subject='{subject}' GROUP BY reservation_id) q));", 'native_kc')
     core = psql(directory, owner, f"SELECT coalesce(json_agg(json_build_object('generation',lock_generation,'state',state,'attempts',attempt_count,'challenges',challenge_count,'outcome',execution_outcome,'executionId',execution_id,'successAudits',(SELECT count(*) FROM sca_recovery_audit a WHERE a.operation_id=sca_recovery_operation.id AND a.event_type='EXECUTION_SUCCEEDED')) ORDER BY created_at),'[]'::json) FROM sca_recovery_operation WHERE target_subject='{subject}';", 'sca_native')
     print(json.dumps({'native': json.loads(native), 'core': json.loads(core)}))
 
@@ -379,7 +400,7 @@ def stop():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['prepare', 'start', 'stop', 'restart', 'snapshot', 'serve_proxy', 'arm_record_loss', 'arm_verify_race', 'fault_status'])
+    parser.add_argument('action', choices=['prepare', 'start', 'stop', 'restart', 'snapshot', 'serve_proxy', 'arm_record_loss', 'arm_verify_race', 'fault_status', 'private_proof'])
     parser.add_argument('--population', choices=['customers', 'workforce'])
     args = parser.parse_args(); require_hosted()
     if args.action == 'snapshot': snapshot(args.population)
@@ -387,6 +408,7 @@ def main():
     elif args.action == 'arm_record_loss': arm_fault(args.population, 'record-response-loss')
     elif args.action == 'arm_verify_race': arm_fault(args.population, 'verify-race')
     elif args.action == 'fault_status': fault_status(args.population)
+    elif args.action == 'private_proof': private_proof(args.population)
     else: globals()[args.action]()
 
 

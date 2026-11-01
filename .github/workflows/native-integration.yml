@@ -113,6 +113,7 @@ jobs:
             .work/native-integration/fonts.json
             .work/native-integration/boot-summary.json
             .work/native-integration/*-complete*.png
+            .work/native-integration/*-empty-form-*.png
             .work/native-integration/customers-pin-*.png
             .qualification/native-build-summary.json
             .qualification/domain/.qualification/sdk-domain-summary.json

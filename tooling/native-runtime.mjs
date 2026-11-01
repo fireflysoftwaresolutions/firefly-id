@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:https';
 import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -18,6 +18,7 @@ const callback = 'https://localhost:8448/oidc/callback';
 const pending = new Map();
 const results = [];
 const factors = new Map();
+const privateProofs = new Map();
 const transportFaults = process.env.FIREFLY_NATIVE_TRANSPORT_FAULTS === 'true';
 const fontEvidence = [];
 let phase = 'owned-native-runtime-ready';
@@ -33,7 +34,10 @@ const nativeTool = (action, population) => execFileSync('python3', ['tooling/nat
   ...(population ? ['--population', population] : [])], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 const snapshot = population => JSON.parse(nativeTool('snapshot', population));
 const faultStatus = population => JSON.parse(nativeTool('fault_status', population));
-async function request(url, options = {}) { return fetch(url, { ...options, signal: AbortSignal.timeout(20000) }); }
+async function request(url, options = {}) {
+  const headers = new Headers(options.headers); headers.set('Connection', 'close');
+  return fetch(url, { ...options, headers, signal: AbortSignal.timeout(20000) });
+}
 async function adminToken() {
   const response = await request(`${origin}/realms/master/protocol/openid-connect/token`, { method: 'POST',
     body: new URLSearchParams({ grant_type: 'password', client_id: 'admin-cli', username: 'native-bootstrap', password: credentials.admin }) });
@@ -41,7 +45,7 @@ async function adminToken() {
   return (await response.json()).access_token;
 }
 async function admin(profile, suffix, options = {}) {
-  return request(`${origin}/admin/realms/${profile.realm}/${suffix}`, { ...options,
+  return request(`${origin}/admin/realms/${profile.realm}${suffix ? '/' + suffix : ''}`, { ...options,
     headers: { Authorization: `Bearer ${await adminToken()}`, ...(options.headers || {}) } });
 }
 async function user(profile, manual = false) {
@@ -110,12 +114,15 @@ async function recovery(profile, context, username, password) {
   stage(`${profile.kind}-native-password-navigation`);
   lastHttpStatus = (await page.goto(`${profile.issuer}/firefly-recovery?kc_locale=es`))?.status();
   assert.equal(await page.locator('#password').getAttribute('type'), 'password');
+  const known = [profile.person.username, profile.person.email].includes(username);
+  if (known) await captureEmptyNativeForm(page, `${profile.kind}-recovery-password-es`);
   stage(`${profile.kind}-native-password-submit`);
   await page.locator('#username').fill(username); await page.locator('#password').fill(password);
   await page.locator('#ffid-recovery-continue').click();
   await page.locator('#otp').waitFor();
   await assertNativeFont(page, `${profile.kind}-masked-native-factor-form`);
-  if ([profile.person.username, profile.person.email].includes(username)) {
+  if (known) {
+    await captureEmptyNativeForm(page, `${profile.kind}-recovery-totp-es`);
     const reserved = snapshot(profile.kind);
     await page.reload(); await page.locator('#otp').waitFor();
     assert.equal(await page.locator('#username').count(), 0, 'Reload must preserve the completed password stage');
@@ -129,6 +136,7 @@ async function expectCsrfRefusal(profile) {
   const context = await browser.newContext(); const page = await context.newPage();
   await page.goto(`${profile.issuer}/firefly-recovery?kc_locale=en`);
   await assertTranslation(page, 'en', 'ffidRecoveryTitle');
+  await captureEmptyNativeForm(page, `${profile.kind}-recovery-password-en`);
   const response = await context.request.post(`${profile.issuer}/firefly-recovery`, { headers: { Origin: origin },
     form: { username: profile.person.username, password: profile.person.password, csrf: 'synthetic-forged-csrf' } });
   assert.equal(response.status(), 400);
@@ -142,6 +150,89 @@ async function sourceMessage(language, key) {
 async function assertTranslation(page, language, key) {
   assert.ok((await page.locator('html').getAttribute('lang')).startsWith(language));
   assert.equal((await page.locator('#kc-page-title').innerText()).trim(), await sourceMessage(language, key));
+}
+async function privateReferenceRefusals(profile) {
+  stage(`${profile.kind}-locked-private-proof-positive-control`);
+  const before = snapshot(profile.kind);
+  assert.equal(before.native.locked, true); assert.equal(before.native.executions, 0);
+  assert.equal(before.native.attestations, 1); assert.equal(before.core[0].attempts, 1);
+  const proof = JSON.parse(nativeTool('private_proof', profile.kind));
+  const secret = (await readFile(profile.core_secret_file, 'utf8')).trim();
+  const call = body => request(`${profile.issuer}/firefly-recovery/rpc/verify`, {
+    method: 'POST', headers: { Authorization: `Basic ${Buffer.from(`native-core-owner:${secret}`).toString('base64')}`,
+      'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const positive = async () => {
+    const response = await call(proof); assert.equal(response.status, 200);
+    const accepted = await response.json();
+    for (const key of ['operationId', 'challengeId', 'reservationId', 'providerChallengeId', 'category']) assert.equal(accepted[key], proof[key]);
+    assert.deepEqual(accepted.binding, proof.binding); assert.equal(accepted.attestationId, proof.attestation);
+    assert.equal(accepted.providerId, 'firefly-keycloak-native-v1'); assert.equal(accepted.accepted, true);
+    assert.ok(new Date(accepted.expiresAt).getTime() > Date.now());
+  };
+  await positive();
+  const other = credentials.profiles.find(value => value.kind !== profile.kind);
+  const bindings = { issuer: other.issuer, tenant: 'synthetic-other-tenant', clientId: 'native-domain-owner',
+    delegatingClientId: 'native-browser', actorSubject: profile.manual.id, targetIssuer: other.issuer,
+    targetRealm: other.realm, targetSubject: profile.manual.id, population: other.population,
+    purpose: 'PASSWORD_RESET', lockGeneration: randomUUID() };
+  const foreign = [...privateProofs.values()][0];
+  const references = { operationId: foreign?.operationId ?? randomUUID(), challengeId: foreign?.challengeId ?? randomUUID(),
+    reservationId: foreign?.reservationId ?? randomUUID(), providerChallengeId: foreign?.providerChallengeId ?? randomBytes(32).toString('base64url'),
+    category: 'POSSESSION', attestation: foreign?.attestation ?? randomBytes(32).toString('base64url') };
+  for (const [key, value] of Object.entries(bindings)) {
+    stage(`${profile.kind}-locked-private-proof-refused-binding-${key}`);
+    assert.equal((await call({ ...proof, binding: { ...proof.binding, [key]: value } })).status, 403);
+  }
+  for (const [key, value] of Object.entries(references)) {
+    stage(`${profile.kind}-locked-private-proof-refused-reference-${key}`);
+    assert.equal((await call({ ...proof, [key]: value })).status, 403);
+  }
+  await positive();
+  assert.deepEqual(snapshot(profile.kind), before, 'Private proof checks must not create proof, execution, consume or spend/reset any budget');
+  privateProofs.set(profile.kind, proof);
+  passed(`${profile.kind}-live-locked-private-proof-positive-controls-and-binding-reference-swaps-refused`);
+}
+async function expiredServerCeremony(profile) {
+  stage(`${profile.kind}-isolated-server-ceremony-expiry-profile`);
+  const original = await admin(profile, ''); assert.equal(original.status, 200);
+  const attributes = (await original.json()).attributes;
+  assert.ok(attributes['firefly.native-recovery.ttl-seconds']);
+  const before = snapshot(profile.kind);
+  const context = await browser.newContext();
+  const serverCookie = async response => {
+    const cookies = (await response.headersArray()).filter(header => header.name.toLowerCase() === 'set-cookie')
+      .flatMap(header => { const match = header.value.match(/^FF_NATIVE_RECOVERY=([^;,\s]+)/); return match ? [match[1]] : []; });
+    assert.equal(cookies.length, 1, 'Actual native response must set exactly one owned recovery cookie');
+    return { name: 'FF_NATIVE_RECOVERY', value: cookies[0] };
+  };
+  try {
+    const changed = await admin(profile, '', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ attributes: { ...attributes, 'firefly.native-recovery.ttl-seconds': '1' } }) });
+    assert.equal(changed.status, 204);
+    const page = await context.newPage(); lastPage = page;
+    const navigation = await page.goto(`${profile.issuer}/firefly-recovery`); assert.equal(navigation.status(), 200);
+    const cookie = await serverCookie(navigation);
+    const csrf = await page.locator('input[name="csrf"]').inputValue();
+    stage(`${profile.kind}-isolated-server-ceremony-natural-expiry`);
+    await delay(1600);
+    const headers = { Origin: origin, Cookie: `${cookie.name}=${cookie.value}` };
+    const refused = await context.request.post(`${profile.issuer}/firefly-recovery`, { headers,
+      form: { csrf, username: 'synthetic-expired-ceremony', password: 'synthetic-unavailable-secret' } });
+    assert.equal(refused.status(), 400, 'Server must reject the actual expired ceremony even when its original cookie is forced');
+    const resumed = await context.request.get(`${profile.issuer}/firefly-recovery`, { headers }); assert.equal(resumed.status(), 200);
+    const replacement = await serverCookie(resumed);
+    assert.notEqual(replacement.value, cookie.value, 'Expired cookie GET must create a new PASSWORD ceremony');
+    const passwordStage = await page.evaluate(html => {
+      const document = new DOMParser().parseFromString(html, 'text/html');
+      return Boolean(document.querySelector('#username') && document.querySelector('#password') && !document.querySelector('#otp'));
+    }, await resumed.text());
+    assert.equal(passwordStage, true); assert.deepEqual(snapshot(profile.kind), before);
+  } finally {
+    const restored = await admin(profile, '', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attributes }) });
+    assert.equal(restored.status, 204); await context.close();
+  }
+  passed(`${profile.kind}-natural-server-ceremony-expiry-rejects-forced-old-cookie-and-restarts-password`);
 }
 async function assertNativeFont(page, label) {
   await page.evaluate(() => document.fonts.ready);
@@ -176,6 +267,26 @@ async function captureSafeJourney(page, name) {
       await page.waitForFunction(dark => document.documentElement.classList.contains('pf-v5-theme-dark') === dark, mode === 'dark');
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Native journey has horizontal clipping');
       await page.screenshot({ path: `${output}/${name}-${width}-${mode}.png`, fullPage: true });
+    }
+  }
+}
+
+async function captureEmptyNativeForm(page, name) {
+  const empty = async () => {
+    assert.equal(await page.locator('#kc-totp-secret-key, #totpSecret').count(), 0, 'Enrollment secrets must never enter form captures');
+    assert.equal(await page.locator('.ffid-native-journey form').count(), 1, 'Actual native form must be present');
+    assert.equal(await page.locator('.ffid-native-journey input:not([type="hidden"]):not([type="submit"]):not([type="button"])')
+      .evaluateAll(inputs => inputs.length > 0 && inputs.every(input => input.value === '')), true, 'Every visible credential and username field must be empty before capture');
+  };
+  await empty(); await assertNativeFont(page, `${name}-empty-form`);
+  for (const [width, height] of [[1440, 1000], [390, 844]]) {
+    await page.setViewportSize({ width, height });
+    for (const mode of ['light', 'dark']) {
+      await page.emulateMedia({ colorScheme: mode });
+      await page.waitForFunction(dark => document.documentElement.classList.contains('pf-v5-theme-dark') === dark, mode === 'dark');
+      await empty();
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Actual empty native form has horizontal clipping');
+      await page.screenshot({ path: `${output}/${name}-empty-form-${width}-${mode}.png`, fullPage: true });
     }
   }
 }
@@ -252,6 +363,7 @@ async function supportPin(profile, context) {
   for (const [suffix, pin, expected] of [['set', '70934628', true], ['set', '84173059', true], ['revoke', null, false]]) {
     const page = await context.newPage(); await page.goto(`${profile.issuer}/firefly-recovery/support-pin/${suffix}?kc_locale=en`);
     await assertTranslation(page, 'en', suffix === 'revoke' ? 'ffidPinRevokeTitle' : 'ffidPinTitle');
+    await captureEmptyNativeForm(page, `customers-pin-${suffix}-en-${results.length}`);
     await page.locator('#password').fill(profile.person.password); await page.locator('#otp').fill(await nextCode(profile));
     if (pin) { await page.locator('#pin').fill(pin); await page.locator('#pinConfirm').fill(pin); }
     await page.locator('#ffid-pin-save').click();
@@ -315,8 +427,11 @@ try {
     await admin(profile, `users/${profile.person.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true }) });
     assert.equal((await user(profile)).enabled, false, 'Generic Admin REST must not clear a protected block');
     passed(`${profile.kind}-generic-admin-enable-cannot-clear-block`);
+    stage(`${profile.kind}-owned-native-restart`);
     nativeTool('restart');
+    stage(`${profile.kind}-postrestart-persisted-generation-read`);
     assert.equal(snapshot(profile.kind).native.generation, before.native.generation, 'Restart lost lock generation');
+    stage(`${profile.kind}-postrestart-current-administrator-state-read`);
     assert.equal((await user(profile)).enabled, false); passed(`${profile.kind}-native-restart-preserves-lock`);
     await expectCsrfRefusal(profile);
     const unknown = await browser.newContext({ locale: 'es-ES' }); const unknownPage = await recovery(profile, unknown, 'synthetic-unknown-person', profile.person.password);
@@ -326,9 +441,11 @@ try {
     await heldPage.locator('#otp').fill('000000'); await heldPage.locator('#ffid-recovery-continue').click();
     assert.equal((await user(profile, true)).enabled, false); await manual.close();
     passed(`${profile.kind}-unknown-and-manual-hold-generic-unavailable`);
+    if (transportFaults) await expiredServerCeremony(profile);
     const context = await browser.newContext({ locale: 'es-ES' }); const page = await recovery(profile, context, profile.population === 'HUMAN' ? profile.person.email : profile.person.username, profile.person.password);
     assert.equal(await page.locator('.ffid-native-journey').innerText(), unknownText, 'Known recovery reveals existence');
     before = snapshot(profile.kind); assert.equal(before.core.length, 1); assert.equal(before.core[0].attempts, 1);
+    if (transportFaults) await privateReferenceRefusals(profile);
     const permitted = new Set([-30, 0, 30].map(offset => totpCode(factors.get(profile.kind).secret, Date.now() / 1000 + offset)));
     let invalid = 0; while (permitted.has(String(invalid).padStart(6, '0'))) invalid++;
     await page.locator('#otp').fill(String(invalid).padStart(6, '0')); await page.locator('#ffid-recovery-continue').click();
@@ -396,12 +513,15 @@ try {
     passed(`${profile.kind}-explicit-fixture-user-deletion-preserves-native-tombstone-and-core-evidence`);
   }
   await writeFile(`${output}/summary.json`, JSON.stringify({ status: 'PASSED', passed: results,
-    pending: [...(transportFaults ? [] : ['true simultaneous native execution requests', 'post-commit network response-loss injection']), 'expired ceremony and swapped private attestation references',
+    pending: [...(transportFaults ? [] : ['true simultaneous native execution requests', 'post-commit network response-loss injection', 'natural server ceremony expiry and swapped private attestation references']),
+      'admitted actor JWT and consumed authorization receipt expiry in native runtime',
       'support PIN BPO/case/delegation owner acceptance', 'production/regulatory approval'],
     scope: 'Owned synthetic HTTPS native Keycloak/Core PostgreSQL/actual generated-SDK Domain acceptance only.' }, null, 2));
 } catch (error) {
   reportFailure(error, phase);
   const allowedNames = new Set(['AssertionError', 'Error', 'TypeError', 'TimeoutError']);
+  const allowedNetworkCodes = new Set(['ECONNRESET', 'ECONNREFUSED', 'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT',
+    'CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'ERR_TLS_CERT_ALTNAME_INVALID']);
   const frames = String(error?.stack || '').split('\n').flatMap(line => {
     const match = line.match(/tooling\/native-runtime\.mjs:(\d+):(\d+)/);
     return match ? [`native-runtime.mjs:${match[1]}:${match[2]}`] : [];
@@ -420,8 +540,9 @@ try {
   }
   await writeFile(`${output}/summary.json`, JSON.stringify({ status: 'FAILED', passed: results, lastCompleted: phase,
     currentStage, errorKind: allowedNames.has(error?.name) ? error.name : 'Error', sourceFrames: frames,
+    networkCauseCode: allowedNetworkCodes.has(error?.cause?.code) ? error.cause.code : 'unclassified',
     lastHttpStatus, inventory, scope: 'Partial native integration; uncompleted stages are not qualified.' }, null, 2));
   process.exitCode = 1;
 } finally {
-  pending.clear(); if (browser) await browser.close(); if (server) await new Promise(ok => server.close(ok));
+  pending.clear(); privateProofs.clear(); if (browser) await browser.close(); if (server) await new Promise(ok => server.close(ok));
 }
