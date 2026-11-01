@@ -23,4 +23,6 @@ public interface ReproofingContracts {
     }
     record Admission(Binding binding, boolean eligible, Instant expiresAt) { @Override public String toString() { return "ReproofingAdmission[REDACTED]"; } }
     record Execution(UUID caseId, UUID executionId, Binding binding, String outcome, Instant committedAt) { @Override public String toString() { return "ReproofingExecution[REDACTED]"; } }
+    record NotificationStatus(Instant observedAt, long pending, long sending, long retrying, long delivered,
+            long failed, long invalid, long due, long oldestDueDelaySeconds) { }
 }

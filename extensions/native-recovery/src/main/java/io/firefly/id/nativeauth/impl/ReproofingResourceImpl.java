@@ -48,10 +48,27 @@ public final class ReproofingResourceImpl {
     public Response rpc(@PathParam("route") String route, InputStream body) {
         try {
             secure(); byte[] bytes = body.readNBytes(16385); require(bytes.length <= 16384);
-            Object result = "dispatch".equals(route) ? Map.of("processed", new ReproofingDispatcherImpl(session).dispatch())
-                    : new ReproofingRpcImpl(session).call(route, ReproofingWireImpl.read(new String(bytes, StandardCharsets.UTF_8), NativeRequest.class));
+            String json = new String(bytes, StandardCharsets.UTF_8);
+            Object result;
+            if ("dispatch".equals(route)) result = Map.of("processed", new ReproofingDispatcherImpl(session).dispatch(dispatchLimit(json)));
+            else if ("notification-status".equals(route)) { statusBody(json); result = new ReproofingNotificationStatusImpl(session).status(); }
+            else result = new ReproofingRpcImpl(session).call(route, ReproofingWireImpl.read(json, NativeRequest.class));
             return Response.ok(ReproofingWireImpl.json(result)).header("Cache-Control", "no-store").build();
         } catch (Exception refused) { return Response.status(403).entity(Map.of("error", "recovery_unavailable")).header("Cache-Control", "no-store").build(); }
+    }
+    static int dispatchLimit(String body) {
+        var json = notificationBody(body); require(json.isEmpty() || (json.size() == 1 && json.has("limit")));
+        if (json.isEmpty()) return 10;
+        var limit = json.get("limit"); require(limit.isIntegralNumber() && limit.canConvertToInt() && limit.intValue() >= 1 && limit.intValue() <= 10);
+        return limit.intValue();
+    }
+    static void statusBody(String body) { require(notificationBody(body).isEmpty()); }
+    private static com.fasterxml.jackson.databind.JsonNode notificationBody(String body) {
+        try {
+            var json = ReproofingWireImpl.JSON.reader().with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .with(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION).readTree(body);
+            require(json != null && json.isObject()); return json;
+        } catch (Exception refused) { throw new IllegalStateException("Recovery unavailable"); }
     }
     static Map<String, String> form(MultivaluedMap<String, String> decoded, int contentLength) {
         require(contentLength >= 0 && contentLength <= 16384 && decoded != null && !decoded.isEmpty() && decoded.size() <= 5);

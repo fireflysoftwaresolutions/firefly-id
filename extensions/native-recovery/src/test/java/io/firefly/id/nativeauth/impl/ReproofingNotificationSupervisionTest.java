@@ -62,6 +62,26 @@ class ReproofingNotificationSupervisionTest {
         for (String body : List.of("", "null", "[]", "{\"limit\":1}", "{} {}"))
             assertThrows(java.lang.reflect.InvocationTargetException.class, () -> method.invoke(null, body));
     }
+    @Test @SuppressWarnings("unchecked")
+    void oneRowDispatchDoesNotAmplifyAttemptsOrChangeTheTerminalBudget() throws Exception {
+        var session = session("notifications"); var headers = mock(jakarta.ws.rs.core.HttpHeaders.class);
+        when(session.getContext().getRequestHeaders()).thenReturn(headers);
+        var em = session.getProvider(JpaConnectionProvider.class).getEntityManager();
+        var clock = mock(Query.class, RETURNS_SELF); when(em.createNativeQuery(anyString())).thenReturn(clock); when(clock.getSingleResult()).thenReturn(1700000000000L);
+        var notification = new ReproofingNotificationImpl(); notification.id = "execution"; notification.realmId = "realm"; notification.status = "PENDING"; notification.attempts = 7;
+        var pending = mock(TypedQuery.class, RETURNS_SELF); when(em.createQuery(anyString(), eq(ReproofingNotificationImpl.class))).thenReturn(pending); when(pending.getResultList()).thenReturn(List.of(notification));
+        when(em.find(ReproofingNotificationImpl.class, "execution")).thenReturn(notification); when(em.find(ReproofingNotificationImpl.class, "execution", LockModeType.PESSIMISTIC_WRITE)).thenReturn(notification);
+        when(session.users()).thenReturn(mock(UserProvider.class));
+        try (var phases = mockStatic(io.firefly.id.nativeauth.NativePhasesImpl.class); var rpc = mockStatic(ReproofingRpcImpl.class)) {
+            phases.when(() -> io.firefly.id.nativeauth.NativePhasesImpl.run(eq(session), any())).thenAnswer(call -> ((java.util.function.Function<KeycloakSession,Object>)call.getArgument(1)).apply(session));
+            var method = ReproofingDispatcherImpl.class.getDeclaredMethod("dispatch", int.class);
+            assertEquals(1, method.invoke(new ReproofingDispatcherImpl(session), 1));
+            assertThrows(java.lang.reflect.InvocationTargetException.class, () -> method.invoke(new ReproofingDispatcherImpl(session), 0));
+            assertThrows(java.lang.reflect.InvocationTargetException.class, () -> method.invoke(new ReproofingDispatcherImpl(session), 11));
+        }
+        assertEquals(8, notification.attempts); assertEquals("FAILED", notification.status);
+        verify(em, times(1)).createQuery(anyString(), eq(ReproofingNotificationImpl.class));
+    }
     @Test void aggregateWireUsesOneRealmFilteredDatabaseSnapshotWithoutEntityReadsOrMutation() throws Exception {
         var session = session("notifications"); var em = session.getProvider(JpaConnectionProvider.class).getEntityManager();
         var query = mock(Query.class, RETURNS_SELF);

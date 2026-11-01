@@ -47,7 +47,13 @@ final class ReproofingRpcImpl {
         require(header != null && header.startsWith("Basic ") && header.length() <= 4096);
         String value = new String(Base64.getDecoder().decode(header.substring(6)), StandardCharsets.UTF_8); int colon = value.indexOf(':'); require(colon > 0);
         String id = value.substring(0, colon), secret = value.substring(colon + 1);
-        require((id.equals(config.value("core-workload-client-id")) && Set.of("prepare", "admit", "journal", "dispatch").contains(route))
+        String notifications = config.realm.getAttribute("firefly.reproofing.notification-workload-client-id");
+        if (notifications != null) {
+            notifications = config.value("notification-workload-client-id");
+            require(!notifications.equals(config.value("core-workload-client-id")) && !notifications.equals(config.value("domain-workload-client-id")));
+        }
+        require((id.equals(config.value("core-workload-client-id")) && (Set.of("prepare", "admit", "journal").contains(route) || (notifications == null && "dispatch".equals(route))))
+                || (notifications != null && id.equals(notifications) && Set.of("dispatch", "notification-status").contains(route))
                 || (id.equals(config.value("domain-workload-client-id")) && Set.of("prepare", "admit").contains(route)));
         var client = ReproofingRealmPolicyImpl.freshClient(child, config.realm, id);
         require(client != null && client.isEnabled() && !client.isPublicClient() && !client.isStandardFlowEnabled() && !client.isDirectAccessGrantsEnabled()

@@ -17,11 +17,13 @@ final class ReproofingDispatcherImpl {
         if (notification == null || !"SENDING".equals(notification.status) || notification.attempts < 8 || notification.nextAttemptAt > now) return false;
         notification.status = "FAILED"; notification.leaseToken = null; return true;
     }
-    int dispatch() {
+    int dispatch() { return dispatch(10); }
+    int dispatch(int limit) {
+        require(limit >= 1 && limit <= 10);
         String header = request.getContext().getRequestHeaders().getHeaderString("Authorization");
         NativePhasesImpl.run(request, child -> { ReproofingRpcImpl.authenticate(child, header, "dispatch"); return null; });
         int processed = 0;
-        for (int n = 0; n < 10; n++) {
+        for (int n = 0; n < limit; n++) {
             Lease lease = NativePhasesImpl.run(request, child -> {
                 var store = new ReproofingStoreImpl(child); long now = store.now();
                 var rows = store.em.createQuery("select n from ReproofingNotificationImpl n where n.realmId = :realm and n.status in ('PENDING','SENDING') and n.nextAttemptAt <= :now and (n.attempts < 8 or (n.status = 'SENDING' and n.attempts = 8)) order by n.nextAttemptAt", ReproofingNotificationImpl.class)
