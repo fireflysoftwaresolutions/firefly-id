@@ -212,7 +212,7 @@ def realm(kind, password, backend_secret, verification_password=None, policy_fix
     return result
 
 
-def compose(output, project, theme_dir):
+def compose(output, project, theme_dir, startup_diagnostics=False):
     images = json.loads((ROOT / 'deploy/images.lock.json').read_text())
     def mount(source, target, readonly=True):
         return {'type': 'bind', 'source': str(source), 'target': target, 'read_only': readonly}
@@ -246,7 +246,8 @@ def compose(output, project, theme_dir):
                                          'KC_HEALTH_ENABLED': 'true', 'KC_METRICS_ENABLED': 'true',
                                          'KC_HTTP_MANAGEMENT_SCHEME': 'http',
                                          'KC_BOOTSTRAP_ADMIN_USERNAME': 'sandbox-bootstrap',
-                                         'JAVA_OPTS_KC_HEAP': '-Xms128m -Xmx512m'},
+                                         'JAVA_OPTS_KC_HEAP': '-Xms128m -Xmx512m',
+                                         **({'KC_VERBOSE': 'true'} if startup_diagnostics else {})},
                          'secrets': ['db-password', 'admin-password'],
                          'volumes': [mount(ROOT / 'deploy/keycloak-entrypoint.sh', '/opt/firefly/entrypoint.sh'),
                                      mount(output / 'realms', '/opt/keycloak/data/import'),
@@ -277,9 +278,14 @@ def main():
     parser.add_argument('--configuration-lookup-client-id')
     parser.add_argument('--configuration-lookup-realm', choices=['customers', 'workforce', 'institutions'])
     parser.add_argument('--configuration-lookup-tenant')
+    parser.add_argument('--hosted-startup-diagnostics', action='store_true',
+                        help='Enable private verbose errors only in a GitHub-hosted Linux synthetic sandbox.')
     args = parser.parse_args()
     if args.mode == 'production':
         parser.error('Production contract is not selected. Approve realm/client/claim and deployment contracts first; no production generator is enabled.')
+    if args.hosted_startup_diagnostics and any(os.environ.get(key) != expected for key, expected in (
+            ('GITHUB_ACTIONS', 'true'), ('RUNNER_ENVIRONMENT', 'github-hosted'), ('RUNNER_OS', 'Linux'))):
+        parser.error('Hosted startup diagnostics requires GitHub-hosted Linux Actions; no state was generated.')
     lookup = (args.configuration_lookup_client_id, args.configuration_lookup_realm, args.configuration_lookup_tenant)
     if any(value is not None for value in lookup):
         if not all(value is not None for value in lookup):
@@ -344,7 +350,8 @@ def main():
     # remain owner-only on the host; local Compose does not remap secret-file ownership.
     (output / 'realms').chmod(0o755)
     write(output / 'credentials.json', json.dumps(credentials, indent=2) + '\n', 0o600)
-    write(output / 'compose.json', json.dumps(compose(output, project, theme_dir), indent=2) + '\n', 0o600)
+    write(output / 'compose.json', json.dumps(compose(output, project, theme_dir,
+          startup_diagnostics=args.hosted_startup_diagnostics), indent=2) + '\n', 0o600)
     write(output / 'ownership.json', json.dumps({'project': project, 'mode': 'sandbox',
           'compose': str(output / 'compose.json'),
           'compose_sha256': hashlib.sha256((output / 'compose.json').read_bytes()).hexdigest(),

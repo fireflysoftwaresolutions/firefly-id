@@ -32,7 +32,7 @@ jobs:
         run: |
           umask 077
           python3 tooling/build_theme.py
-          python3 scripts/generate.py --mode sandbox
+          python3 scripts/generate.py --mode sandbox --hosted-startup-diagnostics
           printf '\n127.0.0.1 id.firefly.test\n' | sudo tee -a /etc/hosts >/dev/null
           python3 scripts/sandbox.py preflight
           python3 scripts/sandbox.py pull
@@ -46,10 +46,14 @@ jobs:
           npm ci --ignore-scripts
           npx playwright install --with-deps chromium
       - name: Exercise genuine verification expiry and resident passkey ceremonies
+        id: authenticator-runtime
         env:
           FIREFLY_ID_EXTENDED_FLOWS: verify-expiry,passkey
           FIREFLY_ID_AUTHENTICATOR_FIXTURE: owned-hosted
         run: node tooling/extended-runtime.mjs
+      - name: Classify only owned server errors after a runtime failure
+        if: ${{ failure() && steps.owned-runtime.outcome == 'success' && steps.authenticator-runtime.outcome == 'failure' && hashFiles('.state/sandbox/ownership.json') != '' }}
+        run: python3 tooling/startup_diagnostics.py
       - name: Preserve bounded runtime summary
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

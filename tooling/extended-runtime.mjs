@@ -197,6 +197,7 @@ async function main() {
         phase = 'administrative console navigation';
         const navigation = await adminPage.goto(`${BASE}/admin/master/console/`);
         adminInitialNavigation = { status: navigation?.status() ?? null, route: extendedRouteClass(adminPage.url()) };
+        assert.equal(adminInitialNavigation.status, 200, 'Initial administrative console HTTP response refused');
         phase = 'administrative username form';
         await adminPage.locator('#username').fill('sandbox-bootstrap');
         phase = 'administrative password form';

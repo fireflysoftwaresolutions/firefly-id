@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Observe an owned sandbox startup failure without publishing its private logs."""
+"""Observe owned sandbox errors without publishing private logs."""
 import argparse
 import importlib.util
 import json
@@ -24,7 +24,22 @@ EXCEPTIONS = {
     'SQLGrammarException', 'SSLException', 'SSLHandshakeException', 'TemplateException',
     'TemplateNotFoundException',
 }
+THEME_EXCEPTIONS = {
+    'freemarker.core.InvalidReferenceException': 'InvalidReferenceException',
+    'freemarker.template.TemplateModelException': 'TemplateModelException',
+    'freemarker.core.ParseException': 'ParseException',
+}
 STATES = {'created', 'running', 'paused', 'restarting', 'removing', 'exited', 'dead'}
+# Pinned Keycloak 26.8.1 Main/Build/Messages and CLI exception handlers emit these literals.
+CLI_MESSAGES = {
+    "ERROR: Failed to run 'start' command.": ('CLI_START_COMMAND_FAILED', None),
+    'ERROR: Failed to start server in (production) mode': ('CLI_SERVER_START_FAILED', None),
+    "For more details run the same command passing the '--verbose' option.": ('CLI_ERROR_DETAILS_AVAILABLE', None),
+    'Failed to update server configuration.': ('CLI_CONFIGURATION_UPDATE_FAILED', 'AUGMENTATION_FAILURE'),
+    'Key material not provided to setup HTTPS.': ('CLI_HTTPS_KEY_MATERIAL_MISSING', 'HTTPS_KEY_MATERIAL_MISSING'),
+    'The following options are required:': ('CLI_REQUIRED_OPTIONS_MISSING', 'CONFIGURATION_FAILURE'),
+    'Disabled option:': ('CLI_DISABLED_OPTION', 'CONFIGURATION_FAILURE'),
+}
 STATE_FORMAT = ('{"project":{{json (index .Config.Labels "com.docker.compose.project")}},'
                 '"service":{{json (index .Config.Labels "com.docker.compose.service")}},'
                 '"status":{{json .State.Status}},"exit_code":{{json .State.ExitCode}},'
@@ -74,8 +89,11 @@ def capture(command, limit=65536, timeout=10):
 
 def classify(logs):
     pattern = r'(?<![\w$])(?:[\w$]+\.)*(' + '|'.join(sorted(EXCEPTIONS)) + r')(?![\w$])'
-    classes = sorted(set(re.findall(pattern, logs)))
-    observed = set(classes)
+    observed = set(re.findall(pattern, logs))
+    for qualified, simple in THEME_EXCEPTIONS.items():
+        if re.search(r'(?<![\w$.])' + re.escape(qualified) + r'(?![\w$])', logs):
+            observed.add(simple)
+    classes = sorted(observed)
     causes = set()
     groups = {
         'MEMORY_ALLOCATION_FAILURE': {'OutOfMemoryError'},
@@ -85,7 +103,7 @@ def classify(logs):
         'AUGMENTATION_FAILURE': {'BuildException', 'DeploymentException'},
         'LISTENER_BIND_FAILURE': {'BindException'},
         'TLS_FAILURE': {'SSLException', 'SSLHandshakeException', 'CertificateException'},
-        'THEME_FAILURE': {'TemplateException', 'TemplateNotFoundException'},
+        'THEME_FAILURE': {'TemplateException', 'TemplateNotFoundException', *THEME_EXCEPTIONS.values()},
         'PROVIDER_LOADING_FAILURE': {'ServiceConfigurationError', 'NoClassDefFoundError', 'ClassNotFoundException'},
     }
     for category, kinds in groups.items():
@@ -95,15 +113,21 @@ def classify(logs):
         causes.add('REALM_IMPORT_FAILURE')
     if re.search(r'unknown option|unmatched argument', logs, re.IGNORECASE):
         causes.add('CONFIGURATION_FAILURE')
+    markers = []
+    for message, (marker, cause) in CLI_MESSAGES.items():
+        if message in logs:
+            markers.append(marker)
+            if cause:
+                causes.add(cause)
     if not causes:
         causes.add('UNKNOWN_STARTUP_FAILURE' if logs.strip() else 'EMPTY_LOG_WINDOW')
-    return {'causes': sorted(causes), 'exception_classes': classes}
+    return {'causes': sorted(causes), 'exception_classes': classes, 'cli_markers': sorted(markers)}
 
 
 def report(source):
-    return {'schema_version': 1, 'scope': 'Owned synthetic Keycloak startup observations only',
+    return {'schema_version': 1, 'scope': 'Owned synthetic Keycloak error observations only',
             'source': source if isinstance(source, str) and re.fullmatch('[0-9a-f]{40}', source) else None,
-            'collection_status': 'UNAVAILABLE', 'causes': [], 'exception_classes': [],
+            'collection_status': 'UNAVAILABLE', 'causes': [], 'exception_classes': [], 'cli_markers': [],
             'process': None, 'log_truncated': False}
 
 

@@ -1,5 +1,7 @@
 """Offline deployment contracts; these do not qualify a running Keycloak."""
+import hashlib
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -10,13 +12,64 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class DeploymentGenerationTest(unittest.TestCase):
-    def run_generator(self, output, *args):
+    def run_generator(self, output, *args, env=None):
         theme = output.parent / 'built-theme'
         for kind in ('login', 'account', 'admin', 'email', 'welcome'):
             (theme / kind).mkdir(parents=True, exist_ok=True)
             (theme / kind / 'theme.properties').write_text('parent=base\n')
         return subprocess.run([sys.executable, str(ROOT / 'scripts/generate.py'),
-                               '--output', str(output), '--theme-dir', str(theme), *args], text=True, capture_output=True)
+                               '--output', str(output), '--theme-dir', str(theme), *args], text=True, capture_output=True, env=env)
+
+    def test_startup_diagnostics_requires_all_hosted_linux_guards_before_output(self):
+        hosted = {'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'github-hosted', 'RUNNER_OS': 'Linux'}
+        clean = {key: value for key, value in os.environ.items() if key not in hosted}
+        for changes in ({}, {'GITHUB_ACTIONS': 'false'}, {'RUNNER_ENVIRONMENT': 'self-hosted'},
+                        {'RUNNER_OS': 'Windows'}, {'RUNNER_OS': 'macOS'}):
+            environment = clean if not changes else {**clean, **hosted, **changes}
+            with self.subTest(changes=changes), tempfile.TemporaryDirectory() as parent:
+                output = pathlib.Path(parent) / 'sandbox'
+                result = subprocess.run([sys.executable, str(ROOT / 'scripts/generate.py'),
+                        '--mode', 'sandbox', '--output', str(output), '--theme-dir', str(pathlib.Path(parent) / 'missing-theme'),
+                        '--hosted-startup-diagnostics'], capture_output=True, text=True, env=environment)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn('requires GitHub-hosted Linux Actions', result.stderr)
+                self.assertEqual([], list(pathlib.Path(parent).iterdir()))
+
+    def test_startup_diagnostics_is_explicit_and_only_changes_owned_keycloak_verbosity(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('generate_diagnostics', ROOT / 'scripts/generate.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        environment = {**os.environ, 'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'github-hosted', 'RUNNER_OS': 'Linux'}
+        with tempfile.TemporaryDirectory() as parent:
+            output = pathlib.Path(parent) / 'sandbox'
+            result = self.run_generator(output, '--mode', 'sandbox', '--hosted-startup-diagnostics', env=environment)
+            self.assertEqual(0, result.returncode, result.stderr)
+            config = json.loads((output / 'compose.json').read_text())
+            owner = json.loads((output / 'ownership.json').read_text())
+            self.assertEqual('true', config['services']['keycloak']['environment'].pop('KC_VERBOSE'))
+            default = module.compose(output, owner['project'], pathlib.Path(owner['theme_dir']))
+            self.assertEqual(default, config)
+            self.assertEqual(default, module.compose(output, owner['project'], pathlib.Path(owner['theme_dir']), startup_diagnostics=False))
+            self.assertEqual(hashlib.sha256((output / 'compose.json').read_bytes()).hexdigest(), owner['compose_sha256'])
+            original = (output / 'compose.json').read_bytes()
+            again = self.run_generator(output, '--mode', 'sandbox', '--hosted-startup-diagnostics', env=environment)
+            self.assertNotEqual(0, again.returncode)
+            self.assertEqual(original, (output / 'compose.json').read_bytes())
+            plain = pathlib.Path(parent) / 'plain'
+            self.assertEqual(0, self.run_generator(plain, '--mode', 'sandbox', env=environment).returncode)
+            self.assertNotIn('KC_VERBOSE', json.loads((plain / 'compose.json').read_text())['services']['keycloak']['environment'])
+
+    def test_startup_diagnostics_cannot_enable_production_or_accept_a_flag_value(self):
+        environment = {**os.environ, 'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'github-hosted', 'RUNNER_OS': 'Linux'}
+        for arguments in [('--mode', 'production', '--hosted-startup-diagnostics'),
+                          ('--mode', 'sandbox', '--hosted-startup-diagnostics=false')]:
+            with self.subTest(arguments=arguments), tempfile.TemporaryDirectory() as parent:
+                output = pathlib.Path(parent) / 'output'
+                result = subprocess.run([sys.executable, str(ROOT / 'scripts/generate.py'), '--output', str(output), *arguments],
+                                        capture_output=True, text=True, env=environment)
+                self.assertNotEqual(0, result.returncode)
+                self.assertEqual([], list(pathlib.Path(parent).iterdir()))
 
     def test_production_refuses_unselected_contract_without_creating_secrets(self):
         with tempfile.TemporaryDirectory() as parent:

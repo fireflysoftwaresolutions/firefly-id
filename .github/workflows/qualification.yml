@@ -52,7 +52,7 @@ jobs:
         id: owned-runtime
         run: |
           python3 tooling/build_theme.py
-          python3 scripts/generate.py --mode sandbox --configuration-lookup-client-id configuration-lookup --configuration-lookup-realm customers --configuration-lookup-tenant synthetic-platform-namespace
+          python3 scripts/generate.py --mode sandbox --hosted-startup-diagnostics --configuration-lookup-client-id configuration-lookup --configuration-lookup-realm customers --configuration-lookup-tenant synthetic-platform-namespace
           printf '\n127.0.0.1 id.firefly.test\n' | sudo tee -a /etc/hosts >/dev/null
           python3 scripts/sandbox.py preflight
           python3 scripts/sandbox.py pull

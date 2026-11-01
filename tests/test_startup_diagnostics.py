@@ -64,6 +64,42 @@ class StartupDiagnosticsTest(unittest.TestCase):
         self.assertEqual([], result['exception_classes'])
         self.assertNotIn('DO-NOT-PRINT', json.dumps(result))
 
+    def test_cli_stage_messages_do_not_pretend_to_identify_the_underlying_cause(self):
+        result = self.module.classify("ERROR: Failed to run 'start' command.\n"
+            'ERROR: Failed to start server in (production) mode\n'
+            "For more details run the same command passing the '--verbose' option.\n"
+            'ERROR: DO-NOT-PRINT secret://private/value')
+        self.assertEqual(['UNKNOWN_STARTUP_FAILURE'], result['causes'])
+        self.assertIn('cli_markers', result)
+        self.assertEqual(['CLI_ERROR_DETAILS_AVAILABLE', 'CLI_SERVER_START_FAILED', 'CLI_START_COMMAND_FAILED'], result['cli_markers'])
+        self.assertNotIn('DO-NOT-PRINT', json.dumps(result))
+
+    def test_freemarker_subclasses_identify_theme_failures_without_confusing_other_parsers(self):
+        for qualified, simple in [
+                ('freemarker.core.InvalidReferenceException', 'InvalidReferenceException'),
+                ('freemarker.template.TemplateModelException', 'TemplateModelException'),
+                ('freemarker.core.ParseException', 'ParseException')]:
+            with self.subTest(exception=simple):
+                result = self.module.classify(f'Caused by: {qualified}: DO-NOT-PRINT private template value')
+                self.assertEqual(['THEME_FAILURE'], result['causes'])
+                self.assertEqual([simple], result['exception_classes'])
+                self.assertNotIn('DO-NOT-PRINT', json.dumps(result))
+        result = self.module.classify('other.parser.ParseException: DO-NOT-PRINT')
+        self.assertEqual(['UNKNOWN_STARTUP_FAILURE'], result['causes'])
+        self.assertEqual([], result['exception_classes'])
+
+    def test_cli_configuration_messages_return_fixed_categories_without_parameters(self):
+        for message, cause, marker in [
+                ('ERROR: Failed to update server configuration.', 'AUGMENTATION_FAILURE', 'CLI_CONFIGURATION_UPDATE_FAILED'),
+                ('Key material not provided to setup HTTPS.', 'HTTPS_KEY_MATERIAL_MISSING', 'CLI_HTTPS_KEY_MATERIAL_MISSING'),
+                ('The following options are required: DO-NOT-PRINT', 'CONFIGURATION_FAILURE', 'CLI_REQUIRED_OPTIONS_MISSING'),
+                ("Disabled option: '--DO-NOT-PRINT'", 'CONFIGURATION_FAILURE', 'CLI_DISABLED_OPTION')]:
+            with self.subTest(marker=marker):
+                result = self.module.classify(message + '\nprivate://DO-NOT-PRINT')
+                self.assertEqual([cause], result['causes'])
+                self.assertEqual([marker], result['cli_markers'])
+                self.assertNotIn('DO-NOT-PRINT', json.dumps(result))
+
     def test_only_owned_keycloak_is_inspected_and_oom_state_is_preserved(self):
         commands = []
         def capture(command, **kwargs):
