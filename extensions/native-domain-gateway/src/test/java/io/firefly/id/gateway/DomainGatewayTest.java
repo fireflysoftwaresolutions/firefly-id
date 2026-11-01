@@ -135,6 +135,24 @@ class DomainGatewayTest {
         assertTrue(JsonSerialization.mapper.readTree(requests.getLast().body()).get("expiresAt").isTextual());
     }
 
+    @Test void consumptionRefusesAnExpiredReceiptEvenWithAnAcceptedHttpResponse() throws Exception {
+        var live = new Authorization(UUID.randomUUID(), UUID.randomUUID(), binding(), Instant.now().plusSeconds(60));
+        respond(200, live);
+        assertEquals(live, gateway.consume("restricted", live.operationId()));
+        var expired = new Authorization(live.operationId(), live.executionId(), live.binding(), Instant.now().minusSeconds(1));
+        respond(200, expired);
+        assertSafe(() -> gateway.consume("restricted", expired.operationId()));
+    }
+
+    @Test void verificationRefusesAnExactButExpiredReceipt() throws Exception {
+        var live = new Authorization(UUID.randomUUID(), UUID.randomUUID(), binding(), Instant.now().plusSeconds(60));
+        respond(200, live);
+        assertEquals(live, gateway.verifyAuthorization("restricted", live));
+        var expired = new Authorization(live.operationId(), live.executionId(), live.binding(), Instant.now().minusSeconds(1));
+        respond(200, expired);
+        assertSafe(() -> gateway.verifyAuthorization("restricted", expired));
+    }
+
     @Test void refusesRedirectAndOversizedChunkedResponse() {
         reply.set(new Reply(307, new byte[0], "https://untrusted.invalid/collect"));
         assertSafe(() -> gateway.begin("private-actor"));
