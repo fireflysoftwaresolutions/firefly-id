@@ -32,7 +32,7 @@ Audience membership is an admission condition, not a business permission. `aud=s
 
 The generated interactive clients use an audience mapper with `included.custom.audience=sandbox-api` and `access.token.claim=true`. They disable full-scope access and do not place this API audience in the ID token. Their custom mappers are described in [claims](provider-claim-profile.md).
 
-The receiver must independently require the same audience. For Jafly, configure `firefly.security.resource-server.audiences` together with the trusted issuer and JWKS URI; [the Jafly guide](jafly.md) shows a complete configuration.
+The receiver must independently require the same audience. Configure the API's JWT validation library with its exact expected audience, trusted issuer and signing-key source. [Application integration](integration-contract.md) explains these receiver checks.
 
 Do not broaden a receiver's audience allowlist until one token works. First identify whether the application sent an ID token, an account token, a token from another population or a token issued for a different API.
 

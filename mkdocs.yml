@@ -106,7 +106,7 @@ nav:
       - Integrate an application: integration-contract.md
       - Token claims: provider-claim-profile.md
       - Token audiences: receiver-audiences.md
-      - Use Jafly: jafly.md
+      - Optional Jafly example: jafly.md
       - Configuration lookup client: configuration-service-client.md
       - Zero trust in each service: zero-trust.md
       - Connect identity verification: assurance-provider-contract.md

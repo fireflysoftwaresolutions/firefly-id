@@ -1,6 +1,6 @@
-# Integrate a Jafly resource server
+# Optional example: Jafly resource server
 
-Jafly applications can receive Firefly Identity access tokens through the framework's generic Spring Security resource-server module. Configure the trusted issuer, remote JWKS, intended audience and principal mapping; keep business authorization in the receiving application.
+This optional example connects an existing Jafly application to Firefly Identity through Jafly's generic Spring Security resource-server module. Jafly is an independent framework and can integrate with any CIAM supporting the required OAuth 2.0/OIDC and token-validation profile; Firefly Identity is one possible issuer. Configure the trusted issuer, remote JWKS, intended audience and principal mapping; keep business authorization in the receiving application.
 
 Jafly remains independent of Firefly Identity. This integration does not require native recovery classes, a Keycloak administration client or a proofing-provider dependency in the framework.
 

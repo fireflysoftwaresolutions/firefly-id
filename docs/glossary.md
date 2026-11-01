@@ -17,7 +17,6 @@
 | Introspection | Authenticated issuer query about a token's active state. |
 | Required action | Server-enforced verification or enrollment step, such as verifying email or configuring TOTP. |
 | Workload identity | Authentication of a service calling another service. |
-| Jafly | Provider-neutral Java framework using generic Spring Security mechanisms. |
 
 See [application integration](integration-contract.md), [claims](provider-claim-profile.md) and [audiences](receiver-audiences.md).
 

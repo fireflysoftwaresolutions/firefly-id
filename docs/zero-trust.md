@@ -21,7 +21,7 @@ sequenceDiagram
     Experience-->>Client: Result or refusal
 ```
 
-The diagram describes the required service integration. A receiver-specific token/delegation mechanism must exist for each enabled path; this distribution does not configure general human token exchange between all applications.
+The diagram illustrates the optional Experience/Domain/Core service topology. Apply the same boundary checks to your own application topology; using Identity does not require these layers or a particular framework. A receiver-specific token/delegation mechanism must exist for each enabled path; this distribution does not configure general human token exchange between all applications.
 
 | Boundary | Authentication and authorization inputs |
 | --- | --- |
@@ -34,7 +34,7 @@ Reject unsigned `X-Actor` headers, caller-selected actor IDs and browser claims 
 
 ## Separate authentication from business authorization
 
-For token admission, validate signature, exact issuer, audience, approved algorithm, expiration and applicable not-before. Then project a verified principal and check its required population/tenant fields. The [Jafly resource-server guide](jafly.md) shows this configuration.
+For token admission, validate signature, exact issuer, audience, approved algorithm, expiration and applicable not-before. Then project a verified principal and check its required population/tenant fields. The [application integration guide](integration-contract.md) explains the protocol and receiver configuration.
 
 For the business decision, resolve the authoritative customer/staff link, current membership, resource ownership, consent, purpose and applicable assurance. Preserve both the opaque identity namespace and Configuration's separately typed resource-tenant UUID. A party ID identifies a relationship; it does not authorize every record linked to that person.
 
@@ -60,7 +60,7 @@ Client credentials establish software identity. They cannot establish a customer
 
 Do not forward a token to an API outside its audience. Do not infer raw bearer authority from a projected principal, and do not replace an employee's identity with a customer's refresh token. Where no compatible delegation contract is available, disable that operation until the owning services provide one.
 
-Jafly supplies generic principal and policy ports; Firefly-specific native credentials, locks and PINs stay in Identity. Business adapters stay with their actual service owners. Selecting Identity as an issuer does not require the framework to depend on its native extension or a proofing provider.
+Firefly-specific native credentials, locks and PINs stay in Identity. Business adapters stay with their actual service owners. Ordinary application authentication requires the configured OIDC/OAuth 2.0 interfaces, without a dependency on native recovery or a proofing provider.
 
 ## Staff acting for a customer
 

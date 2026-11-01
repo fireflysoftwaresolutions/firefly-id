@@ -50,7 +50,7 @@ A successful response contains a bearer `access_token` and its lifetime. The cli
 | `aud` | Includes the sandbox receiver `sandbox-api` |
 | `party_id`, `staff_actor_id` | Absent: the workload is not a human |
 
-Only this opt-in profile enables its service account. It disables standard interactive, direct password, implicit, device, CIBA and standard token-exchange grants, has no callbacks and retains only the `basic` client scope. [Claims](provider-claim-profile.md) explains the common token format and [Jafly](jafly.md) shows receiver configuration.
+Only this opt-in profile enables its service account. It disables standard interactive, direct password, implicit, device, CIBA and standard token-exchange grants, has no callbacks and retains only the `basic` client scope. [Claims](provider-claim-profile.md) explains the common token format and [application integration](integration-contract.md) explains receiver validation.
 
 ## Authorize the Configuration lookup
 

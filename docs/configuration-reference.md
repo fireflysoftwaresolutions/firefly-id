@@ -87,7 +87,7 @@ Customer support PIN protection uses `FIREFLY_SUPPORT_PIN_KEYS_DIR`, `FIREFLY_SU
 
 Lost-credential recovery uses separate `firefly.reproofing.*` settings, customer-only opt-in, exact provider origin, protected account/party binding and at most 600-second original ceremony. It requires distinct Native/Core/Domain workloads and `FIREFLY_REPROOFING_DOMAIN_SECRET_FILE`. Enrollment/notification encryption uses either an exact 32-byte single version or the explicitly versioned mounted keyring; do not combine modes or replace a needed decryption key. [Credential-loss recovery](credential-loss-recovery.md) lists every required realm property and key procedure.
 
-Core's notification poller additionally requires both recovery and notification enable flags, separate sender and monitor secret files, trusted native HTTPS and bounded durations. Its defaults and private endpoints are documented in [notification operations](notification-operations.md). Core/Domain are independently configured services; none of these settings adds an Identity dependency to Jafly.
+Core's notification poller additionally requires both recovery and notification enable flags, separate sender and monitor secret files, trusted native HTTPS and bounded durations. Its defaults and private endpoints are documented in [notification operations](notification-operations.md). Core/Domain are independently configured optional recovery services. Ordinary OIDC applications do not need these recovery settings.
 
 ## Apply a configuration change
 

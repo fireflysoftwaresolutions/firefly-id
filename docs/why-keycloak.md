@@ -6,7 +6,7 @@ Firefly Identity builds on Keycloak to provide standards-based authentication wi
 
 Applications use OpenID Connect discovery, authorization code with PKCE S256, refresh and logout. They can use their existing OIDC client libraries rather than implementing password handling. APIs validate the issuer and intended audience and keep business authorization at the receiving service.
 
-This division lets several applications share a sign-in experience without sharing passwords. It also keeps Jafly independent: its generic Spring Security configuration can connect to Firefly Identity or another compatible provider.
+This division lets several applications share a sign-in experience without sharing passwords. Applications keep their chosen language and framework and configure their OIDC library for the trusted issuer and token profile.
 
 ## Separate identity populations
 

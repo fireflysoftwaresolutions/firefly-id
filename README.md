@@ -4,7 +4,7 @@
 
 Firefly Identity is the Firefly distribution of Keycloak for customer identity and access management. It provides consistent sign-in, account management and recovery, with separate customer, employee and administrative security profiles. Applications use OpenID Connect; business identity records and authorization remain with their owning services.
 
-The distribution uses Keycloak 26.8.1, self-hosted Manrope, English/Spanish text and responsive light/dark themes across authentication, account, administration, welcome and email surfaces. Jafly remains an independent framework and integrates through its generic Spring Security facilities.
+The distribution uses Keycloak 26.8.1, self-hosted Manrope, English/Spanish text and responsive light/dark themes across authentication, account, administration, welcome and email surfaces.
 
 ## Documentation
 
@@ -14,7 +14,7 @@ Read the [Firefly Identity manual](https://fireflysoftwaresolutions.github.io/fi
 | --- | --- |
 | Run an evaluation | [Getting started](docs/getting-started.md) and [local environment](docs/sandbox.md) |
 | Understand responsibilities and flows | [Architecture](docs/architecture.md), [components](docs/solution-overview.md) and [customer journeys](docs/customer-journeys.md) |
-| Connect an application | [OIDC integration](docs/integration-contract.md), [claims](docs/provider-claim-profile.md), [audiences](docs/receiver-audiences.md) and [Jafly](docs/jafly.md) |
+| Connect an application | [OIDC integration](docs/integration-contract.md), [claims](docs/provider-claim-profile.md), [audiences](docs/receiver-audiences.md) |
 | Configure security | [Policies](docs/authentication-policies.md), [workforce/admin](docs/workforce-administration.md) and [production checks](docs/production-readiness.md) |
 | Recover access | [Journey selection](docs/access-recovery.md), [native unlock](docs/native-recovery.md) and [credential loss](docs/credential-loss-recovery.md) |
 | Customize the experience | [Themes](docs/themes.md), [languages](docs/localization.md), [tokens](docs/design-tokens.md) and [brand](docs/brand.md) |

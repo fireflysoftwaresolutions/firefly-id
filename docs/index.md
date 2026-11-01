@@ -9,14 +9,14 @@ Firefly Identity is the Firefly distribution of Keycloak for customer identity a
     <source media="(max-width: 720px)" srcset="assets/diagrams/solution-mobile.svg">
     <img src="assets/diagrams/solution.svg" alt="Separate customer and workforce identities connect through Firefly Identity to application, Domain and Core services. Each service checks the caller and authorizes its own operation.">
   </picture>
-  <figcaption>Firefly Identity manages authentication. Applications and business services authorize their own resources and operations.</figcaption>
+  <figcaption>Firefly Identity manages authentication. This example includes optional platform recovery services; each application authorizes its own resources and operations.</figcaption>
 </figure>
 
 ## Get started
 
 If you are evaluating the product, [start a local environment](getting-started.md). The guide walks through building the theme, creating the sample realms, starting the owned services and checking sign-in and email.
 
-If you are connecting an application, follow [Integrate an application](integration-contract.md). It explains discovery, client registration, authorization code with PKCE, access-token validation and logout. Java teams can continue with the [Jafly guide](jafly.md).
+If you are connecting an application, follow [Integrate an application](integration-contract.md). It explains discovery, client registration, authorization code with PKCE, access-token validation and logout.
 
 If you operate the identity service, begin with [deployment and operations](operations.md), then configure [authentication policies](authentication-policies.md), [workforce administration](workforce-administration.md) and [monitoring](observability-incidents.md).
 

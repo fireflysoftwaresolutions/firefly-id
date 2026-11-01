@@ -22,5 +22,5 @@
   <text x="382" y="330" class="heading">Core</text><text x="382" y="365" class="secondary">Business records · KYC/KYB SoR</text>
   <text x="40" y="340" class="secondary">Every receiving layer</text><text x="40" y="365" class="secondary">validates its caller and policy.</text>
   <text x="535" y="256" font-size="14" fill="#ffb34a" style="fill:#ffb34a">Recovery authorization</text>
-  <text x="40" y="434" class="secondary">Jafly remains independent of Identity and the verification provider.</text>
+  <text x="40" y="434" class="secondary">Applications connect through standard OIDC interfaces.</text>
 </svg>

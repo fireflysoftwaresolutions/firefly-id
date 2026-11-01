@@ -1,5 +1,7 @@
 # Integrate an application
 
+Firefly Identity accepts applications built with any framework that supports the configured OpenID Connect and OAuth 2.0 profiles. No Firefly application framework is required.
+
 Use OpenID Connect authorization code with PKCE S256 to sign a person into an application. Use an access token for the API named in its audience, and let that API authorize the requested action. The application should not collect the person's password or turn a username lookup into authentication.
 
 This guide uses the generated customer sandbox. Complete [sandbox setup](sandbox.md) first. Production integration uses the same protocol with the institution's configured HTTPS issuer, exact client registration, receiver audience and identity-linking policy.
@@ -64,7 +66,7 @@ Keep code, token, PKCE verifier and refresh credentials out of URLs beyond the p
 
 The API needs an explicit issuer, JWKS URI, approved signature algorithm and audience. It validates token signature and time before projecting a principal. Then it requires the intended population, protected tenant/link attributes and current business permission for the action/resource.
 
-The sandbox uses RS256 and `sandbox-api`. [Claims](provider-claim-profile.md) explains their formats; [Jafly integration](jafly.md) provides the corresponding resource-server configuration. Do not accept unsigned actor headers or parse a token without verifying it.
+The sandbox uses RS256 and `sandbox-api`. [Claims](provider-claim-profile.md) explains their formats; [audiences](receiver-audiences.md) explains how to configure issuance and receiver validation together. Do not accept unsigned actor headers or parse a token without verifying it.
 
 An opaque subject or tenant is not a business UUID. If a service needs a party, staff or resource-tenant UUID, resolve it through its authoritative owner while retaining the original issuer/subject/namespace. A machine token cannot supply human delegation by adding a customer identifier to the request body.
 
@@ -74,7 +76,11 @@ Use the OIDC library's supported refresh handling and update stored refresh auth
 
 Use discovered OIDC logout and an exact registered post-logout destination. Terminate the application's own session as well. Identity logout alone does not force every offline JWT decoder to reject existing tokens immediately; configure the receiving service's required current-state behavior as described in [zero trust](zero-trust.md).
 
-Experience-to-Domain and Domain-to-Core calls each need their own receiver authentication and authorization. Use the producer SDK for the service API. Forward a human token only when it is explicitly valid for that receiver; otherwise use a supported purpose-bound exchange/delegation contract. This distribution does not configure a general human token-exchange flow. Keep that route unavailable until its owner implements it, rather than substituting client credentials for human proof.
+Each downstream API call needs its own receiver authentication and authorization. Use that API's supported client library or protocol. Forward a human token only when it is explicitly valid for that receiver; otherwise use a supported purpose-bound exchange/delegation contract. This distribution does not configure a general human token-exchange flow. Keep that route unavailable until its owner implements it, rather than substituting client credentials for human proof.
+
+## Optional framework example
+
+If your application uses Jafly, the [Jafly resource-server example](jafly.md) applies these checks through its generic Spring Security module. Jafly is an independent framework that can integrate with other compatible CIAM providers; the example does not make it a component or prerequisite of Firefly Identity. Other applications implement the same protocol checks with their chosen libraries.
 
 ## Resolve common integration errors
 

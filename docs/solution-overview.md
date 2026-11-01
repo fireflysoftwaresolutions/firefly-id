@@ -42,6 +42,6 @@ Keep separate issuers, user stores and policies for customer and employee identi
 
 ## Application responsibilities
 
-Every API validates the incoming token's signature, issuer, audience and lifetime. Every receiving Experience, Domain and Core service then authorizes the requested operation using its current policy and authoritative business relationships. Jafly supplies provider-neutral Spring Security facilities; it does not depend on Firefly Identity or its recovery extensions.
+Every API validates the incoming token's signature, issuer, audience and lifetime. Every receiving Experience, Domain and Core service then authorizes the requested operation using its current policy and authoritative business relationships. These responsibilities apply regardless of the application language or framework. Experience, Domain and Core describe the optional platform integration; applications do not need that service topology to use Identity.
 
 Read [architecture](architecture.md) for the diagrams, [application integration](integration-contract.md) for protocol steps and [zero trust](zero-trust.md) for service-boundary checks.

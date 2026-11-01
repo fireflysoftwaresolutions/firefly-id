@@ -6,7 +6,7 @@ Run the [local evaluation environment](getting-started.md), then register an app
 
 ## Is Keycloak required?
 
-Yes. Firefly Identity packages themes, policies and optional native modules around Keycloak. Applications connect using standard OIDC interfaces. Jafly remains an independent framework and can also integrate with other compatible identity providers.
+Yes. Firefly Identity packages themes, policies and optional native modules around Keycloak. Applications connect using standard OIDC interfaces. Any application framework supporting the configured OIDC profile can integrate; no Firefly framework is required.
 
 ## Which components do I need?
 

@@ -4,6 +4,10 @@ Firefly Identity provides a shared authentication service for customer applicati
 
 ## Components and responsibilities
 
+The standard identity service needs Keycloak, its dedicated database and the selected themes and policies. Any compatible OIDC application can connect, regardless of its framework or internal architecture.
+
+The diagram below also shows the optional platform integration used for native recovery. Experience, Domain, Core and Configuration describe those external service responsibilities; they are not prerequisites for ordinary sign-in. See [components](solution-overview.md) for the dependencies of each optional journey.
+
 ```mermaid
 flowchart TD
     People[Customers and workforce] --> Identity[Firefly Identity · Keycloak]

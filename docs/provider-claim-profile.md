@@ -11,7 +11,7 @@ The profiles below describe clients produced by the sandbox generator. For anoth
 | `iss` | String; exact realm issuer URL | Match the configured authority, including realm path. Internal routing aliases are not additional trusted issuers. |
 | `sub` | Opaque string; subject within that issuer | Preserve it exactly with `iss`. Do not parse it as a business UUID or replace it with username/email. |
 | `aud` | String or array of strings; intended receivers | Require this API's configured audience membership. See [audiences](receiver-audiences.md). |
-| `exp` | Numeric timestamp on the JWT wire | Require valid unexpired authority. Spring's verified JWT/Jafly principal represents it as `Instant`. |
+| `exp` | Numeric timestamp on the JWT wire | Require valid unexpired authority; preserve its timestamp semantics in the receiving library. |
 | `nbf` | Optional numeric timestamp | Enforce it when present. Do not fabricate a value when absent; configure an issuance profile if an operation requires it. |
 | `tenant_id` | Protected opaque string | Preserve the identity namespace. Resolve a distinct business resource-tenant UUID through Configuration where required. |
 | `principal_kind` | Signed string classifying the configured population | Require the population appropriate to this operation; do not infer it from a request header. |
@@ -61,8 +61,8 @@ Configure client roles separately if the application uses them. The generated cl
 
 ## Translate claims into application decisions
 
-A receiver first verifies the token, then projects the principal. Required missing or ambiguous tenant values must refuse authentication. Jafly preserves the opaque subject/tenant and verified claims; custom party/staff/client values remain claims, not dedicated permission fields.
+A receiver first verifies the token, then projects the principal. Required missing or ambiguous tenant values must refuse authentication. Preserve the opaque subject/tenant and verified claims when mapping to the application principal. Custom party/staff/client values identify trusted links; they do not automatically grant permissions.
 
 Before a business action, validate the current linked actor, tenant/resource binding, required consent and policy. Recheck expiration after asynchronous work when authority must still be live at mutation. Authentication context such as `acr`, `amr` or email verification must have an explicit meaning in the operation's policy; its presence alone does not establish KYC, payment SCA or a legal-person mandate.
 
-Continue with [Jafly configuration](jafly.md), [application integration](integration-contract.md) and [authorization at each service](zero-trust.md).
+Continue with [application integration](integration-contract.md) and [authorization at each service](zero-trust.md).
