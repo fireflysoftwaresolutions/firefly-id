@@ -19,8 +19,8 @@ The customer must be enabled, local and nonprivileged in a configured `HUMAN` re
 ```mermaid
 stateDiagram-v2
     [*] --> NotSet
-    NotSet --> Active: Password and TOTP verified; create PIN
-    Active --> Active: Password and TOTP verified; replace PIN
+    NotSet --> Active: Password and TOTP verified — create PIN
+    Active --> Active: Password and TOTP verified — replace PIN
     Active --> ReplacementRequired: Verification budget exhausted or authority invalidated
     ReplacementRequired --> Active: Authenticated replacement
     Active --> NotSet: Authenticated revoke

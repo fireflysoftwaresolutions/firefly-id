@@ -52,12 +52,30 @@ class ProductionTransportTest(unittest.TestCase):
             with self.subTest(message=message):
                 self.assertIsNone(self.transport.tls_failure_kind(message))
 
-    def test_published_ports_must_be_one_loopback_binding(self):
-        self.assertEqual(32123, self.transport.loopback_port('127.0.0.1:32123\n'))
-        for value in ('0.0.0.0:32123', '[::]:32123', '127.0.0.1:0',
-                      '127.0.0.1:99999', '127.0.0.1:32123\n127.0.0.1:32124'):
-            with self.subTest(value=value), self.assertRaises(ValueError):
-                self.transport.loopback_port(value)
+    def test_host_probes_require_the_actual_owned_internal_network_endpoint(self):
+        import copy
+        owner = 'a' * 32
+        name = 'firefly-transport-' + owner
+        network = {'Name': name, 'Id': 'b' * 64, 'Internal': True,
+                   'Labels': {self.transport.OWNER_LABEL: owner},
+                   'IPAM': {'Config': [{'Subnet': '172.24.0.0/16'}]}}
+        attached = {name: {'NetworkID': network['Id'], 'IPAddress': '172.24.0.2', 'IPPrefixLen': 16}}
+        self.assertEqual(('172.24.0.2', 9000),
+                         self.transport.owned_endpoint(network, attached, name, owner, 9000))
+        invalid = []
+        for key, value in [('Internal', False), ('Name', 'unowned'), ('Labels', {}),
+                           ('IPAM', {'Config': [{'Subnet': '8.8.8.0/24'}]})]:
+            candidate = copy.deepcopy(network); candidate[key] = value
+            invalid.append((candidate, attached, 9000))
+        for key, value in [('IPAddress', '8.8.8.8'), ('IPAddress', '172.25.0.2'),
+                           ('IPAddress', 'localhost'), ('IPAddress', '172.24.0.0'),
+                           ('IPAddress', '172.24.255.255'), ('NetworkID', 'c' * 64), ('IPPrefixLen', 24)]:
+            candidate = copy.deepcopy(attached); candidate[name][key] = value
+            invalid.append((network, candidate, 9000))
+        invalid.append((network, attached, 80))
+        for candidate_network, candidate_attached, port in invalid:
+            with self.subTest(network=candidate_network, attached=candidate_attached, port=port), self.assertRaises(ValueError):
+                self.transport.owned_endpoint(candidate_network, candidate_attached, name, owner, port)
 
     def test_plaintext_health_cannot_pass_as_tls_only(self):
         self.assertTrue(self.transport.plaintext_refused(b''))
@@ -67,6 +85,45 @@ class ProductionTransportTest(unittest.TestCase):
                      b'HTTP/1.1 301 Moved Permanently\r\n', b'unknown bytes'):
             with self.subTest(body=body):
                 self.assertFalse(self.transport.plaintext_refused(body))
+
+    def test_startup_diagnostics_use_fixed_categories_without_raw_inputs(self):
+        sentinel = 'PRIVATE-PASSWORD-AND-PATH'
+        cases = {
+            'failed to create task for container: OCI runtime create failed ' + sentinel: 'DOCKER_TASK_CREATE',
+            'failed to set up container networking: iptables ' + sentinel: 'DOCKER_NETWORK',
+            'invalid mount config for type bind: ' + sentinel: 'DOCKER_MOUNT',
+            'failed to initialize logging driver: ' + sentinel: 'DOCKER_LOGGING',
+            'FATAL: private key file "' + sentinel + '" has group or world access': 'POSTGRES_KEY_PERMISSIONS',
+            'FATAL: could not load private key file "' + sentinel + '": Permission denied': 'POSTGRES_KEY_LOAD',
+            'FATAL: could not load server certificate file "' + sentinel + '"': 'POSTGRES_CERTIFICATE_LOAD',
+            'FATAL: could not load pg_hba.conf ' + sentinel: 'POSTGRES_HBA',
+            'initdb: error: directory ' + sentinel: 'POSTGRES_INITIALIZATION',
+            'FATAL: password authentication failed for user ' + sentinel: 'POSTGRES_AUTHENTICATION',
+            'database system is ready to accept connections ' + sentinel: 'POSTGRES_READY',
+            'no space left on device ' + sentinel: 'RUNNER_STORAGE',
+        }
+        for message, expected in cases.items():
+            with self.subTest(category=expected):
+                categories = self.transport.startup_categories(message)
+                self.assertIn(expected, categories)
+                self.assertNotIn(sentinel, json.dumps(categories))
+        self.assertEqual(['UNCLASSIFIED'], self.transport.startup_categories(sentinel))
+
+    def test_container_diagnostic_preserves_exit_and_oom_without_raw_state_error(self):
+        state = {'Status': 'exited', 'Running': False, 'ExitCode': 137, 'OOMKilled': True,
+                 'Error': 'PRIVATE-INPUT failed to create task for container',
+                 'StartedAt': 'PRIVATE-TIMESTAMP'}
+        result = self.transport.container_diagnostic(state, b'PRIVATE-LOG could not load pg_hba.conf')
+        self.assertEqual('exited', result['status'])
+        self.assertEqual(137, result['exit_code'])
+        self.assertTrue(result['out_of_memory'])
+        self.assertFalse(result['running'])
+        self.assertIn('DOCKER_TASK_CREATE', result['categories'])
+        self.assertIn('POSTGRES_HBA', result['categories'])
+        self.assertNotIn('PRIVATE', json.dumps(result))
+        unknown = self.transport.container_diagnostic({'Status': 'PRIVATE', 'ExitCode': 'PRIVATE'}, b'')
+        self.assertEqual('UNKNOWN', unknown['status'])
+        self.assertIsNone(unknown['exit_code'])
 
 
 if __name__ == '__main__':

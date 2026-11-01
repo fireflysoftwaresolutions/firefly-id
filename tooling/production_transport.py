@@ -2,6 +2,7 @@
 """Hosted-only, disposable transport checks against the pinned upstream servers."""
 import hashlib
 import http.client
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -74,35 +75,92 @@ def tls_failure_kind(log):
     return None
 
 
-def loopback_port(output):
-    match = re.fullmatch(r'127\.0\.0\.1:([0-9]{1,5})\s*', output)
-    if not match or not 1 <= int(match[1]) <= 65535:
-        raise ValueError('Unexpected port binding')
-    return int(match[1])
+def owned_endpoint(network, attachments, name, owner, port):
+    try:
+        if (port not in (8443, 9000) or network['Name'] != name or network['Internal'] is not True
+                or network['Labels'].get(OWNER_LABEL) != owner or set(attachments) != {name}
+                or not re.fullmatch(r'[a-f0-9]{64}', network['Id'])):
+            raise ValueError()
+        endpoint = attachments[name]
+        subnets = [ipaddress.ip_network(config['Subnet']) for config in network['IPAM']['Config']]
+        subnets = [subnet for subnet in subnets if subnet.version == 4]
+        address = ipaddress.ip_address(endpoint['IPAddress'])
+        if (len(subnets) != 1 or address.version != 4 or not subnets[0].is_private
+                or not address.is_private or address not in subnets[0]
+                or address in (subnets[0].network_address, subnets[0].broadcast_address)
+                or endpoint['NetworkID'] != network['Id'] or endpoint['IPPrefixLen'] != subnets[0].prefixlen):
+            raise ValueError()
+        return str(address), port
+    except (KeyError, TypeError, ValueError):
+        raise ValueError('Invalid owned transport endpoint') from None
 
 
 def plaintext_refused(response):
     return response == b'' or bool(re.match(rb'HTTP/1\.[01] 400(?: |\r)', response))
 
 
+def startup_categories(output):
+    patterns = {
+        'DOCKER_TASK_CREATE': r'failed to create (?:task|shim task)|OCI runtime create failed|runc create failed',
+        'DOCKER_NETWORK': r'container networking|failed to (?:create|set up|setup).*network|iptables|address pool',
+        'DOCKER_MOUNT': r'invalid mount config|error mounting|mount denied|not a directory',
+        'DOCKER_LOGGING': r'logging driver|unknown log opt|log driver named',
+        'POSTGRES_KEY_PERMISSIONS': r'private key file .*(?:group or world access|must be owned|permissions)',
+        'POSTGRES_KEY_LOAD': r'could not load private key file',
+        'POSTGRES_CERTIFICATE_LOAD': r'could not load (?:server )?certificate file|PEM lib|no start line',
+        'POSTGRES_HBA': r'could not (?:load|open).*pg_hba|no pg_hba.conf entry|invalid.*authentication method',
+        'POSTGRES_INITIALIZATION': r'initdb:.*error|initialization script.*failed|syntax error at or near',
+        'POSTGRES_AUTHENTICATION': r'password authentication failed|role .* does not exist|database .* does not exist',
+        'POSTGRES_TLS': r'could not (?:accept|initialize) SSL|SSL error|TLS handshake|unsupported.*SSL',
+        'POSTGRES_READY': r'database system is ready to accept connections',
+        'RUNNER_STORAGE': r'no space left on device|read-only file system',
+        'PERMISSION_REFUSED': r'permission denied|operation not permitted',
+    }
+    bounded = output[-65536:]
+    matches = [category for category, pattern in patterns.items() if re.search(pattern, bounded, re.I)]
+    return matches or ['UNCLASSIFIED']
+
+
+def container_diagnostic(state, logs):
+    status = state.get('Status')
+    exit_code = state.get('ExitCode')
+    return {
+        'status': status if status in ('created', 'running', 'paused', 'restarting', 'removing', 'exited', 'dead') else 'UNKNOWN',
+        'running': state.get('Running') is True,
+        'exit_code': exit_code if type(exit_code) is int and -1 <= exit_code <= 255 else None,
+        'out_of_memory': state.get('OOMKilled') is True,
+        'categories': startup_categories(logs.decode(errors='replace')[-65536:]
+                                         + '\n' + str(state.get('Error', ''))[-4096:]),
+    }
+
+
 class TransportFailure(Exception):
     """Carries no subprocess, certificate, credential or network diagnostic."""
+
+    def __init__(self, cause='ASSERTION_REFUSED', exit_code=None, categories=None):
+        super().__init__()
+        self.cause = cause
+        self.exit_code = exit_code
+        self.categories = categories or []
 
 
 def command(arguments, timeout=30, required=True):
     try:
         result = subprocess.run(arguments, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 timeout=timeout, check=False)
-    except (OSError, subprocess.SubprocessError):
-        raise TransportFailure() from None
+    except subprocess.TimeoutExpired:
+        raise TransportFailure('PROCESS_TIMEOUT') from None
+    except OSError:
+        raise TransportFailure('PROCESS_LAUNCH_REFUSED') from None
     if required and result.returncode != 0:
-        raise TransportFailure()
+        raise TransportFailure('PROCESS_NONZERO', result.returncode,
+                               startup_categories(result.stdout.decode(errors='replace'))) from None
     return result
 
 
-def https_response(port, ca_file, path, server_name=SERVER_HOST):
+def https_response(endpoint, ca_file, path, server_name=SERVER_HOST):
     context = ssl.create_default_context(cafile=str(ca_file))
-    with socket.create_connection(('127.0.0.1', port), timeout=4) as connection:
+    with socket.create_connection(endpoint, timeout=4) as connection:
         with context.wrap_socket(connection, server_hostname=server_name) as secure:
             secure.sendall(('GET ' + path + ' HTTP/1.1\r\nHost: ' + SERVER_HOST
                             + '\r\nConnection: close\r\n\r\n').encode('ascii'))
@@ -121,6 +179,7 @@ class HostedTransport:
         self.owner = uuid.uuid4().hex
         self.network = 'firefly-transport-' + self.owner
         self.containers = []
+        self.active_container = None
         self.network_created = False
         self.images = json.loads((ROOT / 'deploy/images.lock.json').read_text())
         for component in ('keycloak', 'postgres'):
@@ -206,11 +265,18 @@ class HostedTransport:
         args += self.mount(initialization, '/docker-entrypoint-initdb.d/10-identity.sql')
         args += ['--entrypoint', '/bin/bash', self.images['postgres']['image'], '-ec', boot]
         self.containers.append(self.database)
+        self.active_container = self.database
+        self.summary['stage'] = 'DATABASE_DOCKER_RUN'
         command(args)
+        self.summary['stage'] = 'DATABASE_READINESS'
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
+            if not self.state_of(self.database)['Running']:
+                self.summary['stage'] = 'DATABASE_PROCESS_EXIT'
+                raise TransportFailure()
             ready = command(['docker', 'exec', self.database, 'pg_isready', '-h', '127.0.0.1', '-U', 'transport_admin',
                              '-d', 'identity'], required=False)
+            self.summary['database_readiness_exit_code'] = ready.returncode
             if ready.returncode == 0:
                 return
             time.sleep(1)
@@ -230,7 +296,6 @@ class HostedTransport:
                 '--network', self.network, '--memory', '1536m', '--cpus', '2',
                 '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
                 '--log-driver', 'local', '--log-opt', 'max-size=2m', '--log-opt', 'max-file=1',
-                '--publish', '127.0.0.1::8443', '--publish', '127.0.0.1::9000',
                 '--env-file', str(environment)]
         args += self.mount(ROOT / 'deploy/keycloak.production.conf.example', '/opt/keycloak/conf/keycloak.conf')
         args += self.mount(self.state / authority, '/run/secrets/database-ca.pem')
@@ -239,26 +304,31 @@ class HostedTransport:
         args += [self.images['keycloak']['image'], '--verbose', 'start', '--cache=local',
                  '--db-connect-timeout=10', '--db-pool-max-size=4']
         self.containers.append(name)
+        self.active_container = name
         command(args)
         return name
 
-    def port(self, name, port):
-        return loopback_port(command(['docker', 'port', name, str(port) + '/tcp']).stdout.decode())
+    def endpoint(self, name, port):
+        network = json.loads(command(['docker', 'network', 'inspect', self.network]).stdout)
+        attachments = json.loads(command(['docker', 'inspect', '--format',
+                                           '{{json .NetworkSettings.Networks}}', name]).stdout)
+        self.check(len(network) == 1)
+        return owned_endpoint(network[0], attachments, self.network, self.owner, port)
 
     def state_of(self, name):
         result = command(['docker', 'inspect', '--format', '{{json .State}}', name])
         return json.loads(result.stdout)
 
     def wait_ready(self, name):
-        port = self.port(name, 9000)
+        endpoint = self.endpoint(name, 9000)
         deadline = time.monotonic() + 180
         while time.monotonic() < deadline:
             if not self.state_of(name)['Running']:
                 raise TransportFailure()
             try:
-                status, body = https_response(port, self.state / 'ca.pem', '/health/ready')
+                status, body = https_response(endpoint, self.state / 'ca.pem', '/health/ready')
                 if status == 200 and database_ready(body):
-                    return port
+                    return endpoint
             except (OSError, http.client.HTTPException):
                 pass
             time.sleep(1)
@@ -276,39 +346,39 @@ class HostedTransport:
         self.summary['stage'] = scenario.upper() + '_KEYCLOAK_START'
         name = self.start_keycloak(scenario, DATABASE_HOST, 'ca.pem')
         self.summary['stage'] = scenario.upper() + '_MANAGEMENT_READINESS'
-        management_port = self.wait_ready(name)
+        management_endpoint = self.wait_ready(name)
         self.summary['stage'] = scenario.upper() + '_DATABASE_TLS_SESSION'
         self.require_database_tls()
         self.record(scenario.upper() + '_VERIFIED_DATABASE_TLS')
         if full_checks:
             self.summary['stage'] = 'MAIN_HTTPS_DISCOVERY'
-            main_port = self.port(name, 8443)
-            status, body = https_response(main_port, self.state / 'ca.pem',
+            main_endpoint = self.endpoint(name, 8443)
+            status, body = https_response(main_endpoint, self.state / 'ca.pem',
                                           '/realms/master/.well-known/openid-configuration')
             self.check(status == 200 and json.loads(body)['issuer'] == 'https://' + SERVER_HOST + '/realms/master')
             self.record('MAIN_HTTPS_DISCOVERY')
             self.summary['stage'] = 'HEALTH_ONLY_ON_MANAGEMENT'
-            status, _ = https_response(main_port, self.state / 'ca.pem', '/health/ready')
+            status, _ = https_response(main_endpoint, self.state / 'ca.pem', '/health/ready')
             self.check(status == 404)
             self.record('HEALTH_ONLY_ON_MANAGEMENT')
             self.record('MANAGEMENT_HTTPS_DATABASE_READY')
             self.summary['stage'] = 'MANAGEMENT_UNTRUSTED_CA_REFUSED'
             try:
-                https_response(management_port, self.state / 'untrusted-ca.pem', '/health/ready')
+                https_response(management_endpoint, self.state / 'untrusted-ca.pem', '/health/ready')
             except ssl.SSLCertVerificationError:
                 self.record('MANAGEMENT_UNTRUSTED_CA_REFUSED')
             else:
                 raise TransportFailure()
             self.summary['stage'] = 'MANAGEMENT_WRONG_HOSTNAME_REFUSED'
             try:
-                https_response(management_port, self.state / 'ca.pem', '/health/ready',
+                https_response(management_endpoint, self.state / 'ca.pem', '/health/ready',
                                server_name='wrong.production-transport.test')
             except ssl.SSLCertVerificationError:
                 self.record('MANAGEMENT_WRONG_HOSTNAME_REFUSED')
             else:
                 raise TransportFailure()
             self.summary['stage'] = 'MANAGEMENT_PLAINTEXT_REFUSED'
-            with socket.create_connection(('127.0.0.1', management_port), timeout=4) as connection:
+            with socket.create_connection(management_endpoint, timeout=4) as connection:
                 connection.sendall(b'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n')
                 try:
                     response = connection.recv(512)
@@ -351,6 +421,27 @@ class HostedTransport:
         self.check(owner.stdout.decode().strip() == self.owner)
         command(['docker', 'rm', '--force', name], timeout=40)
         self.containers.remove(name)
+        if self.active_container == name:
+            self.active_container = None
+
+    def diagnose_active_container(self):
+        if not self.active_container:
+            return
+        try:
+            inspected = command(['docker', 'inspect', '--format', '{{json .State}}', self.active_container],
+                                required=False)
+            if inspected.returncode != 0:
+                self.summary['container_diagnostic'] = {'state_available': False,
+                    'categories': startup_categories(inspected.stdout.decode(errors='replace'))}
+                return
+            logs = command(['docker', 'logs', '--tail', '100', self.active_container], required=False)
+            diagnostic = container_diagnostic(json.loads(inspected.stdout), logs.stdout)
+            diagnostic['state_available'] = True
+            diagnostic['logs_available'] = logs.returncode == 0
+            self.summary['container_diagnostic'] = diagnostic
+        except Exception:
+            self.summary['container_diagnostic'] = {'state_available': False,
+                                                    'categories': ['DIAGNOSTIC_UNAVAILABLE']}
 
     def cleanup(self):
         success = True
@@ -399,6 +490,7 @@ def main():
         'scope': 'Pinned upstream Keycloak/PostgreSQL with synthetic certificates and disposable state; '
                  'production reference transport only, no institution ingress, identity journeys, migration or HA acceptance',
         'fixture_only_options': ['cache=local', 'db-connect-timeout=10', 'db-pool-max-size=4'],
+        'probe_route': 'Validated private IPv4 on the labelled owned internal bridge; direct sockets retain TLS SNI verification',
         'status': 'failed', 'stage': 'HOSTED_RUNNER_GUARD', 'passed': [], 'failures': [],
     }
     qualification = None
@@ -422,9 +514,16 @@ def main():
         qualification.run()
         summary['stage'] = 'COMPLETE'
         summary['status'] = 'passed'
-    except Exception:
+    except Exception as failure:
         # All failure output is a fixed stage; unexpected library exceptions may include private inputs.
         summary['failures'].append(summary['stage'])
+        if isinstance(failure, TransportFailure):
+            summary['failure_command'] = {'cause': failure.cause, 'exit_code': failure.exit_code,
+                                          'categories': failure.categories}
+        else:
+            summary['failure_command'] = {'cause': 'HARNESS_EXCEPTION'}
+        if qualification:
+            qualification.diagnose_active_container()
     finally:
         if qualification and not qualification.cleanup():
             summary['status'] = 'failed'

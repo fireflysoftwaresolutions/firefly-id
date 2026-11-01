@@ -51,3 +51,17 @@ class ProductHandbookTest(unittest.TestCase):
                      '```mermaid\n---\nconfig:\n securityLevel: loose\n---\nflowchart TD\n A-->B\n```'):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 support.extract(text, 'guide.md')
+
+    def test_message_semicolons_need_mermaid_entity_escaping(self):
+        support = self.diagram_support()
+        for kind in ('sequenceDiagram\n A->>B: Done; sign in', 'stateDiagram-v2\n A --> B: Verified; create'):
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                support.extract('```mermaid\n' + kind + '\n```', 'guide.md')
+        self.assertEqual(1, len(support.extract('```mermaid\nsequenceDiagram\n A->>B: Done#59; sign in\n```', 'guide.md')))
+
+    def test_static_figure_keeps_the_next_markdown_heading_outside_its_html_block(self):
+        support = self.diagram_support()
+        text = '# Flow\n\n```mermaid\nflowchart TD\n A-->B\n```\n\n## Configure the flow\n\nUse the settings.\n'
+        result = support.replace(text, 'guide.md', 'guide/')
+        self.assertIn('</figure>\n\n', result)
+        self.assertIn('## Configure the flow', result)

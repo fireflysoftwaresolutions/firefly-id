@@ -57,6 +57,9 @@ jobs:
           python3 scripts/sandbox.py preflight
           python3 scripts/sandbox.py pull
           python3 scripts/sandbox.py up
+      - name: Diagnose only an owned startup failure
+        if: ${{ failure() && steps.owned-runtime.outcome == 'failure' && hashFiles('.state/sandbox/ownership.json') != '' }}
+        run: python3 tooling/startup_diagnostics.py
       - name: Install pinned browser test tools
         id: browser-tools
         working-directory: tooling
@@ -115,6 +118,7 @@ jobs:
             .work/localization-runtime/*.png
             .work/localization-runtime/summary.json
             .work/configuration-lookup/*.json
+            .work/startup-diagnostics/summary.json
           if-no-files-found: ignore
           retention-days: 7
       - name: Stop only the owned runtime

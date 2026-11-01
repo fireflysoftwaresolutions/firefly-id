@@ -14,6 +14,11 @@ def extract(markdown, page):
         source = match[1].strip()
         if '%%{' in source or source.startswith('---') or re.search(r'^\s*click\s', source, re.MULTILINE):
             raise ValueError('Diagram configuration and executable links belong to the strict renderer')
+        if source.startswith(('sequenceDiagram', 'stateDiagram')):
+            for line in source.splitlines():
+                literal = re.sub(r'#[a-zA-Z0-9]+;', '', line)
+                if '->' in literal and ':' in literal and ';' in literal:
+                    raise ValueError('Escape a message semicolon with the Mermaid #59; entity')
         key = hashlib.sha256((page + '\n' + source).encode()).hexdigest()[:24]
         result.append({'id': key, 'source': source, 'title': heading + ' — diagram ' + str(index), 'page': page})
     return result
@@ -30,9 +35,9 @@ def replace(markdown, page, page_url):
         for mode in ('light', 'dark'):
             variants.append(f'<a class="diagram-{mode}" href="{path}-{mode}.svg" aria-label="Open full diagram: {title}">'
                             f'<img src="{path}-{mode}.svg" alt="{title}"></a>')
-        return ('<figure class="flow-figure"><div class="flow-scroll" tabindex="0" role="region" '
+        return ('\n\n<figure class="flow-figure"><div class="flow-scroll" tabindex="0" role="region" '
                 f'aria-label="{title}">' + ''.join(variants) + '</div>'
-                '<figcaption>Open the diagram to view it at full size. Wide diagrams can be scrolled horizontally.</figcaption></figure>')
+                '<figcaption>Open the diagram to view it at full size. Wide diagrams can be scrolled horizontally.</figcaption></figure>\n\n')
     return BLOCK.sub(figure, markdown)
 
 

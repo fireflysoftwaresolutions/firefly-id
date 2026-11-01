@@ -39,7 +39,7 @@ jobs:
           umask 077
           python3 tooling/build_theme.py
           python3 - <<'PY'
-          import hashlib,json,os,secrets,shutil,subprocess,time,urllib.request,zipfile
+          import hashlib,ipaddress,json,os,secrets,shutil,subprocess,time,urllib.request,zipfile
           from pathlib import Path
           root=Path('.qualification')
           summary={'scope':'Packaged native image startup and default provider selection; recovery and production acceptance are separate','result':'failed'}
@@ -50,10 +50,38 @@ jobs:
           network='firefly-native-image-'+run
           image='firefly-id-native-smoke:'+run
           expected=['start','--optimized','--spi-theme--default=firefly-id','--spi-brute-force-protector--provider=firefly-native-recovery']
+          class SmokeFailure(Exception):
+              def __init__(self,category,exit_code=None,operation=None):
+                  self.category=category
+                  self.exit_code=exit_code
+                  self.operation=operation
+          def docker_failure_category(stderr):
+              message=stderr.lower()
+              for category,patterns in [
+                  ('DOCKER_STORAGE_EXHAUSTED',(b'no space left on device',)),
+                  ('DOCKER_DAEMON_UNAVAILABLE',(b'cannot connect to the docker daemon',b'error during connect')),
+                  ('DOCKER_PORT_BINDING_FAILED',(b'port is already allocated',b'address already in use')),
+                  ('DOCKER_NETWORK_SETUP_FAILED',(b'failed to create endpoint',b'failed to set up container networking'))]:
+                  if any(pattern in message for pattern in patterns): return category
+              return 'DOCKER_COMMAND_FAILED'
           def call(args,timeout=60):
-              return subprocess.run(args,capture_output=True,check=True,timeout=timeout).stdout
+              operation=args[1].upper() if args[1] in {'build','network','run','create','cp','start','image','container'} else 'OTHER'
+              try:
+                  result=subprocess.run(args,capture_output=True,timeout=timeout)
+              except subprocess.TimeoutExpired:
+                  raise SmokeFailure('DOCKER_COMMAND_TIMEOUT',operation=operation) from None
+              if result.returncode:
+                  raise SmokeFailure(docker_failure_category(result.stderr),result.returncode,operation) from None
+              return result.stdout
           def inspect(kind,name):
               return json.loads(call(['docker',kind,'inspect',name]))[0]
+          def internal_address(metadata,network):
+              try:
+                  address=ipaddress.ip_address(metadata['NetworkSettings']['Networks'][network]['IPAddress'])
+                  if address.version==4 and address.is_private and not address.is_loopback:
+                      return str(address)
+              except (KeyError,TypeError,ValueError): pass
+              raise SmokeFailure('INTERNAL_BRIDGE_ADDRESS_UNAVAILABLE')
           def private_file(path,value):
               with path.open('x') as output:
                   os.chmod(path,0o600)
@@ -65,13 +93,13 @@ jobs:
                       if probe(): return
                   except Exception: pass
                   time.sleep(1)
-              raise RuntimeError('Owned packaged-image readiness failed')
+              raise SmokeFailure('READINESS_TIMEOUT')
           try:
               shutil.copytree(root/'native-installation/providers',Path('dist/native/providers'))
               phase='BUILD'
               with (root/'native-image-private-build.log').open('xb') as output:
                   result=subprocess.run(['docker','build','--file','deploy/Containerfile.native','--tag',image,'.'],stdout=output,stderr=subprocess.STDOUT,timeout=360)
-              if result.returncode: raise RuntimeError('Owned image build failed')
+              if result.returncode: raise SmokeFailure('DOCKER_COMMAND_FAILED',result.returncode,'BUILD')
               phase='IMAGE_CONFIG'
               metadata=inspect('image',image)
               assert metadata['Config']['Entrypoint']==['/opt/keycloak/bin/kc.sh']
@@ -82,6 +110,8 @@ jobs:
               phase='BOOT'
               call(['docker','network','create','--internal','--label',label+'='+run,network])
               owned.append(('network',network))
+              assert inspect('network',network)['Internal'] is True
+              summary['isolated_bridge_verified']=True
               password=secrets.token_urlsafe(36)
               db=network+'-db'
               server=network+'-identity'
@@ -94,7 +124,7 @@ jobs:
               call(['docker','run','--detach','--name',db,'--label',label+'='+run,'--network',network,'--tmpfs','/var/lib/postgresql/data:rw,nosuid,size=512m','--env-file',str(db_env),postgres],120)
               ready(lambda: subprocess.run(['docker','exec',db,'pg_isready','-U','native_smoke','-d','native_smoke'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5).returncode==0,90)
               owned.append(('container',server))
-              call(['docker','create','--name',server,'--label',label+'='+run,'--network',network,'--env-file',str(server_env),'--publish','127.0.0.1::9000',image])
+              call(['docker','create','--name',server,'--label',label+'='+run,'--network',network,'--env-file',str(server_env),image])
               phase='PACKAGED_FILES'
               packaged=root/'native-image-files'
               packaged.mkdir()
@@ -114,19 +144,37 @@ jobs:
               assert any(settings.get(key)=='firefly-native-recovery' for key in provider_keys)
               summary['augmented_provider_selection_verified']=True
               summary['packaged_sha256']=hashes
+              summary['packaged_artifacts_verified']=True
               phase='STARTUP'
               call(['docker','start',server])
+              summary['default_command_started']=True
+              phase='CONTAINER_INSPECT'
               metadata=inspect('container',server)
               assert metadata['Config']['Cmd']==expected
-              port=metadata['NetworkSettings']['Ports']['9000/tcp'][0]['HostPort']
+              if not metadata['State']['Running']: raise SmokeFailure('CONTAINER_NOT_RUNNING')
+              phase='NETWORK_ENDPOINT'
+              # Internal-only bridges do not publish ports; the Linux runner can reach their container addresses.
+              address=internal_address(metadata,network)
+              http=urllib.request.build_opener(urllib.request.ProxyHandler({}))
+              summary['readiness_transport']='HOST_TO_INTERNAL_BRIDGE'
               def healthy():
-                  with urllib.request.urlopen('http://127.0.0.1:'+port+'/health/ready',timeout=2) as response:
+                  with http.open('http://'+address+':9000/health/ready',timeout=2) as response:
                       return response.status==200 and json.loads(response.read(16384))['status']=='UP'
               phase='READINESS'
               ready(healthy,120)
               summary.update(result='passed',default_command_started=True,packaged_artifacts_verified=True,native_image_ready=True)
-          except Exception:
+          except Exception as error:
               summary['failed_phase']=phase
+              summary['failure_category']=error.category if isinstance(error,SmokeFailure) else 'INVARIANT_FAILED' if isinstance(error,AssertionError) else 'RUNTIME_METADATA_INVALID' if isinstance(error,(KeyError,IndexError,TypeError,ValueError)) else 'UNEXPECTED_FAILURE'
+              if isinstance(error,SmokeFailure):
+                  if error.exit_code is not None: summary['command_exit_code']=error.exit_code
+                  if error.operation is not None: summary['docker_operation']=error.operation
+              if ('container',network+'-identity') in owned:
+                  try:
+                      state=inspect('container',network+'-identity')['State']
+                      status=state.get('Status')
+                      summary['container_state']={'status':status if status in {'created','running','paused','restarting','removing','exited','dead'} else 'UNKNOWN','running':state.get('Running') is True,'oom_killed':state.get('OOMKilled') is True,'exit_code':int(state.get('ExitCode',0))}
+                  except Exception: pass
           finally:
               for kind,name in reversed(owned):
                   try:

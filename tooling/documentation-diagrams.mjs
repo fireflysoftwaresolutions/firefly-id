@@ -45,13 +45,13 @@ try {
   assert.equal(await page.evaluate(() => document.fonts.check('16px Manrope')), true);
   for (const diagram of diagrams) {
     for (const mode of ['light', 'dark']) {
-      active = { page: diagram.page, id: diagram.id, mode };
+      active = { page: diagram.page, id: diagram.id, mode, phase: 'COMPILE' };
       const rendered = await page.evaluate(async ({ diagram, mode }) => {
         const dark = mode === 'dark';
         const text = dark ? '#f3f1eb' : '#272820';
         const line = dark ? '#bfb8ab' : '#62645b';
         const surface = dark ? '#272820' : '#ffffff';
-        window.diagramEngine.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base',
+        window.diagramEngine.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base', look: 'classic',
           fontFamily: 'Manrope', fontSize: 16, htmlLabels: false,
           themeVariables: { fontFamily: 'Manrope', fontSize: '16px', background: dark ? '#10110f' : '#f3f1eb',
             primaryColor: surface, primaryTextColor: text, primaryBorderColor: line, lineColor: line,
@@ -70,12 +70,15 @@ try {
         return { svg: result.svg, viewBox: svg.getAttribute('viewBox'), texts: svg.querySelectorAll('text').length,
           font: getComputedStyle(svg.querySelector('text') || svg).fontFamily };
       }, { diagram, mode });
+      active.phase = 'SVG_STRUCTURE';
       assert.ok(rendered.viewBox && rendered.texts > 0);
+      active.phase = 'CANONICAL_FONT';
       assert.match(rendered.font, /Manrope/);
+      active.phase = 'EMBEDDED_FONT';
       const embedded = rendered.svg.replace('<style>', `<style>@font-face{font-family:Manrope;font-style:normal;font-weight:200 800;src:url('${fontUri}')}`);
       assert.ok(embedded.includes(fontUri));
       await writeFile(resolve(output, `${diagram.id}-${mode}.svg`), embedded);
-      summary.diagrams.push({ ...active, viewBox: rendered.viewBox, texts: rendered.texts, font: 'Manrope' });
+      summary.diagrams.push({ page: diagram.page, id: diagram.id, mode, viewBox: rendered.viewBox, texts: rendered.texts, font: 'Manrope' });
     }
   }
   assert.equal(summary.externalRequests, 0);

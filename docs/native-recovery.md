@@ -74,7 +74,7 @@ sequenceDiagram
     Identity->>Domain: Verify consumed authorization online
     Identity->>Identity: Recheck lock and current state, retire sessions, record unlock
     Identity->>Domain: Record the same native execution
-    Identity-->>Person: Request processed; sign in again
+    Identity-->>Person: Request processed — sign in again
 ```
 
 The native boundary checks the current lock generation, credentials, owner link and holds before restoration. It verifies secrets inside Keycloak; Domain and Core receive bounded evidence references rather than passwords or OTP values. The flow issues no OAuth code or token. Ordinary sign-in and applicable MFA run again afterward.
