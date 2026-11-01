@@ -4,7 +4,7 @@ import javax.crypto.Cipher;
 import org.keycloak.models.OTPPolicy;
 import org.keycloak.models.credential.OTPCredentialModel;
 import org.keycloak.models.utils.TimeBasedOTP;
-import org.keycloak.common.util.Base32;
+import org.keycloak.models.utils.Base32;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.GCMParameterSpec;
