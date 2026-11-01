@@ -2,7 +2,7 @@
 
 This default-off candidate implements a separate customer recovery purpose, `CREDENTIAL_REPLACEMENT`, across Core KYCB, customer KYC Domain and the native Keycloak extension. It does not require the previous password or an existing authenticator to be available. It requires independently verified identity evidence before replacement credentials can be bound.
 
-**No real proofing provider or bank procedure is approved yet.** The successful provider in qualification is test-only and is excluded from production JARs. The actual native/Core/Domain browser lane passed 21 controls with that provider, including credential/PIN/session retirement, SMTP interruption/retry and post-expiry restart reconciliation. This does not establish real documentary/biometric acceptance. Production realm generation remains closed. See [current evidence](progress.md) and [provider evaluation](identity-proofing-evaluation.md).
+**No real proofing provider or bank procedure is approved yet.** The successful provider in qualification is test-only and is excluded from production JARs. The actual native/Core/Domain browser lane exercises credential/PIN/session retirement, automatic notification retry and post-expiry restart reconciliation with that provider. This does not establish real documentary/biometric acceptance. Production realm generation remains closed. See [current evidence](progress.md) and [provider evaluation](identity-proofing-evaluation.md).
 
 ## Supported identities and journeys
 
@@ -16,7 +16,7 @@ The existing [known-password unlock](native-recovery.md) remains a different pur
 
 | Owner | Responsibility |
 | --- | --- |
-| Core KYCB | Durable cases, provider-start reservations, authenticated evidence references, one-time grants, budgets, execution recording and audit |
+| Core KYCB | KYC/KYB system of record; durable recovery cases, provider-start reservations, evidence references, one-time grants, budgets, execution/audit and optional notification polling |
 | Customer Domain | Independent provider adapters, verification orchestration, exact response validation and genuine generated Core SDK integration; no Domain database |
 | Native Identity | Browser ceremony, current identity/hold/revision admission, credential replacement, old-session retirement, canonical execution and notification outbox |
 | Jafly | Existing generic framework security facilities; no Identity, Keycloak or proofing-provider dependency is added |
@@ -24,6 +24,8 @@ The existing [known-password unlock](native-recovery.md) remains a different pur
 Every receiving product boundary authenticates a distinct workload and authorizes its permitted operations. A successful Basic authentication over trusted TLS establishes the caller, not the customer's identity or a recovery decision. Domain independently checks the native ceremony; Core independently retrieves provider evidence and current native admission; native execution checks the exact consumed grant and current state again.
 
 The product chains protect their complete recovery paths even when the feature is disabled. They must not replace the application's generic catch-all resource-server chain. If an optional generic resource-server module is enabled but its independent chain is missing, the candidate refuses startup. Qualification explicitly disables that optional module only to isolate the product boundary; this does not qualify unrelated CRUD endpoints or platform-wide live revocation.
+
+The selected operating model uses third-party verification, with Core retaining authoritative records and Domain integrating the provider. The [identity system-of-record contract](https://github.com/fireflysoftwaresolutions/domain-customer-kyc-kyb/blob/codex/identity-reproofing-domain-20261031/docs/identity-system-of-record.md) distinguishes implemented records from the assurance metadata, authoritative party binding and vendor acceptance still required. eIDAS is the design baseline; no scheme qualification or regulatory certification is inferred. No biometric engine is installed.
 
 ## Provider adapters
 
@@ -74,6 +76,7 @@ Configure each owner independently. The hosted fixture's addresses and synthetic
 | `firefly.reproofing.tenant-attribute`, `firefly.reproofing.link-attribute` | Protected, single-valued user attributes for tenant and canonical party UUID; never public self-service fields |
 | `firefly.reproofing.ttl-seconds` | Positive original ceremony lifetime, at most `600` |
 | `firefly.reproofing.core-workload-client-id`, `firefly.reproofing.domain-workload-client-id` | Distinct confidential native RPC clients with all ordinary token grants disabled |
+| `firefly.reproofing.notification-workload-client-id` | Separate confidential, grant-disabled client restricted to notification dispatch/status; required for the new poller |
 | `firefly.reproofing.domain-origin`, `firefly.reproofing.domain-client-id` | Trusted HTTPS Domain origin and separate native-to-Domain workload identity |
 | `firefly.reproofing.provider-origin` | Exact allowlisted origin for the external verification journey |
 
@@ -96,9 +99,15 @@ To rotate, retain the exact original `v1` file, provision an independent `v2`, s
 
 The native transaction queues a notice to the previously verified destination captured for that case. Changing contact or verification status invalidates unexecuted work; dispatch does not substitute a newly supplied address. The dispatcher uses the actual Keycloak email provider and the realm's approved SMTP configuration.
 
-Only the configured Core workload may POST the bounded `/firefly-recovery/lost-credentials/rpc/dispatch` operation. Each invocation claims at most ten rows; durable leases, attempt fencing, backoff and at most eight delivery attempts preserve failure evidence. An obsolete worker cannot overwrite a newer delivery. An expired final sending lease becomes a durable failed/review state without another send. Delivery is **at least once**, so a process failure after SMTP acceptance can produce a duplicate notice.
+With the notification client configured, only that dedicated workload may POST `/firefly-recovery/lost-credentials/rpc/dispatch` or `/notification-status`; it cannot prepare, admit or journal a ceremony. Existing installations without that attribute retain Core-only manual dispatch, with no status fallback. Dispatch accepts `{}` (legacy limit ten) or an exact integer `limit` from one to ten. Durable leases, attempt fencing, backoff and at most eight delivery attempts preserve failure evidence. An obsolete worker cannot overwrite a newer delivery. An expired final sending lease becomes a durable failed/review state without another send. Delivery is **at least once**, so a process failure after SMTP acceptance can produce a duplicate notice.
 
-This candidate supplies that explicit worker operation, not an installed background scheduler. Production operations must arrange an approved Core-owned polling job, its private credential, cadence, pending/failed-delivery monitoring and escalation. The hosted test invokes it explicitly against the owned SMTP sink. Do not enable recovery while notification delivery and its operating owner are unconfigured.
+Core now supplies an opt-in managed poller. Enable both `firefly.reproofing.enabled` and `firefly.reproofing.notifications.enabled`; the latter defaults false. Supply separate notification `client-id`/`secret-file` and `monitor.client-id`/`monitor.secret-file` under the notifications prefix. Identity and secret values must differ from one another and the ceremony/evidence credentials. Secret files must be private regular nonsymlink files. The worker uses the existing trusted native RPC URL, dispatches one row per cycle, then reads the realm-scoped aggregate. Fixed delay begins after each bounded cycle completes; shutdown cancels active work. Restart reobserves the same Native queue without resetting any recovery or delivery budget.
+
+Default durations are `poll-interval=PT30S`, `request-timeout=PT30S`, `stale-after=PT90S` and `overdue-after=PT2M`. Request timeout bounds the complete dispatch/status cycle. Read the [Core operating runbook and exact bounds](https://github.com/fireflysoftwaresolutions/core-common-kycb-mgmt/blob/codex/identity-reproofing-core-20261031/ops/reproofing-notifications/README.md) before configuring them.
+
+Only the independent monitor credential may use HTTPS GET `/internal/identity-recovery/notifications` and its exact `/metrics` child. Other methods/subpaths and ordinary, case or notification callers are denied. The snapshot exposes `STARTING`, `HEALTHY`, `DEGRADED`, `UNAVAILABLE` or `STALE`, observation timestamps and nonidentifying queue counts; cached counts retain their original timestamp. Staleness is computed on reads even if scheduling stops. The private worker-only Prometheus registry is excluded from the global composite and `/actuator/prometheus`; no global endpoint policy is changed. Its bounded labels contain no customer, destination or case identifier.
+
+Install the [external alert rules](https://github.com/fireflysoftwaresolutions/core-common-kycb-mgmt/blob/codex/identity-reproofing-core-20261031/ops/reproofing-notifications/alerts.yml) with the dedicated HTTPS scrape credential and an assigned operations owner. Alerts cover missing/stale observations, dependency failures, retry/backlog and terminal/invalid rows. A disabled worker cannot report its own absence. Quiesce new recovery ingress and drain/review pending work before normal disabling; emergency disabling preserves the queue for follow-up. The hosted browser test stops SMTP, observes automatic retry/degraded status, restarts only Core, restores SMTP and awaits automatic delivery without manual dispatch. It also proves realm-scoped terminal failure supervision and no ninth send. Do not enable recovery while the real notification channel and operating procedure remain unapproved.
 
 Source and synthetic-runtime qualification can prove outbox behavior and a test SMTP delivery. They do not approve a bank's real notification channel. Failed deliveries, pending execution recording and exhausted budgets need an approved operational review process; do not delete rows, clear counters, replay verification or manufacture a new human assertion to repair them.
 

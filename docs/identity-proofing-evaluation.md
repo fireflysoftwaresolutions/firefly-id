@@ -2,7 +2,13 @@
 
 Reviewed October 31, 2026. This is a source and licensing evaluation, not an installed integration, procurement decision, biometric assurance assessment or production approval. The owner confirmed that no approved identity-reproofing provider/process currently exists.
 
-## Decision
+## Selected operating model — November 1, 2026
+
+The owner selected **Core KYCB as the system of record, Domain adapters for a third-party verifier, and eIDAS as the design baseline**. No vendor is selected and no biometric or identity engine is being installed. The open-source candidates below remain research options rather than the current deployment plan.
+
+The [identity system-of-record contract](https://github.com/fireflysoftwaresolutions/domain-customer-kyc-kyb/blob/codex/identity-reproofing-domain-20261031/docs/identity-system-of-record.md) records current storage/authorization controls and explicitly separates the future assurance envelope, evidence hashing, trusted existing-party resolver, representative mandates and vendor acceptance. A KYC status or vendor assurance label alone cannot authorize recovery or establish certification. The baseline references the [consolidated eIDAS Regulation](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A02014R0910-20241018) and [assurance requirements in Regulation 2015/1502](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32015R1502); the deployment's approved trust profile and applicable banking process still need acceptance.
+
+## Architecture decision
 
 Keep identity proofing and KYC/KYB evidence in an OpenPlatform service with explicit provider adapters. Firefly Identity should consume a short-lived, purpose-bound recovery authorization from that owner. Jafly keeps provider-neutral security abstractions and must not acquire dependencies on these products or Firefly Identity.
 
