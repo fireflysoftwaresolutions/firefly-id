@@ -18,13 +18,13 @@ final class ReproofingRpcImpl {
     Object call(String route, NativeRequest value) {
         require(Set.of("prepare", "admit", "journal").contains(route));
         String header = request.getContext().getRequestHeaders().getHeaderString("Authorization");
-        if ("admit".equals(route)) NativePhases.run(request, child -> { authenticate(child, header, route); return null; });
+        NativePhases.run(request, child -> { authenticate(child, header, route); return null; });
         return NativePhases.run(request, child -> {
-            if (!"admit".equals(route)) authenticate(child, header, route);
             var store = new ReproofingStoreImpl(child);
             require(value != null && value.binding() != null); Binding b = value.binding();
             require(b.nonce() != null && b.nonce().length() <= 128 && "CREDENTIAL_REPLACEMENT".equals(b.purpose()) && "HUMAN".equals(b.population()));
             var c = store.ceremony(b.nonce(), !"journal".equals(route)); require(b.equals(store.binding(c)));
+            if (!"admit".equals(route)) authenticate(child, header, route);
             if ("journal".equals(route)) {
                 require(value.caseId() != null && value.executionId() != null);
                 var journal = ReproofingEngineImpl.journal(store, c);
