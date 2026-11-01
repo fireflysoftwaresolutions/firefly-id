@@ -29,6 +29,20 @@ assert.equal(extendedFailureDiagnostics({ actual: undefined }).actualType, 'unde
 assert.ok(!Object.hasOwn(extendedFailureDiagnostics({ actual: 123456789 }), 'actual'));
 """)
 
+    def test_admin_routes_are_fixed_categories_without_private_url_parts(self):
+        self.node("""
+import assert from 'node:assert/strict';
+import { extendedRouteClass } from './tooling/extended-runtime.mjs';
+const root = 'http://id.firefly.test:8180';
+assert.equal(extendedRouteClass(root + '/admin/master/console/?token=PRIVATE_SENTINEL'), 'ADMIN_CONSOLE');
+assert.equal(extendedRouteClass(root + '/realms/master/protocol/openid-connect/auth?state=PRIVATE_SENTINEL'), 'MASTER_AUTHORIZATION');
+assert.equal(extendedRouteClass(root + '/realms/master/login-actions/authenticate?session_code=PRIVATE_SENTINEL'), 'MASTER_LOGIN_ACTION');
+assert.equal(extendedRouteClass(root + '/private/PRIVATE_SENTINEL'), 'OTHER_IDENTITY_ROUTE');
+assert.equal(extendedRouteClass('https://PRIVATE_SENTINEL.invalid/private'), 'OTHER_ORIGIN');
+assert.equal(extendedRouteClass('about:blank'), 'ABOUT_BLANK');
+assert.equal(extendedRouteClass('PRIVATE_SENTINEL'), 'INVALID_URL');
+""")
+
     def test_owned_rp_fixture_does_not_modify_existing_realm_or_open_other_origins(self):
         self.node("""
 import assert from 'node:assert/strict';

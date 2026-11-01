@@ -7,11 +7,23 @@ import { pathToFileURL } from 'node:url';
 import { reportFailure } from './safe-errors.mjs';
 import { selectNewRecoveryMessage } from './recovery-mail.mjs';
 import { readAdminValidation } from './policy-runtime.mjs';
+import { observeConsole } from './console-diagnostics.mjs';
 
 const BASE = 'http://id.firefly.test:8180';
 const REDIRECT = 'http://localhost:3000/oidc/callback';
 const CLIENT = 'sandbox-web';
 const delay = milliseconds => new Promise(ok => setTimeout(ok, milliseconds));
+
+export function extendedRouteClass(address) {
+  if (address === 'about:blank') return 'ABOUT_BLANK';
+  let url;
+  try { url = new URL(address); } catch { return 'INVALID_URL'; }
+  if (url.origin !== BASE) return 'OTHER_ORIGIN';
+  if (url.pathname === '/admin/master/console/' || url.pathname === '/admin/master/console') return 'ADMIN_CONSOLE';
+  if (url.pathname === '/realms/master/protocol/openid-connect/auth') return 'MASTER_AUTHORIZATION';
+  if (url.pathname.startsWith('/realms/master/login-actions/')) return 'MASTER_LOGIN_ACTION';
+  return 'OTHER_IDENTITY_ROUTE';
+}
 
 export function extendedFailureDiagnostics(error) {
   const result = { sourceFrames: String(error?.stack || '').split('\n').flatMap(line => {
@@ -130,6 +142,10 @@ async function main() {
   let phase = 'extended setup';
   let ownedRealm;
   let adminValidation;
+  let adminPage;
+  let captureAdminDiagnostics;
+  let adminInitialNavigation;
+  const adminNavigation = [];
   const pending = new Map();
   try {
     const selected = (process.env.FIREFLY_ID_EXTENDED_FLOWS || 'verify,profile,mfa').split(',');
@@ -158,7 +174,6 @@ async function main() {
     const { chromium } = await import('playwright');
     browser = await chromium.launch();
 
-    let adminPage;
     let adminAuthorization;
     async function adminRead(url) {
       if (!adminPage) {
@@ -166,12 +181,22 @@ async function main() {
         const context = await browser.newContext();
         adminPage = await context.newPage();
         adminPage.setDefaultTimeout(20000);
+        captureAdminDiagnostics = observeConsole(adminPage);
+        adminPage.on('response', response => {
+          try {
+            const req = response.request();
+            if (req.isNavigationRequest() && req.frame() === adminPage.mainFrame() && adminNavigation.length < 8) {
+              adminNavigation.push({ route: extendedRouteClass(response.url()), status: response.status() });
+            }
+          } catch { /* Detached navigation has no shareable location. */ }
+        });
         const authenticated = adminPage.waitForResponse(async response => response.status() === 200
           && new URL(response.url()).pathname.startsWith('/admin/realms')
           && (await response.request().allHeaders()).authorization?.startsWith('Bearer '), { timeout: 40000 });
         authenticated.catch(() => {});
         phase = 'administrative console navigation';
-        await adminPage.goto(`${BASE}/admin/master/console/`);
+        const navigation = await adminPage.goto(`${BASE}/admin/master/console/`);
+        adminInitialNavigation = { status: navigation?.status() ?? null, route: extendedRouteClass(adminPage.url()) };
         phase = 'administrative username form';
         await adminPage.locator('#username').fill('sandbox-bootstrap');
         phase = 'administrative password form';
@@ -685,8 +710,24 @@ async function main() {
     reportFailure(error, phase);
     const evidence = resolve('.work/extended-runtime');
     await mkdir(evidence, { recursive: true });
+    let administration;
+    if (adminPage) {
+      administration = { initialNavigation: adminInitialNavigation, navigation: adminNavigation,
+        currentRoute: extendedRouteClass(adminPage.url()) };
+      try {
+        administration.markers = await adminPage.evaluate(() => ({
+          usernamePresent: Boolean(document.querySelector('#username')),
+          passwordPresent: Boolean(document.querySelector('#password')),
+          loginSubmitPresent: Boolean(document.querySelector('#kc-login')),
+          errorMessagePresent: Boolean(document.querySelector('#kc-error-message')),
+          feedbackPresent: Boolean(document.querySelector('.kc-feedback-text')),
+        }));
+        await captureAdminDiagnostics(evidence, 'admin', { failure: false });
+      } catch { administration.snapshotUnavailable = true; }
+    }
     await writeFile(`${evidence}/summary.json`, JSON.stringify({ status: 'failed', phase, results,
       ...extendedFailureDiagnostics(error), ...(adminValidation ? { adminValidation } : {}),
+      ...(administration ? { administration } : {}),
       scope: 'Fixed stage labels only; no raw mail, credentials, tokens, authenticator keys or browser traces.' }, null, 2));
     process.exitCode = 1;
   } finally {
