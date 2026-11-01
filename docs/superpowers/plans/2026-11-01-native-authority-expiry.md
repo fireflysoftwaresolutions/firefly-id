@@ -8,3 +8,11 @@ Continue the approved independent production-security work without changing Jafl
 4. Document expiry, consumption-versus-execution and institution escalation in the public native recovery guide. Publish only after strict documentation checks. State distinct coverage for ordinary lifecycle and expiry runs; do not infer supplier, legal or institutional acceptance.
 
 The implementation requires no runtime-policy change if the existing guards pass. Changes to the public guide explain behavior, not engineering review history. Existing institution decisions remain explicit; no manual enablement or budget-reset workaround is introduced.
+
+## Review and verification boundaries
+
+The independent review found four qualification issues. Separate users now persist factors in distinct create-only, private files; the regression reproduced the former `EEXIST` failure before passing. Consumed Core authority is asserted as `PENDING`, not null. The relay records successful delivery only after flushing the exact accepted response, after its actual expiry and within the gateway deadline. Private snapshots now include the stored receipt expiry so repeated requests must preserve it.
+
+Local presubmit after these corrections passed 124 Python and 36 Node tests. Two additional Java gateway tests exercise accepted HTTP responses carrying expired consumption/verification receipts; their execution belongs to hosted native qualification, not the local source check.
+
+The expiry execution reports `authority-expiry-only` and cannot claim ordinary lifecycle/PIN coverage. The ordinary execution retains its own coverage declaration. Genuine source/image and public-documentation results are linked in the draft PR; no deployment, business-owner or regulatory approval is inferred from either lane. The final review introduced no production-policy or framework changes. Retained failed runs and original data remain preserved.
