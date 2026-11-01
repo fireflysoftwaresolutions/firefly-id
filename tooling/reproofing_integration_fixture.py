@@ -74,11 +74,13 @@ def prepare():
     profile['tenant'] = person['attributes']['tenant_id'][0]
     profile['party'] = person['attributes']['party_id'][0]
     person['emailVerified'] = True
-    for label in ('locked', 'changed', 'contact', 'held-after-proof'):
+    for label in ('locked', 'changed', 'contact', 'held-after-proof', 'never-enrolled'):
         additional = json.loads(json.dumps(person))
         additional.update(id=str(uuid.uuid4()), username=label + '-customer',
                           email=label + '@example.invalid')
         additional['attributes']['party_id'] = [str(uuid.uuid4())]
+        if label == 'never-enrolled':
+            additional['requiredActions'] = ['CONFIGURE_TOTP', 'UPDATE_PASSWORD']
         realm['users'].append(additional)
         profile[label] = {'id': additional['id'], 'username': additional['username'],
                           'email': additional['email'], 'password': profile['person']['password']}

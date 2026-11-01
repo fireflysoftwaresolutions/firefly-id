@@ -16,6 +16,7 @@ REQUIRED = {
         "META-INF/services/org.keycloak.services.managers.BruteForceProtectorFactory",
         "META-INF/services/org.keycloak.events.EventListenerProviderFactory",
         "META-INF/firefly-native-recovery.xml",
+        "META-INF/firefly-reproofing.xml",
         "META-INF/orm.xml",
         "META-INF/jandex.idx",
         "META-INF/beans.xml",
@@ -35,6 +36,10 @@ def inspect(path: Path, module: str) -> dict:
                 source = ROOT / "extensions" / module / "src/main/resources" / name
                 if archive.read(name).strip() != source.read_bytes().strip():
                     raise ValueError(f"Provider registration differs from this source checkout: {name}")
+            if name.endswith(".xml"):
+                source = ROOT / "extensions" / module / "src/main/resources" / name
+                if archive.read(name) != source.read_bytes():
+                    raise ValueError(f"Native installation mapping differs from this source checkout: {name}")
         for name in ("LICENSE", "NOTICE"):
             if archive.read("META-INF/" + name) != (ROOT / name).read_bytes():
                 raise ValueError(f"Distribution {name} differs from this source checkout")
