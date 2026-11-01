@@ -63,7 +63,7 @@ try {
       }
       stage = `search-${width}-${mode}`;
       await page.goto(base, { waitUntil: 'networkidle' });
-      await page.locator('.md-header label[for="__search"]').click();
+      if (width === 390) await page.locator('.md-header__button[for="__search"]').click();
       await page.locator('[data-md-component="search-query"]').fill('notification');
       await page.locator('.md-search-result__link[href*="notification-operations"]').first().waitFor();
       await page.keyboard.press('Escape');
@@ -78,7 +78,11 @@ try {
         await page.locator('.md-sidebar--primary').getByRole('link', { name: 'Configuration reference', exact: true }).click();
       }
       await page.waitForURL('**/configuration-reference/');
-      assert.equal(await page.locator('main h1').textContent(), 'Configuration reference');
+      assert.equal(await page.locator('main h1').evaluate(element => {
+        const title = element.cloneNode(true);
+        title.querySelectorAll('.headerlink').forEach(link => link.remove());
+        return title.textContent.trim();
+      }), 'Configuration reference');
       summary.navigation.push({ width, mode, result: 'configuration-reference' });
       if (width === 1440 && mode === 'light') {
         stage = 'theme-persistence';
