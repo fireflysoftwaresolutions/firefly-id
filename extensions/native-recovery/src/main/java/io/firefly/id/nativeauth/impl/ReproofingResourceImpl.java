@@ -72,7 +72,7 @@ public final class ReproofingResourceImpl {
                 .setAttribute("verificationUrl", view.verificationUrl()).setAttribute("enrollmentSecret", view.secret())
                 .setAttribute("actionUrl", config.root()).setAttribute("signInUrl", config.value("issuer") + "/account")
                 .setAttribute("recordPending", view.recordPending()).setAttribute("nativeCredentialForm", true).setAttribute("messageKey", view.failed() ? "ffidLostFailed" : null).createForm("firefly-lost-credentials.ftl");
-        var builder = Response.fromResponse(response).header("Cache-Control", "no-store").header("Pragma", "no-cache").header("Referrer-Policy", "no-referrer");
+        var builder = Response.fromResponse(response).header("Cache-Control", "no-store").header("Pragma", "no-cache").header("Referrer-Policy", "same-origin");
         if (cookie) builder.cookie(new NewCookie.Builder(COOKIE).value(view.id()).path("/realms/" + config.realm.getName() + "/firefly-recovery/lost-credentials")
                 .secure(true).httpOnly(true).sameSite(NewCookie.SameSite.STRICT).maxAge(config.ttl()).build());
         return builder.build();
