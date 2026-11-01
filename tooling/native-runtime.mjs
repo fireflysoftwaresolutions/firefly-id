@@ -289,6 +289,18 @@ async function assertTranslation(page, language, key) {
   assert.ok((await page.locator('html').getAttribute('lang')).startsWith(language));
   assert.equal((await page.locator('#kc-page-title').innerText()).trim(), await sourceMessage(language, key));
 }
+async function selectNativeLocale(page, language, key) {
+  const current = new URL(page.url());
+  const selector = page.locator('#login-select-toggle');
+  const options = await selector.locator('option').evaluateAll((entries, selected) => entries
+    .filter(option => new URL(option.value, location.href).searchParams.get('kc_locale') === selected).map(option => option.value), language);
+  assert.equal(options.length, 1, 'Actual native footer must expose one supported locale selection');
+  const target = new URL(options[0], current);
+  assert.equal(target.origin, origin); assert.equal(target.pathname, current.pathname);
+  const [navigated] = await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), selector.selectOption(options[0])]);
+  assert.equal(navigated.request().method(), 'GET'); assert.equal(navigated.status(), 200);
+  await assertTranslation(page, language, key);
+}
 async function privateReferenceRefusals(profile) {
   stage(`${profile.kind}-locked-private-proof-positive-control`);
   const before = snapshot(profile.kind);
@@ -404,6 +416,12 @@ async function captureSafeJourney(page, name) {
       await page.emulateMedia({ colorScheme: mode });
       await page.waitForFunction(dark => document.documentElement.classList.contains('pf-v5-theme-dark') === dark, mode === 'dark');
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Native journey has horizontal clipping');
+      const returns = await page.locator('a.ffid-journey-return').evaluateAll(links => links.filter(link => link.getClientRects().length)
+        .map(link => { const box = link.getBoundingClientRect(); return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, height: box.height }; }));
+      assert.ok(returns.every(box => box.height >= 43.5), 'Native return links must retain 44px touch targets');
+      for (let index = 1; index < returns.length; index++) {
+        assert.ok(returns[index].top >= returns[index - 1].bottom + 3.5, 'Adjacent native return links must stack with 4px separation');
+      }
       await page.screenshot({ path: `${output}/${name}-${width}-${mode}.png`, fullPage: true });
     }
   }
@@ -585,10 +603,21 @@ async function supportPin(profile, context) {
     assert.equal(await page.locator('#ffid-support-pin, input[type="password"]').count(), 0);
     assert.deepEqual(snapshot(profile.kind), retained, 'PIN status reload must not repeat a credential operation');
     assert.equal(await page.locator('input[type="password"]').count(), 0, 'Credential field must not enter status capture');
+    stage(`customers-pin-${suffix}-english-status-translation`);
     await assertTranslation(page, 'en', 'ffidPinTitle');
     await captureSafeJourney(page, `customers-pin-${suffix}-${results.length}`);
-    await page.goto(`${profile.issuer}/firefly-recovery/support-pin?kc_locale=es`);
+    const beforeLocale = snapshot(profile.kind);
+    stage(`customers-pin-${suffix}-actual-footer-spanish-selection`);
+    await selectNativeLocale(page, 'es', 'ffidPinTitle');
+    stage(`customers-pin-${suffix}-spanish-literal-reload`);
+    const spanishReload = await page.reload(); assert.equal(spanishReload.request().method(), 'GET'); assert.equal(spanishReload.status(), 200);
     await assertTranslation(page, 'es', 'ffidPinTitle');
+    stage(`customers-pin-${suffix}-canonical-get-locale-cookie-persistence`);
+    const canonical = await page.goto(`${profile.issuer}/firefly-recovery/support-pin`);
+    assert.equal(canonical.request().method(), 'GET'); assert.equal(canonical.status(), 200);
+    await assertTranslation(page, 'es', 'ffidPinTitle');
+    assert.deepEqual(snapshot(profile.kind), beforeLocale, 'Actual footer locale selection and reload must preserve PIN state and Native/Core budgets');
+    stage(`customers-pin-${suffix}-localized-last-changed-date`);
     await page.waitForFunction(() => {
         const time = document.querySelector('time[data-ffid-local-date]');
         return time && time.textContent === new Intl.DateTimeFormat(document.documentElement.lang,

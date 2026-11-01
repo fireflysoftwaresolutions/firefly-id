@@ -154,7 +154,8 @@ input::placeholder { color: var(--ffid-muted); opacity: 1; }
 .ffid-native-journey > p { margin: 0 0 24px; color: var(--ffid-muted); }
 .ffid-native-journey > .pf-v5-c-alert { margin-bottom: 24px; }
 .ffid-native-journey .pf-v5-c-alert { gap: 8px; align-items: start; }
-.ffid-journey-return { display: inline-flex; align-items: center; min-height: 44px; margin-top: 16px; }
+.ffid-journey-return { display: flex; align-items: center; width: fit-content; max-width: 100%; min-height: 44px; margin-top: 16px; }
+.ffid-journey-return + .ffid-journey-return { margin-top: 4px; }
 .ffid-credential-status { margin: 0 0 24px; }
 .ffid-credential-status > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; padding-block: 12px; border-bottom: 1px solid var(--ffid-line); }
 .ffid-credential-status dt { color: var(--ffid-muted); }

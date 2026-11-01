@@ -92,6 +92,7 @@ public final class NativePinResource {
                 : status.replacedAt() != null ? status.replacedAt() : status.createdAt();
         NativeProfile profile = NativeProfile.of(session.getContext().getRealm()); String base = profile.issuer() + "/" + NativeContracts.EXTENSION + "/support-pin";
         phase = Phase.FORM_RENDER;
+        org.keycloak.services.util.LocaleUtil.processLocaleParam(session, session.getContext().getRealm(), null);
         Response response = session.getProvider(LoginFormsProvider.class).setAttribute("stage", stage).setAttribute("csrf", csrf)
                 .setAttribute("actionUrl", "STATUS".equals(stage) ? base + "/set" : base).setAttribute("accountUrl", profile.issuer() + "/account")
                 .setAttribute("revokeUrl", base + "/revoke").setAttribute("pinStatus", status.status())
@@ -107,6 +108,7 @@ public final class NativePinResource {
         LOG.debugf("FIREFLY_NATIVE_PIN_REFUSAL phase=%s kind=%s", phase.name(), refusal instanceof NativeRefusal ? "REFUSED" : "ERROR");
     }
     private Response refused() {
+        org.keycloak.services.util.LocaleUtil.processLocaleParam(session, session.getContext().getRealm(), null);
         Response response = session.getProvider(LoginFormsProvider.class).setError("ffidPinFailed").createErrorPage(Response.Status.FORBIDDEN);
         return Response.fromResponse(response).header("Cache-Control", "no-store").build();
     }

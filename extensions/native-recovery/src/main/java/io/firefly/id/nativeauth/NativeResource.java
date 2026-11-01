@@ -110,6 +110,7 @@ public final class NativeResource {
         return Response.seeOther(java.net.URI.create(target + (complete ? "/complete" : ""))).header("Cache-Control", "no-store").build();
     }
     private Response render(NativeEngine.View view, boolean setCookie) {
+        org.keycloak.services.util.LocaleUtil.processLocaleParam(session, session.getContext().getRealm(), null);
         NativeProfile profile = NativeProfile.of(session.getContext().getRealm());
         Response response = session.getProvider(LoginFormsProvider.class).setAttribute("stage", view.stage()).setAttribute("csrf", view.csrf())
                 .setAttribute("actionUrl", profile.issuer() + "/" + NativeContracts.EXTENSION).setAttribute("signInUrl", profile.issuer() + "/account")
@@ -122,6 +123,7 @@ public final class NativeResource {
         return builder.build();
     }
     private Response unavailable() {
+        org.keycloak.services.util.LocaleUtil.processLocaleParam(session, session.getContext().getRealm(), null);
         Response response = session.getProvider(LoginFormsProvider.class).setError("ffidRecoveryFailed").createErrorPage(Response.Status.BAD_REQUEST);
         return Response.fromResponse(response).header("Cache-Control", "no-store").build();
     }
