@@ -57,13 +57,13 @@ final class ReproofingStoreImpl {
         for (CredentialModel credential : user.credentialManager().getStoredCredentialsStream().sorted(Comparator.comparing(CredentialModel::getId)).toList()) {
             var value = em.find(CredentialEntity.class, credential.getId(), LockModeType.PESSIMISTIC_WRITE);
             require(value != null && value.getUser().getId().equals(user.getId())); em.refresh(value, LockModeType.PESSIMISTIC_WRITE);
-            credentials.add(Arrays.asList(value.getId(), value.getType(), value.getCreatedDate(), value.getCredentialData(), value.getSecretData()));
+            credentials.add(Arrays.asList(value.getId(), value.getType(), value.getCreatedDate(), value.getCredentialData(), value.getSecretData(), value.getUserLabel()));
         }
         var otp = config.realm.getOTPPolicy();
         return digest(ReproofingWireImpl.json(Arrays.asList(credentials, user.getEmail(), user.isEmailVerified(), user.isEnabled(),
                 user.getFirstAttribute(UserModel.DISABLED_REASON), single(user, config.value("tenant-attribute")), single(user, config.value("link-attribute")),
                 user.getRoleMappingsStream().map(RoleModel::getId).sorted().toList(), session.users().getNotBeforeOfUser(config.realm, user),
-                nativeState == null ? null : Arrays.asList(nativeState.hold, nativeState.locked, nativeState.generation),
+                nativeState == null ? null : Arrays.asList(nativeState.hold, nativeState.locked, nativeState.generation, nativeState.pinCredentialId, nativeState.pinKeyVersion, nativeState.pinGeneration, nativeState.pinHeld, nativeState.pinRevokedAt, nativeState.pinCreatedAt, nativeState.pinReplacedAt, nativeState.pinFailures, nativeState.pinReserved),
                 config.realm.getPasswordPolicy().toString(), otp.getAlgorithm(), otp.getDigits(), otp.getPeriod(), otp.getType())));
     }
     static String single(UserModel user, String attribute) { var values = user.getAttributeStream(attribute).toList(); require(values.size() == 1 && values.get(0) != null && !values.get(0).isBlank() && values.get(0).length() <= 512); return values.get(0); }
