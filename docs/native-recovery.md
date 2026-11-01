@@ -111,6 +111,8 @@ Accepted form submissions return `303 See Other` to the recovery page or its `/c
 
 Native bootstrap, knowledge and possession budgets are each bounded to three per captured lock generation. Creating another ceremony does not reset them. HTTP retries reuse existing reservations and evidence; they do not create another verification opportunity or renew expiry.
 
+Before reserving a native factor attempt, Identity checks that the ceremony still belongs to the current lock generation and that the issued provider challenge belongs to the exact reservation supplied by Domain. A stale ceremony or mismatched reservation is refused before a counter changes, evidence is stored or a credential is checked. A new lock cannot inherit an old ceremony's authority.
+
 After the native unlock commits, a lost recording response can leave execution reporting pending. The completion action retries the same record within its original authority; it does not verify factors, consume again or unlock again. If that authority expires, preserve the journal and use the approved operational reconciliation procedure. Do not clear native tables, generations or counters.
 
 For password or authenticator loss, this page is not the correct route. Use [credential-loss recovery](credential-loss-recovery.md). Notifications for that separate replacement flow are described in [notification operations](notification-operations.md).

@@ -125,6 +125,7 @@ final class NativeEngineImpl {
         NativeReservationFenceImpl.Prepared prepared = NativePhasesImpl.run(request, session -> {
             NativeStoreImpl store = new NativeStoreImpl(session); NativeCeremony c = store.ceremony(id);
             var user = store.local(c.subject, true); var state = store.state(c.subject, false); store.eligible(state, user); currentOwner(session, c, user);
+            require(state.generation.equals(c.generation));
             require(reservation != null && reservation.operationId().toString().equals(c.operationId)
                     && reservation.expiresAt().isAfter(Instant.now()) && reservation.reservationId() != null
                     && reservation.providerChallengeId() != null && reservation.providerChallengeId().length() <= 512);
@@ -133,6 +134,7 @@ final class NativeEngineImpl {
             require(reservation.challengeId().toString().equals(knowledge ? c.knowledgeChallengeId : c.possessionChallengeId));
             NativeIssuedChallenge issued = store.em.find(NativeIssuedChallenge.class, reservation.providerChallengeId());
             require(issued != null && issued.ceremonyId.equals(c.id) && issued.operationId.equals(c.operationId)
+                    && reservation.reservationId().toString().equals(issued.reservationId)
                     && issued.category.equals(reservation.category()) && issued.expiresAt > System.currentTimeMillis());
             CredentialModel credential = knowledge ? password(user) : enrolledTotp(user, state);
             require(credential.getId().equals(issued.credentialId));

@@ -31,6 +31,14 @@ class NativeIssuedReservationTest {
         verifyNoInteractions(fixture.hash);
     }
 
+    @Test void previousCeremonyCannotConsumeAttemptsFromANewerLockGeneration() {
+        var fixture = new Fixture(); fixture.state.generation = "next-generation";
+        assertThrows(NativeRefusal.class, () -> fixture.attest(fixture.reservation));
+        assertEquals(0, fixture.state.knowledgeAttempts); assertEquals(0, fixture.state.possessionAttempts);
+        verify(fixture.em, never()).persist(any());
+        verifyNoInteractions(fixture.hash);
+    }
+
     @Test void matchingIssuedReservationVerifiesAndPersistsItsExactBindingOnce() {
         var fixture = new Fixture();
         String result = fixture.attest(fixture.reservation);
