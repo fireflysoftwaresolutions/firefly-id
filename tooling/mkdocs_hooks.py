@@ -59,7 +59,7 @@ def on_files(files, config, **kwargs):
         if not licenses:
             raise ValueError('Documentation package license is missing: ' + name)
         for index, license_file in enumerate(licenses):
-            files.append(File.generated(config, f'assets/licenses/{name}/{index}-{license_file.name}',
+            files.append(File.generated(config, f'assets/licenses/{name}/{index}-{license_file.name}.txt',
                                         abs_src_path=str(package.locate_file(license_file))))
     return files
 

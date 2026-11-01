@@ -30,6 +30,8 @@ python3 -m venv .work/docs-venv
 
 Expected output is `.work/documentation/site`, including the generated policy/version pages, original local font/brand assets, search index and `documentation-provenance.json`. The direct dependency versions are pinned; hosted evidence also records the resolved transitive package set. Review dependency security/maintenance before updates rather than silently installing whatever a future latest release becomes.
 
+Material's maintainers [support critical fixes and security updates through May 5, 2027](https://github.com/squidfunk/mkdocs-material/issues/8523). This handbook honors the requested MkDocs platform and currently pins Material 9.8.0. Review a supported theme or compatible generator transition before that date, testing navigation, hooks, search and asset packaging; do not silently change the platform or keep an unsupported theme indefinitely.
+
 Uncommitted local builds are visibly marked as previews and carry `source_dirty=true`, `publication_ready=false`. Their repository links refer to the committed baseline. Output validation rejects them for publication; an environment-provided source SHA must also match the actual checkout. Publish the clean hosted artifact for the recorded revision rather than relabel a dirty preview as an exact-source build.
 
 For a local reading preview, after an approved install:
