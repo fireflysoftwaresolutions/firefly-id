@@ -176,6 +176,15 @@ class ProductionAuditTest(unittest.TestCase):
                 realms['customers']['clients'][0]['protocol'] = protocol
                 self.assertIn('REALM_CLIENT', self.findings(realms=realms))
 
+    def test_service_accounts_require_a_confidential_noninteractive_client(self):
+        realms = copy.deepcopy(self.realms)
+        client = realms['customers']['clients'][0]
+        client.update(publicClient=False, standardFlowEnabled=False, serviceAccountsEnabled=True,
+                      redirectUris=[], webOrigins=[])
+        self.assertEqual([], self.findings(realms=realms))
+        client['publicClient'] = True
+        self.assertIn('REALM_CLIENT', self.findings(realms=realms))
+
     def test_unreviewed_public_health_override_is_refused(self):
         server = dict(self.server, **{'http-management-health-enabled': 'false'})
         self.assertIn('SERVER_UNREVIEWED_OPTION', self.findings(server=server))

@@ -153,6 +153,8 @@ def client_safe(client):
             'enabled', 'publicClient', 'standardFlowEnabled', 'directAccessGrantsEnabled',
             'implicitFlowEnabled', 'serviceAccountsEnabled')):
         return False
+    if client['serviceAccountsEnabled'] and (client['publicClient'] or client['standardFlowEnabled']):
+        return False
     attrs = client.get('attributes', {})
     if not isinstance(attrs, dict):
         return False
