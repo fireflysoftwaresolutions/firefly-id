@@ -55,8 +55,10 @@ class ReproofingBoundaryTest {
     private void grantAttributeRefused(String attribute) {
         var session = mock(KeycloakSession.class); var context = mock(KeycloakContext.class); var realm = realm(); var clients = mock(ClientProvider.class); var client = mock(ClientModel.class);
         when(session.getContext()).thenReturn(context); when(context.getRealm()).thenReturn(realm); when(session.clients()).thenReturn(clients); rawClient(session, realm, clients, client);
-        when(client.isEnabled()).thenReturn(true); when(client.validateSecret("secret")).thenReturn(true); when(client.getAttribute(attribute)).thenReturn("true");
+        when(client.isEnabled()).thenReturn(true); when(client.validateSecret("secret")).thenReturn(true);
         String header = "Basic " + Base64.getEncoder().encodeToString("core-owner:secret".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertDoesNotThrow(() -> ReproofingRpcImpl.workload(session, header, "admit"));
+        when(client.getAttribute(attribute)).thenReturn("true");
         assertThrows(RuntimeException.class, () -> ReproofingRpcImpl.workload(session, header, "admit"));
     }
     @Test void expiredFinalNotificationLeaseBecomesFailedWithoutAnotherAttemptOrLateResurrection() throws Exception {
