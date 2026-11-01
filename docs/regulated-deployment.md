@@ -4,6 +4,8 @@ Plan the identity service around the institution's users, applications and opera
 
 Use [EU/US applicability](controls-matrix.md) to select the obligations that apply to the legal entity and journey. Payment authentication, workforce access, privacy and ICT resilience have different scopes.
 
+Complete the [institution production decisions](production-decisions.md) with named owners, selected alternatives, conservative defaults and measurable acceptance criteria. Keep unresolved journeys disabled; the configuration checker cannot make these operating decisions for the institution.
+
 ## Plan the interfaces and populations
 
 Choose distinct customer, workforce, institutional-human and administrative profiles. Decide whether logical realms provide enough isolation or whether institutions need separate instances/databases. Record each exact issuer, audience, client, callback/logout URI and authoritative party/staff/tenant linkage.

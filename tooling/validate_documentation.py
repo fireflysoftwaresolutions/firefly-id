@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Validate the actual static handbook, not just authored Markdown paths."""
+import base64
 import hashlib
 from html.parser import HTMLParser
 import json
+import math
 from pathlib import Path
 import re
 import sys
+import xml.etree.ElementTree as ET
 from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,9 +49,75 @@ def local_path(site, page, target, base_path='/firefly-id/'):
     return resolved
 
 
-def validate(site):
-    pages = {path.resolve(): Document(path.read_text()) for path in site.rglob('*.html')}
+def validate_svg(path, font, mode=None):
     failures = []
+    source = path.read_text()
+    try:
+        svg = ET.fromstring(source)
+    except ET.ParseError:
+        return ['Malformed SVG: ' + path.name]
+    namespace = '{http://www.w3.org/2000/svg}'
+    if svg.tag != namespace + 'svg':
+        failures.append('Missing SVG root: ' + path.name)
+    try:
+        viewbox = [float(value) for value in svg.get('viewBox', '').replace(',', ' ').split()]
+        if len(viewbox) != 4 or not all(math.isfinite(value) for value in viewbox) or min(viewbox[2:]) <= 0:
+            raise ValueError
+    except ValueError:
+        failures.append('Invalid SVG viewBox: ' + path.name)
+    if not any(''.join(text.itertext()).strip() for text in svg.iter(namespace + 'text')):
+        failures.append('Diagram has no visible text source: ' + path.name)
+    ids = {element.get('id'): element for element in svg.iter() if element.get('id')}
+    title = svg.get('aria-labelledby', '').split()
+    if not title or any(name not in ids or not ''.join(ids[name].itertext()).strip() for name in title):
+        failures.append('Diagram has no accessible title: ' + path.name)
+    font_uri = 'data:font/woff2;base64,' + base64.b64encode(font).decode()
+    if font_uri not in source:
+        failures.append('Diagram does not embed canonical Manrope: ' + path.name)
+    for element in svg.iter():
+        if element.tag.rsplit('}', 1)[-1] in {'script', 'foreignObject'}:
+            failures.append('Executable SVG content: ' + path.name)
+        for name, value in element.attrib.items():
+            local = name.rsplit('}', 1)[-1]
+            if local.lower().startswith('on') or (local == 'href' and not value.startswith('#')):
+                failures.append('Executable or external SVG reference: ' + path.name)
+    for target in re.findall(r'url\([\'"]?([^\)\'"\s]+)', source):
+        if not target.startswith('#') and target != font_uri:
+            failures.append('Unpackaged SVG resource: ' + path.name)
+    if mode:
+        expected = 'rgb(39, 40, 32)' if mode == 'dark' else 'rgb(255, 255, 255)'
+        if not re.search(r'background-color:\s*' + re.escape(expected), svg.get('style', '')):
+            failures.append('Standalone diagram background is missing: ' + path.name)
+    return failures
+
+
+def validate_diagram_inventory(folder, diagrams):
+    expected = {diagram['id'] + '-' + mode + '.svg' for diagram in diagrams for mode in ('light', 'dark')}
+    actual = {path.name for path in folder.glob('*.svg')}
+    return (['Missing diagram variant: ' + name for name in sorted(expected - actual)] +
+            ['Stale diagram variant: ' + name for name in sorted(actual - expected)])
+
+
+def validate(site):
+    from documentation_diagrams import extract
+    from documentation_support import publishable
+    diagrams = []
+    for source in sorted((ROOT / 'docs').rglob('*.md')):
+        relative = source.relative_to(ROOT / 'docs').as_posix()
+        if publishable(relative):
+            diagrams.extend(extract(source.read_text(), relative))
+    pages = {path.resolve(): Document(path.read_text()) for path in site.rglob('*.html')}
+    folder = site / 'assets/diagrams/generated'
+    failures = validate_diagram_inventory(folder, diagrams)
+    font_bytes = (ROOT / 'assets/brand/fonts/manrope-latin-wght-normal.woff2').read_bytes()
+    diagram_files = sorted((site / 'assets/diagrams').rglob('*.svg'))
+    for path in diagram_files:
+        mode = path.stem.rsplit('-', 1)[-1] if path.parent == folder else None
+        failures.extend(validate_svg(path, font_bytes, mode=mode))
+    referenced = {urlsplit(target).path.rsplit('/', 1)[-1] for document in pages.values() for target in document.references}
+    for path in folder.glob('*.svg'):
+        if path.name not in referenced:
+            failures.append('Unreferenced diagram variant: ' + path.name)
     checked = 0
     for path, document in pages.items():
         visible = ' '.join(' '.join(document.text).split()).lower()
@@ -102,7 +171,7 @@ def validate(site):
     if len(pages) < 40:
         failures.append('Public handbook inventory is incomplete')
     return {'scope': 'Static documentation output only', 'pages': len(pages),
-            'local_references': checked, 'canonical_manrope': True if not failures else None,
+            'local_references': checked, 'diagrams': len(diagrams), 'diagram_svg_assets': len(diagram_files), 'canonical_manrope': True if not failures else None,
             'source_revision': manifest['source_revision'], 'failures': failures}
 
 

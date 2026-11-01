@@ -4,8 +4,11 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright';
+import { inspectDiagram, measureDiagram } from './documentation-diagram-quality.mjs';
 
 const output = resolve('.work/documentation/diagrams');
+const captures = resolve('.work/documentation/browser');
+await mkdir(captures, { recursive: true });
 await mkdir(output, { recursive: true });
 const diagrams = JSON.parse(execFileSync('python3', ['tooling/documentation_diagrams.py'], { encoding: 'utf8' }));
 assert.ok(diagrams.length >= 12, 'Core architecture and journeys need their diagrams');
@@ -17,6 +20,10 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname === '/') { res.setHeader('Content-Type', 'text/html'); res.end('<!doctype html><html lang="en"><head><meta charset="utf-8"></head><body></body></html>'); return; }
+    if (/^\/diagrams\/[a-f0-9]{24}-(light|dark)\.svg$/.test(url.pathname)) {
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.end(await readFile(resolve(output, url.pathname.split('/').at(-1)))); return;
+    }
     if (!url.pathname.startsWith('/mermaid/')) { res.writeHead(404); res.end(); return; }
     const file = resolve(vendor, decodeURIComponent(url.pathname.slice('/mermaid/'.length)));
     if (!file.startsWith(vendor + sep)) { res.writeHead(403); res.end(); return; }
@@ -28,14 +35,17 @@ await new Promise(done => server.listen(0, '127.0.0.1', done));
 const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1800, height: 1200 }, reducedMotion: 'reduce' });
+const assetPage = await browser.newPage({ viewport: { width: 1800, height: 1200 }, reducedMotion: 'reduce' });
 const summary = { version: '12.2.0', diagrams: [], failures: [], externalRequests: 0 };
 let active;
 try {
-  await page.route('**/*', route => {
+  const restrictNetwork = route => {
     const url = new URL(route.request().url());
     if (['http:', 'https:'].includes(url.protocol) && url.origin !== origin) { summary.externalRequests++; return route.abort(); }
     return route.continue();
-  });
+  };
+  await page.route('**/*', restrictNetwork);
+  await assetPage.route('**/*', restrictNetwork);
   await page.goto(origin);
   await page.addStyleTag({ content: `@font-face{font-family:Manrope;font-style:normal;font-weight:200 800;src:url('${fontUri}')}body{font-family:Manrope}` });
   await page.evaluate(async base => {
@@ -45,43 +55,64 @@ try {
   assert.equal(await page.evaluate(() => document.fonts.check('16px Manrope')), true);
   for (const diagram of diagrams) {
     for (const mode of ['light', 'dark']) {
-      active = { page: diagram.page, id: diagram.id, mode, phase: 'COMPILE' };
-      const rendered = await page.evaluate(async ({ diagram, mode }) => {
-        const dark = mode === 'dark';
-        const text = dark ? '#f3f1eb' : '#272820';
-        const line = dark ? '#bfb8ab' : '#62645b';
-        const surface = dark ? '#272820' : '#ffffff';
-        window.diagramEngine.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base', look: 'classic',
-          fontFamily: 'Manrope', fontSize: 16, htmlLabels: false,
-          themeVariables: { fontFamily: 'Manrope', fontSize: '16px', background: dark ? '#10110f' : '#f3f1eb',
-            primaryColor: surface, primaryTextColor: text, primaryBorderColor: line, lineColor: line,
-            secondaryColor: dark ? '#474a42' : '#f3f1eb', tertiaryColor: surface, textColor: text,
-            secondaryTextColor: text, tertiaryTextColor: text, nodeTextColor: text,
-            edgeLabelBackground: surface, clusterBkg: surface, clusterBorder: line,
-            actorBkg: surface, actorBorder: line, actorTextColor: text, actorLineColor: line,
-            signalColor: line, signalTextColor: text, labelBoxBkgColor: surface, labelTextColor: text,
-            noteBkgColor: dark ? '#474a42' : '#f3f1eb', noteTextColor: text, noteBorderColor: line },
-          flowchart: { htmlLabels: false, useMaxWidth: false, padding: 20, nodeSpacing: 30, rankSpacing: 40 },
-          sequence: { useMaxWidth: false, wrap: true, actorFontFamily: 'Manrope', noteFontFamily: 'Manrope', messageFontFamily: 'Manrope' } });
-        const result = await window.diagramEngine.render('flow' + diagram.id + mode, diagram.source);
-        document.body.innerHTML = result.svg;
-        const svg = document.querySelector('svg');
-        await document.fonts.ready;
-        return { svg: result.svg, viewBox: svg.getAttribute('viewBox'), texts: svg.querySelectorAll('text').length,
-          font: getComputedStyle(svg.querySelector('text') || svg).fontFamily };
-      }, { diagram, mode });
-      active.phase = 'SVG_STRUCTURE';
-      assert.ok(rendered.viewBox && rendered.texts > 0);
-      active.phase = 'CANONICAL_FONT';
-      assert.match(rendered.font, /Manrope/);
-      active.phase = 'EMBEDDED_FONT';
-      const embedded = rendered.svg.replace('<style>', `<style>@font-face{font-family:Manrope;font-style:normal;font-weight:200 800;src:url('${fontUri}')}`);
-      assert.ok(embedded.includes(fontUri));
-      await writeFile(resolve(output, `${diagram.id}-${mode}.svg`), embedded);
-      summary.diagrams.push({ page: diagram.page, id: diagram.id, mode, viewBox: rendered.viewBox, texts: rendered.texts, font: 'Manrope' });
+      try {
+        active = { page: diagram.page, id: diagram.id, mode, phase: 'COMPILE' };
+        const rendered = await page.evaluate(async ({ diagram, mode }) => {
+          const dark = mode === 'dark';
+          const text = dark ? '#f3f1eb' : '#272820';
+          const line = dark ? '#bfb8ab' : '#62645b';
+          const surface = dark ? '#272820' : '#ffffff';
+          window.diagramEngine.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base', look: 'classic',
+            fontFamily: 'Manrope', fontSize: 16, htmlLabels: false,
+            themeVariables: { fontFamily: 'Manrope', fontSize: '16px', background: dark ? '#10110f' : '#f3f1eb',
+              primaryColor: surface, primaryTextColor: text, primaryBorderColor: line, lineColor: line,
+              secondaryColor: dark ? '#474a42' : '#f3f1eb', tertiaryColor: surface, textColor: text,
+              secondaryTextColor: text, tertiaryTextColor: text, nodeTextColor: text,
+              edgeLabelBackground: surface, clusterBkg: surface, clusterBorder: line,
+              actorBkg: surface, actorBorder: line, actorTextColor: text, actorLineColor: line,
+              signalColor: line, signalTextColor: text, labelBoxBkgColor: surface, labelTextColor: text,
+              noteBkgColor: dark ? '#474a42' : '#f3f1eb', noteTextColor: text, noteBorderColor: line },
+            flowchart: { htmlLabels: false, useMaxWidth: false, padding: 20, nodeSpacing: 30, rankSpacing: 40 },
+            sequence: { useMaxWidth: false, wrap: true, actorFontFamily: 'Manrope', noteFontFamily: 'Manrope', messageFontFamily: 'Manrope' } });
+          const result = await window.diagramEngine.render('flow' + diagram.id + mode, diagram.source);
+          document.body.innerHTML = result.svg;
+          const svg = document.querySelector('svg');
+          svg.style.backgroundColor = surface;
+          const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+          title.id = 'title-' + diagram.id + '-' + mode;
+          title.textContent = diagram.title;
+          svg.prepend(title);
+          svg.setAttribute('aria-labelledby', title.id);
+          await document.fonts.ready;
+          return { svg: svg.outerHTML, viewBox: svg.getAttribute('viewBox'), texts: svg.querySelectorAll('text').length,
+            font: getComputedStyle(svg.querySelector('text') || svg).fontFamily };
+        }, { diagram, mode });
+        active.phase = 'SVG_STRUCTURE';
+        assert.ok(rendered.viewBox && rendered.texts > 0);
+        active.phase = 'CANONICAL_FONT';
+        assert.match(rendered.font, /Manrope/);
+        active.phase = 'EMBEDDED_FONT';
+        const embedded = rendered.svg.replace('<style>', `<style>@font-face{font-family:Manrope;font-style:normal;font-weight:200 800;src:url('${fontUri}')}`);
+        assert.ok(embedded.includes(fontUri));
+        await writeFile(resolve(output, `${diagram.id}-${mode}.svg`), embedded);
+        active.phase = 'PACKAGED_SVG_RENDER';
+        await assetPage.goto(`${origin}/diagrams/${diagram.id}-${mode}.svg`, { waitUntil: 'networkidle' });
+        await assetPage.evaluate(() => document.fonts.ready);
+        const measured = await assetPage.evaluate(measureDiagram, mode);
+        const findings = inspectDiagram(measured);
+        const capture = `diagram-${diagram.page.replace(/\.md$/, '').replaceAll('/', '-')}-${diagram.id}-${mode}.png`;
+        await assetPage.locator('svg').screenshot({ path: resolve(captures, capture) });
+        summary.diagrams.push({ page: diagram.page, id: diagram.id, mode, viewBox: rendered.viewBox, texts: rendered.texts,
+          font: 'Manrope', shapes: measured.shapes.length, labelsChecked: measured.labels.length, capture, findings });
+        summary.failures.push(...findings.map(finding => ({ ...active, ...finding })));
+      } catch (error) {
+        summary.failures.push({ ...active, message: error.message });
+      }
     }
   }
+  assert.equal(summary.diagrams.length, diagrams.length * 2, 'Every source needs both rendered variants');
   assert.equal(summary.externalRequests, 0);
+  if (summary.failures.length) process.exitCode = 1;
 } catch {
   summary.failures.push({ ...active, message: 'Static diagram compilation or font validation failed' });
   process.exitCode = 1;

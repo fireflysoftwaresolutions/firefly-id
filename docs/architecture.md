@@ -14,7 +14,7 @@ flowchart TD
     Domain -->|Producer SDK| Core[Core · business services]
     Core --> BusinessDB[(Business records)]
     Domain --> Provider[Independent verification provider]
-    Core --> Configuration[Configuration · tenant-resource binding]
+    Core --> Configuration[Configuration · tenant binding]
 ```
 
 | Component | Responsibility | Keep outside this component |

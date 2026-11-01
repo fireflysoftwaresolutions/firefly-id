@@ -64,7 +64,7 @@ class NativeIssuedReservationTest {
                     Map.entry("core-workload-client-id", "native-core"), Map.entry("domain-workload-client-id", "native-domain"),
                     Map.entry("ttl-seconds", "300"));
             when(realm.getAttribute(anyString())).thenAnswer(call -> configuration.get(call.getArgument(0, String.class).replace("firefly.native-recovery.", "")));
-            var jpa = mock(JpaConnectionProvider.class); when(session.getProvider(JpaConnectionProvider.class)).thenReturn(jpa); when(jpa.getEntityManager()).thenReturn(em);
+            var jpa = mock(JpaConnectionProvider.class); doReturn(jpa).when(session).getProvider(JpaConnectionProvider.class); when(jpa.getEntityManager()).thenReturn(em);
             var user = mock(UserModel.class); when(user.getId()).thenReturn("subject"); when(users.getUserById(realm, "subject")).thenReturn(user);
             when(user.getFirstAttribute(UserModel.DISABLED_REASON)).thenReturn("permanentLockout");
             String owner = UUID.randomUUID().toString();
@@ -82,7 +82,7 @@ class NativeIssuedReservationTest {
             var stored = new CredentialEntity(); stored.setId("credential"); stored.setType("password"); stored.setUser(entity);
             stored.setCredentialData(credential.getCredentialData()); stored.setSecretData(credential.getSecretData());
             when(em.find(CredentialEntity.class, "credential", LockModeType.PESSIMISTIC_WRITE)).thenReturn(stored);
-            when(session.getProvider(PasswordHashProvider.class, "fixture")).thenReturn(hash);
+            doReturn(hash).when(session).getProvider(PasswordHashProvider.class, "fixture");
             when(hash.verify(eq("synthetic-password"), any(PasswordCredentialModel.class))).thenReturn(true);
             state.id = NativeSecurityImpl.digest("realm\nsubject"); state.generation = "generation"; state.locked = true;
             state.credentialRevision = new NativeStoreImpl(session).revision(user);

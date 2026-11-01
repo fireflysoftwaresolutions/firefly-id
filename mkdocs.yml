@@ -128,6 +128,7 @@ nav:
   - Operate and govern:
       - Check production settings: production-readiness.md
       - Regulated deployment: regulated-deployment.md
+      - Institution production decisions: production-decisions.md
       - EU and US controls: controls-matrix.md
       - Workforce and administration: workforce-administration.md
       - Security model: security.md

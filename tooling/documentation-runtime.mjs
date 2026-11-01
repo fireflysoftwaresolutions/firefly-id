@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { readFile, stat, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, stat, mkdir, writeFile, readdir } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { chromium } from 'playwright';
+import { inspectDiagram, measureDiagram } from './documentation-diagram-quality.mjs';
 
 const site = resolve('.work/documentation/site');
 const evidence = resolve('.work/documentation/browser');
@@ -26,7 +27,8 @@ const base = `${origin}${projectPath}`;
 const browser = await chromium.launch({ headless: true });
 const manifest = JSON.parse(await readFile(resolve(site, 'documentation-provenance.json'), 'utf8'));
 const routes = manifest.pages.filter(path => path !== '404.html').map(path => path === 'index.html' ? '' : path.replace(/index\.html$/, ''));
-const summary = { scope: 'Actual static documentation browser; no identity-service or regulatory acceptance', source: manifest.source_revision, basePath: projectPath, surfaces: [], search: [], navigation: [], themePersistence: false, externalRuntimeRequests: 0, failures: [] };
+const summary = { scope: 'Actual static documentation browser; no identity-service or regulatory acceptance', source: manifest.source_revision, basePath: projectPath, surfaces: [], diagrams: [], authoredDiagrams: [], search: [], navigation: [], themePersistence: false, externalRuntimeRequests: 0, failures: [] };
+const generated = (await readdir(resolve(site, 'assets/diagrams/generated'))).filter(name => name.endsWith('.svg'));
 let stage = 'launch';
 let activePage;
 try {
@@ -37,6 +39,7 @@ try {
         const url = new URL(request.url());
         if (['http:', 'https:'].includes(url.protocol) && url.origin !== origin) summary.externalRuntimeRequests++;
       });
+      const diagramCoverage = new Map();
       const page = await context.newPage();
       activePage = page;
       for (const route of routes) {
@@ -71,18 +74,53 @@ try {
         assert.equal(measured.repeatedHeaderTitles, 0, 'The masthead repeats the identity already present in the logo');
         assert.equal(await page.locator('pre code.language-mermaid').count(), 0, 'A product diagram remained unrendered source');
         const figures = page.locator('.flow-figure');
-        if (await figures.count()) {
-          assert.ok(await figures.first().locator(`.diagram-${mode}`).isVisible(), 'Diagram does not match the reading appearance');
-          assert.equal(await figures.first().locator(`.diagram-${mode === 'light' ? 'dark' : 'light'}`).isVisible(), false);
+        for (const figure of await figures.all()) {
+          const variant = figure.locator(`.diagram-${mode}`);
+          assert.ok(await variant.isVisible(), 'Diagram does not match the reading appearance');
+          assert.equal(await figure.locator(`.diagram-${mode === 'light' ? 'dark' : 'light'}`).isVisible(), false);
+          const scroll = figure.locator('.flow-scroll');
+          const observation = await scroll.evaluate(element => {
+            const image = [...element.querySelectorAll('img')].find(item => item.getClientRects().length);
+            const link = image.closest('a');
+            return { file: new URL(image.currentSrc).pathname.split('/').at(-1),
+              accessible: Boolean(image.alt.trim() && element.getAttribute('aria-label')?.trim() && link.getAttribute('aria-label')?.trim()),
+              opensSameAsset: link.href === image.currentSrc, scrollable: getComputedStyle(element).overflowX === 'auto' && element.tabIndex === 0,
+              imageWidth: image.getBoundingClientRect().width, naturalWidth: image.naturalWidth,
+              clientWidth: element.clientWidth, scrollWidth: element.scrollWidth };
+          });
+          assert.ok(observation.accessible && observation.opensSameAsset, 'Diagram lacks an accessible full-size link');
+          assert.ok(observation.scrollable, 'Wide diagram has no keyboard-focusable scroll region');
+          assert.ok(observation.imageWidth >= observation.naturalWidth - 1, 'Diagram text is shrunk below its authored size');
+          assert.ok(observation.clientWidth <= width, 'Diagram scroll region escapes the viewport');
+          diagramCoverage.set(observation.file, (diagramCoverage.get(observation.file) || 0) + 1);
+          const capture = `inline-${observation.file.replace('.svg', '')}-${width}.png`;
+          await scroll.screenshot({ path: resolve(evidence, capture) });
+          if (observation.scrollWidth > observation.clientWidth + 1) {
+            await scroll.focus();
+            await page.keyboard.press('ArrowRight');
+            await page.waitForFunction(element => element.scrollLeft > 0, await scroll.elementHandle());
+            await scroll.evaluate(element => { element.scrollLeft = element.scrollWidth; });
+            const reachedEnd = await scroll.evaluate(element => element.scrollLeft + element.clientWidth >= element.scrollWidth - 1);
+            assert.ok(reachedEnd, 'The end of a wide diagram is unreachable');
+            await scroll.screenshot({ path: resolve(evidence, capture.replace('.png', '-end.png')) });
+            await scroll.evaluate(element => { element.scrollLeft = 0; });
+          }
+          summary.diagrams.push({ route, width, mode, ...observation, capture });
+        }
+        for (const figure of await page.locator('.solution-figure').all()) {
+          await figure.screenshot({ path: resolve(evidence, `solution-inline-${width}-${mode}.png`) });
         }
         assert.ok(await page.locator('.md-header__button.md-logo').isVisible(), 'Product branding is missing from the masthead');
         if (route) assert.ok(await page.locator('.md-path').isVisible(), 'Inner page has no breadcrumb trail');
         assert.match(measured.footer, /Firefly Software Foundation Inc\./); assert.match(measured.footer, /Keycloak/);
         summary.surfaces.push({ route, width, mode, fontLoaded: measured.fontLoaded, horizontalOverflow: false });
         if (['', 'architecture/', 'integration-contract/', 'access-recovery/', 'controls-matrix/', 'configuration-reference/'].includes(route)) {
+          await page.evaluate(() => window.scrollTo(0, 0));
           await page.screenshot({ path: resolve(evidence, `${route.replaceAll('/', '') || 'home'}-${width}-${mode}.png`) });
         }
       }
+      assert.deepEqual([...diagramCoverage.keys()].sort(), generated.filter(name => name.endsWith(`-${mode}.svg`)).sort(), 'Every packaged diagram must appear in the handbook at each reading width');
+      for (const count of diagramCoverage.values()) assert.equal(count, 1, 'A diagram is duplicated instead of its intended source');
       stage = `search-${width}-${mode}`;
       await page.goto(base, { waitUntil: 'networkidle' });
       if (width === 390) await page.locator('.md-header__button[for="__search"]').click();
@@ -120,6 +158,25 @@ try {
       await context.close();
     }
   }
+  const authoredPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  activePage = authoredPage;
+  await authoredPage.route('**/*', route => {
+    const url = new URL(route.request().url());
+    if (['http:', 'https:'].includes(url.protocol) && url.origin !== origin) { summary.externalRuntimeRequests++; return route.abort(); }
+    return route.continue();
+  });
+  for (const file of (await readdir(resolve(site, 'assets/diagrams'))).filter(name => name.endsWith('.svg')).sort()) {
+    stage = `authored-diagram:${file}`;
+    await authoredPage.goto(`${base}assets/diagrams/${file}`, { waitUntil: 'networkidle' });
+    await authoredPage.evaluate(() => document.fonts.ready);
+    const measured = await authoredPage.evaluate(measureDiagram, 'dark');
+    const findings = inspectDiagram(measured);
+    const capture = `diagram-authored-${file.replace('.svg', '.png')}`;
+    await authoredPage.locator('svg').screenshot({ path: resolve(evidence, capture) });
+    summary.authoredDiagrams.push({ file, labelsChecked: measured.labels.length, capture, findings });
+    summary.failures.push(...findings.map(finding => ({ stage, ...finding })));
+  }
+  if (summary.failures.length) process.exitCode = 1;
   assert.equal(summary.externalRuntimeRequests, 0, 'Documentation requests an external runtime asset');
 } catch {
   summary.failures.push({ stage, message: 'Documentation browser assertion failed; inspect the bounded stage and credential-free captures.' });
@@ -130,4 +187,4 @@ try {
   await browser.close();
   await new Promise(done => server.close(done));
 }
-console.log(JSON.stringify({ source: summary.source, surfaces: summary.surfaces.length, searchChecks: summary.search.length, navigationChecks: summary.navigation.length, themePersistence: summary.themePersistence, externalRuntimeRequests: summary.externalRuntimeRequests, failures: summary.failures }));
+console.log(JSON.stringify({ source: summary.source, surfaces: summary.surfaces.length, diagramSurfaces: summary.diagrams.length, authoredDiagrams: summary.authoredDiagrams.length, searchChecks: summary.search.length, navigationChecks: summary.navigation.length, themePersistence: summary.themePersistence, externalRuntimeRequests: summary.externalRuntimeRequests, failures: summary.failures }));

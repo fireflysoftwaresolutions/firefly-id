@@ -18,6 +18,8 @@ The customer must be enabled, local and nonprivileged in a configured `HUMAN` re
 
 ```mermaid
 stateDiagram-v2
+    state "Not set" as NotSet
+    state "Replacement required" as ReplacementRequired
     [*] --> NotSet
     NotSet --> Active: Password and TOTP verified — create PIN
     Active --> Active: Password and TOTP verified — replace PIN

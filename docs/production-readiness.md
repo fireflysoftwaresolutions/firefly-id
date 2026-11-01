@@ -39,7 +39,9 @@ Exit code `0` means the supplied settings passed the supported checks; exit code
 | `REALM_POLICY` | Enabled realm, SSL, registration/profile restrictions, verification, refresh rotation and permanent-block settings |
 | `REALM_PASSWORD_POLICY` | Missing or duplicated policy terms; identifiers are normalized with Keycloak's trimming rules, including control characters |
 | `REALM_SESSION_POLICY` | Missing, nonpositive or excessive idle/access-token lifetimes or a declared administrative maximum session lifetime |
-| `REALM_CLIENT` | Incomplete/non-OIDC application clients, unsafe grants, service-account combinations, S256 and exact HTTPS return/origin values |
+| `REALM_AUDIT_EVENTS` | Disabled/missing login or administration event capture, missing/nonpositive retention, or a custom event filter |
+| `REALM_CLIENT` | Missing/duplicate client identifiers, incomplete/non-OIDC enabled clients, unsafe grants, service-account combinations, S256 and exact HTTPS application return/origin values |
+| `REALM_CLIENT_SESSION_POLICY` | A client access-token override that is malformed, nonpositive or longer than the checked realm's lifetime |
 
 Fix the specific setting and rerun the same inputs. An unsupported option needs a reviewed extension to the checker; it should not be silently deleted from the review while remaining active in the deployment.
 
@@ -55,7 +57,13 @@ Management uses `http-management-scheme=inherited`, not a literal `https` value.
 
 Enabled application clients must declare `protocol=openid-connect` and complete boolean grant fields. Interactive clients need code/S256, exact HTTPS callbacks and no service-account authority. Noninteractive machine service accounts must be confidential. The checker rejects password, implicit, device, CIBA, token-exchange and JWT-authorization grants in this profile.
 
-Post-logout returns must be exact HTTPS values. The upstream `+` shorthand is allowed only as the entire value and reuses the checked redirect allowlist. Built-in Keycloak clients and explicitly disabled clients are handled separately; review their real console/admin behavior. Scopes, audiences, trusted claim mappers and business permissions still require the application-specific setup in [integration](integration-contract.md).
+Post-logout returns must be exact HTTPS values. The upstream `+` shorthand is allowed only as the entire value and reuses the checked redirect allowlist. Enabled built-in Keycloak clients receive the same protocol, type, grant and token-lifetime checks. Their native return routes and console behavior require separate exact-version review. Disable the built-in `admin-cli` password grant in this production profile; use a purpose-bound confidential workload or the approved interactive administrative path. Explicitly disabled clients are not an active grant path, but their identifiers must still be unique.
+
+The `access.token.lifespan` client attribute overrides the realm setting. An absent or Java-trimmed empty value inherits the realm lifetime; a positive decimal value may only shorten it. The checker refuses `-1`, which would select the SSO session maximum instead. This includes account and administrative consoles. See the pinned [token expiration implementation](https://github.com/keycloak/keycloak/blob/26.8.1/services/src/main/java/org/keycloak/protocol/oidc/TokenManager.java). Client session/offline policy, scopes, audiences, trusted claim mappers and business permissions still require the application-specific setup in [integration](integration-contract.md).
+
+## Capture security events deliberately
+
+Enable login events and administrative events, keep administrative representation details disabled, and supply a positive `eventsExpiration` in seconds. Leave `enabledEventTypes` absent or empty to retain Keycloak's default saved event types; a custom filter such as only `LOGIN` would omit authentication failures and is refused by this profile. A different event contract needs a reviewed checker extension. The checker requires an explicit finite retention setting; it does not select the institution's retention period. Seven days is the sandbox value, not a banking retention recommendation. Export events to the approved restricted audit destination and verify receipt, failure alerts, access and deletion behavior. Local event storage alone does not provide immutable audit custody or prove downstream delivery.
 
 ## Finish the environment review
 
@@ -75,4 +83,4 @@ Then complete the operational tasks:
 | Applications | Verify current authorization, revocation/cache behavior and independent sessions at each receiver |
 | Governance | Assign legal applicability, privacy/retention, audit custody, supplier and incident responsibilities |
 
-Use [deployment setup](regulated-deployment.md), [retained data](retained-data.md) and [EU/US controls](controls-matrix.md) to carry out these tasks.
+Use the [institution decision guide](production-decisions.md) to assign each item, choose limits and define acceptance. Follow [deployment setup](regulated-deployment.md), [retained data](retained-data.md) and [EU/US controls](controls-matrix.md) to carry out the selected tasks.

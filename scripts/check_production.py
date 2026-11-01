@@ -149,10 +149,10 @@ def server_findings(server):
 
 
 def client_safe(client):
-    if not isinstance(client, dict) or not isinstance(client.get('clientId'), str):
+    if (not isinstance(client, dict) or not isinstance(client.get('clientId'), str)
+            or not client['clientId'].strip()):
         return False
-    # Upstream console/account clients require separate exact-version qualification.
-    if client['clientId'] in BUILTIN_CLIENTS or client.get('enabled') is False:
+    if client.get('enabled') is False:
         return True
     if client.get('protocol') != 'openid-connect':
         return False
@@ -170,6 +170,10 @@ def client_safe(client):
                 'oauth2.device.authorization.grant.enabled', 'oidc.ciba.grant.enabled',
                 'standard.token.exchange.enabled', 'oauth2.jwt.authorization.grant.enabled'))):
         return False
+    # Native console return routes have their own exact-version qualification;
+    # their names do not exempt enabled clients from the common grant guards.
+    if client['clientId'] in BUILTIN_CLIENTS:
+        return True
     logout = attrs.get('post.logout.redirect.uris', '')
     if not isinstance(logout, str) or (logout and logout != '+' and not all(https_url(url) for url in logout.split('##'))):
         return False
@@ -183,6 +187,26 @@ def client_safe(client):
         if not isinstance(client.get(key, []), list) or not all(https_url(url, origin=key == 'webOrigins') for url in client.get(key, [])):
             return False
     return True
+
+
+def client_token_lifetime_safe(client, realm_lifetime):
+    if not isinstance(client, dict):
+        return False
+    if client.get('enabled') is False:
+        return True
+    attributes = client.get('attributes', {})
+    if not isinstance(attributes, dict):
+        return False
+    if 'access.token.lifespan' not in attributes:
+        return True
+    value = attributes['access.token.lifespan']
+    if not isinstance(value, str):
+        return False
+    # Keycloak inherits only when absent or Java-trimmed empty; -1 uses SSO max.
+    if not value.strip(JAVA_TRIM_CHARACTERS):
+        return True
+    return (bool(re.fullmatch(r'[0-9]{1,10}', value)) and type(realm_lifetime) is int
+            and 0 < int(value) <= realm_lifetime)
 
 
 def audit(server, realms, catalogue):
@@ -207,6 +231,10 @@ def audit(server, realms, catalogue):
         guards.update(catalogue['defaults'])
         if any(type(realm.get(key)) is not type(value) or realm.get(key) != value for key, value in guards.items()):
             findings.add('REALM_POLICY')
+        if (realm.get('eventsEnabled') is not True or realm.get('adminEventsEnabled') is not True
+                or type(realm.get('eventsExpiration')) is not int or realm['eventsExpiration'] <= 0
+                or realm.get('enabledEventTypes', []) != []):
+            findings.add('REALM_AUDIT_EVENTS')
         selected = catalogue['profiles'][profile]['realmSettings']
         policy = realm.get('passwordPolicy', '')
         terms = policy.split(' and ') if isinstance(policy, str) else []
@@ -224,6 +252,13 @@ def audit(server, realms, catalogue):
         clients = realm.get('clients')
         if not isinstance(clients, list) or not clients or not all(client_safe(client) for client in clients):
             findings.add('REALM_CLIENT')
+        if isinstance(clients, list):
+            identifiers = [client.get('clientId') for client in clients if isinstance(client, dict)]
+            if (any(not isinstance(value, str) or not value.strip() for value in identifiers)
+                    or len({value for value in identifiers if isinstance(value, str)}) != len(clients)):
+                findings.add('REALM_CLIENT')
+            if not all(client_token_lifetime_safe(client, realm.get('accessTokenLifespan')) for client in clients):
+                findings.add('REALM_CLIENT_SESSION_POLICY')
     if len(set(names)) != len(names):
         findings.add('REALM_POPULATIONS')
     return report(findings)

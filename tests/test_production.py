@@ -42,6 +42,7 @@ class ProductionAuditTest(unittest.TestCase):
                 enabled=True, sslRequired='all', registrationAllowed=False,
                 editUsernameAllowed=False, duplicateEmailsAllowed=False, verifyEmail=True,
                 revokeRefreshToken=True, refreshTokenMaxReuse=0, adminEventsDetailsEnabled=False,
+                eventsEnabled=True, adminEventsEnabled=True, eventsExpiration=604800,
                 clients=[{'clientId': 'application', 'protocol': 'openid-connect', 'enabled': True, 'publicClient': True,
                           'standardFlowEnabled': True, 'directAccessGrantsEnabled': False,
                           'implicitFlowEnabled': False, 'serviceAccountsEnabled': False,
@@ -290,3 +291,72 @@ class ProductionAuditTest(unittest.TestCase):
             result = subprocess.run([sys.executable, str(ROOT / 'scripts/check_production.py'),
                                      '--server-config', str(path)], env=env, capture_output=True, text=True)
             self.assertIn('EXTERNAL_CONFIG_SOURCE', json.loads(result.stdout)['findings'])
+
+    def test_builtin_names_do_not_exempt_enabled_clients_from_grant_checks(self):
+        for name in ('account', 'account-console', 'admin-cli', 'broker',
+                     'realm-management', 'security-admin-console'):
+            for key in ('directAccessGrantsEnabled', 'implicitFlowEnabled', 'serviceAccountsEnabled'):
+                with self.subTest(name=name, key=key):
+                    realms = copy.deepcopy(self.realms)
+                    client = realms['administrators']['clients'][0]
+                    client.update(clientId=name, **{key: True})
+                    self.assertIn('REALM_CLIENT', self.findings(realms=realms))
+
+    def test_client_token_override_cannot_extend_the_checked_realm_lifetime(self):
+        for name in ('application', 'security-admin-console'):
+            for value in ('61', '3600', '-1', '0', 'not-a-number', '1.0', True, 60, None):
+                with self.subTest(name=name, value=value):
+                    realms = copy.deepcopy(self.realms)
+                    client = realms['administrators']['clients'][0]
+                    client['clientId'] = name
+                    client['attributes']['access.token.lifespan'] = value
+                    self.assertIn('REALM_CLIENT_SESSION_POLICY', self.findings(realms=realms))
+
+    def test_shorter_and_inherited_client_token_lifetimes_remain_valid(self):
+        for value in ('', ' ', '1', '30', '60'):
+            with self.subTest(value=value):
+                realms = copy.deepcopy(self.realms)
+                realms['administrators']['clients'][0]['attributes']['access.token.lifespan'] = value
+                self.assertEqual([], self.findings(realms=realms))
+        realms['administrators']['accessTokenLifespan'] = 30
+        realms['administrators']['clients'][0]['attributes']['access.token.lifespan'] = '60'
+        self.assertIn('REALM_CLIENT_SESSION_POLICY', self.findings(realms=realms))
+
+    def test_client_inventory_rejects_empty_duplicate_and_malformed_identifiers(self):
+        for value in ('', ' ', None, 42, ['application']):
+            with self.subTest(value=value):
+                realms = copy.deepcopy(self.realms)
+                realms['customers']['clients'][0]['clientId'] = value
+                self.assertIn('REALM_CLIENT', self.findings(realms=realms))
+        realms = copy.deepcopy(self.realms)
+        realms['customers']['clients'].append(copy.deepcopy(realms['customers']['clients'][0]))
+        self.assertIn('REALM_CLIENT', self.findings(realms=realms))
+
+    def test_security_events_require_explicit_capture_and_retention(self):
+        for key, value in (('eventsEnabled', False), ('adminEventsEnabled', False),
+                           ('eventsEnabled', 1), ('adminEventsEnabled', 'true'),
+                           ('eventsExpiration', 0), ('eventsExpiration', -1),
+                           ('eventsExpiration', True), ('eventsExpiration', '604800')):
+            with self.subTest(key=key, value=value):
+                realms = copy.deepcopy(self.realms)
+                realms['customers'][key] = value
+                self.assertIn('REALM_AUDIT_EVENTS', self.findings(realms=realms))
+        for key in ('eventsEnabled', 'adminEventsEnabled', 'eventsExpiration'):
+            realms = copy.deepcopy(self.realms)
+            del realms['customers'][key]
+            self.assertIn('REALM_AUDIT_EVENTS', self.findings(realms=realms))
+
+    def test_retention_duration_remains_an_explicit_institution_choice(self):
+        for seconds in (86400, 604800, 2592000):
+            realms = copy.deepcopy(self.realms)
+            realms['customers']['eventsExpiration'] = seconds
+            self.assertEqual([], self.findings(realms=realms))
+
+    def test_event_filters_cannot_silently_omit_authentication_failures(self):
+        for value in (['LOGIN'], ['LOGIN', 'LOGOUT'], 'LOGIN', {}, None, False):
+            with self.subTest(value=value):
+                realms = copy.deepcopy(self.realms)
+                realms['customers']['enabledEventTypes'] = value
+                self.assertIn('REALM_AUDIT_EVENTS', self.findings(realms=realms))
+        realms['customers']['enabledEventTypes'] = []
+        self.assertEqual([], self.findings(realms=realms))
