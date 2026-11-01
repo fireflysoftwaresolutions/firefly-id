@@ -31,7 +31,8 @@
         <#elseif stage == "ENROLL">
           <div class="${properties.kcFormGroupClass!}">
             <label class="${properties.kcLabelClass!}" for="password">${msg("passwordNew")}</label>
-            <span class="${properties.kcInputClass!}"><input id="password" name="password" type="password" maxlength="1024" autocomplete="new-password" required autofocus /></span>
+            <span class="${properties.kcInputClass!}"><input id="password" name="password" type="password" maxlength="1024"<#if passwordMinimum??> minlength="${passwordMinimum?c}" aria-describedby="ffid-lost-password-help"</#if> autocomplete="new-password" required autofocus /></span>
+            <#if passwordMinimum??><p id="ffid-lost-password-help">${msg("ffidLostPasswordMinimum", passwordMinimum)}</p></#if>
           </div>
           <div class="${properties.kcFormGroupClass!}">
             <label class="${properties.kcLabelClass!}" for="passwordConfirm">${msg("passwordConfirm")}</label>

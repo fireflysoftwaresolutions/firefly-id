@@ -4,7 +4,7 @@ import io.firefly.id.nativeauth.NativePhases;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.email.EmailTemplateProvider;
 import jakarta.persistence.LockModeType;
-import java.util.Map;
+import java.util.HashMap;
 import static io.firefly.id.nativeauth.NativeSecurity.require;
 
 /** Explicit bounded worker; durable leases survive process death without retaining request sessions. */
@@ -41,7 +41,7 @@ final class ReproofingDispatcherImpl {
                     var user = child.users().getUserById(store.config.realm, notification.subject); require(user != null);
                     String destination = ReproofingEngineImpl.open("notification:" + id, notification.destinationEncrypted);
                     try { child.getProvider(EmailTemplateProvider.class).setRealm(store.config.realm).setUser(user)
-                            .send("ffidCredentialsReplacedSubject", "firefly-credentials-replaced.ftl", Map.of(), destination); }
+                            .send("ffidCredentialsReplacedSubject", "firefly-credentials-replaced.ftl", new HashMap<>(), destination); }
                     catch (org.keycloak.email.EmailException unavailable) { throw new IllegalStateException("Notification unavailable"); }
                     return null;
                 });

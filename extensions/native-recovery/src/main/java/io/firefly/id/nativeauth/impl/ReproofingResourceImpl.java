@@ -70,7 +70,7 @@ public final class ReproofingResourceImpl {
     private Response render(ReproofingEngineImpl.View view, boolean cookie) {
         LocaleUtil.processLocaleParam(session, session.getContext().getRealm(), null); var config = new ReproofingConfigImpl(session.getContext().getRealm());
         Response response = session.getProvider(LoginFormsProvider.class).setAttribute("stage", view.stage()).setAttribute("csrf", view.csrf())
-                .setAttribute("verificationUrl", view.verificationUrl()).setAttribute("enrollmentSecret", view.secret())
+                .setAttribute("verificationUrl", view.verificationUrl()).setAttribute("enrollmentSecret", view.secret()).setAttribute("passwordMinimum", view.passwordMinimum())
                 .setAttribute("actionUrl", config.root()).setAttribute("signInUrl", config.value("issuer") + "/account")
                 .setAttribute("recordPending", view.recordPending()).setAttribute("nativeCredentialForm", true).setAttribute("messageKey", view.failed() ? "ffidLostFailed" : null).createForm("firefly-lost-credentials.ftl");
         var builder = Response.fromResponse(response).header("Cache-Control", "no-store").header("Pragma", "no-cache").header("Referrer-Policy", "same-origin");
