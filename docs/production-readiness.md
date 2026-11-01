@@ -37,7 +37,7 @@ Exit code `0` means the supplied settings passed the supported checks; exit code
 | `SERVER_PROXY_TRUST` | Exact forwarded-header mode and valid, bounded proxy addresses; ranges must not collectively trust every IPv4 or IPv6 address |
 | `REALM_POPULATIONS` | Required realm inventory, distinct names and administrative `master` assignment |
 | `REALM_POLICY` | Enabled realm, SSL, registration/profile restrictions, verification, refresh rotation and permanent-block settings |
-| `REALM_PASSWORD_POLICY` | Missing or duplicated policy terms, including duplicate identifiers obscured by whitespace |
+| `REALM_PASSWORD_POLICY` | Missing or duplicated policy terms; identifiers are normalized with Keycloak's trimming rules, including control characters |
 | `REALM_SESSION_POLICY` | Missing, nonpositive or excessive idle/access-token lifetimes or a declared administrative maximum session lifetime |
 | `REALM_CLIENT` | Incomplete/non-OIDC application clients, unsafe grants, service-account combinations, S256 and exact HTTPS return/origin values |
 

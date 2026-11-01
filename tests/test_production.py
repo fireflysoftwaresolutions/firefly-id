@@ -137,7 +137,9 @@ class ProductionAuditTest(unittest.TestCase):
 
     def test_whitespace_cannot_hide_last_wins_password_policy_overrides(self):
         for override in ('length (1)', ' length(1)', '\tlength\t(1)',
-                         'passwordHistory (0)', ' hashAlgorithm (pbkdf2)'):
+                         'passwordHistory (0)', ' hashAlgorithm (pbkdf2)',
+                         '\x00length(1)', '\x01length(1)', '\x08length(1)', '\x1blength(1)',
+                         'length\x00(1)', '\x00passwordHistory\x00(0)'):
             with self.subTest(override=override):
                 realms = copy.deepcopy(self.realms)
                 realms['customers']['passwordPolicy'] += ' and ' + override

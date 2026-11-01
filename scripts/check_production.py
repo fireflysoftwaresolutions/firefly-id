@@ -10,6 +10,7 @@ import sys
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
+JAVA_TRIM_CHARACTERS = ''.join(chr(value) for value in range(33))
 DECISIONS = [
     'LEGAL_APPLICABILITY', 'CUSTOMER_FACTOR_FLOW', 'PRIVILEGED_FACTOR_FLOW',
     'TRUSTED_IDENTITY_BINDING', 'KYC_ASSURANCE_PROVIDER', 'WORKFORCE_ADMIN_RECOVERY',
@@ -209,8 +210,8 @@ def audit(server, realms, catalogue):
         selected = catalogue['profiles'][profile]['realmSettings']
         policy = realm.get('passwordPolicy', '')
         terms = policy.split(' and ') if isinstance(policy, str) else []
-        # Keycloak trims policy identifiers before storing them in a last-wins map.
-        identifiers = [term.split('(', 1)[0].strip() for term in terms]
+        # Keycloak's Java trim removes U+0000–U+0020 before storing last-wins identifiers.
+        identifiers = [term.split('(', 1)[0].strip(JAVA_TRIM_CHARACTERS) for term in terms]
         if (not set(selected['passwordPolicy'].split(' and ')) <= set(terms)
                 or len(set(identifiers)) != len(identifiers)):
             findings.add('REALM_PASSWORD_POLICY')
