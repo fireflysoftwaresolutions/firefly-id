@@ -14,8 +14,8 @@ import static org.mockito.Mockito.*;
 
 class ReproofingSnapshotTest {
     @Test void completeRevisionBindsContactVerificationHistoryAndPinAuthority() {
-        var session = mock(KeycloakSession.class, RETURNS_DEEP_STUBS); var realm = mock(RealmModel.class); var em = mock(EntityManager.class); var connection = mock(JpaConnectionProvider.class);
-        when(session.getContext().getRealm()).thenReturn(realm); when(session.getProvider(JpaConnectionProvider.class)).thenReturn(connection); when(connection.getEntityManager()).thenReturn(em);
+        var session = mock(KeycloakSession.class); var realm = mock(RealmModel.class); var em = mock(EntityManager.class); var connection = mock(JpaConnectionProvider.class);
+        var context = mock(KeycloakContext.class); var users = mock(UserProvider.class); when(session.getContext()).thenReturn(context); when(context.getRealm()).thenReturn(realm); when(session.users()).thenReturn(users); when(session.getProvider(JpaConnectionProvider.class)).thenReturn(connection); when(connection.getEntityManager()).thenReturn(em);
         when(realm.getName()).thenReturn("customers"); when(realm.getId()).thenReturn("realm-id");
         Map<String,String> attributes = Map.of("enabled","true","population","HUMAN","allowed-origin","https://id.test","issuer","https://id.test/realms/customers","core-workload-client-id","core-owner","domain-workload-client-id","domain-owner","ttl-seconds","600","tenant-attribute","tenant","link-attribute","party");
         when(realm.getAttribute(anyString())).thenAnswer(call -> attributes.get(call.getArgument(0,String.class).replace("firefly.reproofing.","")));
