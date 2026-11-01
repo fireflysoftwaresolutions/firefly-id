@@ -59,6 +59,7 @@ def validate_svg(path, font, mode=None):
     namespace = '{http://www.w3.org/2000/svg}'
     if svg.tag != namespace + 'svg':
         failures.append('Missing SVG root: ' + path.name)
+    viewbox = []
     try:
         viewbox = [float(value) for value in svg.get('viewBox', '').replace(',', ' ').split()]
         if len(viewbox) != 4 or not all(math.isfinite(value) for value in viewbox) or min(viewbox[2:]) <= 0:
@@ -85,6 +86,13 @@ def validate_svg(path, font, mode=None):
         if not target.startswith('#') and target != font_uri:
             failures.append('Unpackaged SVG resource: ' + path.name)
     if mode:
+        try:
+            dimensions = [float(svg.get(name, '')) for name in ('width', 'height')]
+            if len(viewbox) != 4 or any(not math.isfinite(value) or abs(value - expected) > 0.01
+                                        for value, expected in zip(dimensions, viewbox[2:])):
+                raise ValueError
+        except ValueError:
+            failures.append('Diagram dimensions do not match its intrinsic viewBox: ' + path.name)
         expected = 'rgb(39, 40, 32)' if mode == 'dark' else 'rgb(255, 255, 255)'
         if not re.search(r'background-color:\s*' + re.escape(expected), svg.get('style', '')):
             failures.append('Standalone diagram background is missing: ' + path.name)

@@ -60,7 +60,7 @@ flowchart TD
     Bearer[Incoming bearer access token] --> Decoder[Remote-JWKS decoder]
     Decoder --> Validate[Signature · issuer · audience · time]
     Validate --> Converter[Claim and tenant projection]
-    Converter --> Principal[SecurityPrincipal]
+    Converter --> Principal[Verified principal]
     Principal --> Policy[Current URL and business policy]
     Policy --> Result[Authorized operation or refusal]
 ```

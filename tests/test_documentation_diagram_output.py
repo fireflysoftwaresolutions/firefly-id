@@ -16,7 +16,7 @@ class DiagramOutputTest(unittest.TestCase):
 
     def svg(self, extra=''):
         encoded = base64.b64encode(self.font).decode()
-        return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80" '
+        return ('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="80" viewBox="0 0 100 80" '
                 'style="background-color: rgb(39, 40, 32);" aria-labelledby="title">'
                 '<title id="title">Recovery</title><style>@font-face{font-family:Manrope;'
                 f'src:url(data:font/woff2;base64,{encoded})}}</style>'
@@ -42,6 +42,10 @@ class DiagramOutputTest(unittest.TestCase):
                        self.svg().replace('</svg>', '')):
             with self.subTest(source=source):
                 self.assertTrue(self.check_svg(source))
+
+    def test_exported_svg_dimensions_cannot_depend_on_the_viewer_viewport(self):
+        self.assertTrue(self.check_svg(self.svg().replace('width="100" height="80"', 'width="100%"')))
+        self.assertTrue(self.check_svg(self.svg().replace('height="80"', 'height="1200"')))
 
     def test_inventory_detects_missing_mode_or_stale_diagram(self):
         self.assertTrue(hasattr(output, 'validate_diagram_inventory'), 'Diagram inventory validation is missing')

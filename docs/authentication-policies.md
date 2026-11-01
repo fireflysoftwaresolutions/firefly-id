@@ -45,7 +45,7 @@ flowchart TD
     Count -->|No| Refusal[Generic refusal]
     Count -->|Yes| Block[Permanent authentication block]
     Block --> Choice{Existing password and TOTP available?}
-    Choice -->|Yes| Unlock[Separate known-password unlock]
+    Choice -->|Yes| Unlock[Unlock with existing factors]
     Choice -->|No| Proofing[Approved credential-loss procedure]
     Unlock --> Signin[Fresh ordinary sign-in]
     Proofing --> Signin

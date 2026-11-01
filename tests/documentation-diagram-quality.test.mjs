@@ -52,3 +52,25 @@ test('contrast uses WCAG luminance with canonical light and dark surfaces', () =
   assert.ok(quality.contrastRatio([243, 241, 235], [71, 74, 66]) >= 4.5);
   assert.deepEqual(quality.inspectDiagram(valid()), []);
 });
+
+test('painted runs determine contrast and collision when parent actor boxes overlap', () => {
+  const data = valid();
+  data.labels = [
+    label('Customer', box(20, 20, 80, 24), { fill: [255, 255, 255], runs: [label('Customer', box(20, 25, 75, 12))] }),
+    label('Domain', box(20, 36, 80, 24), { fill: [255, 255, 255], runs: [label('Domain', box(20, 41, 60, 12))] }),
+  ];
+  assert.deepEqual(quality.inspectDiagram(data), []);
+  data.labels[1].runs[0].bounds.y = 30;
+  assert.ok(quality.inspectDiagram(data).some(item => item.code === 'LABEL_COLLISION'));
+  data.labels[1].runs[0].fill = [255, 255, 255];
+  assert.ok(quality.inspectDiagram(data).some(item => item.code === 'LOW_TEXT_CONTRAST'));
+});
+
+test('overlapping painted spans inside one label still report a collision', () => {
+  const data = valid();
+  data.labels = [label('Two lines', box(20, 20, 100, 40), { runs: [
+    label('First line', box(20, 20, 75, 12)),
+    label('Second line', box(20, 26, 80, 12)),
+  ] })];
+  assert.ok(quality.inspectDiagram(data).some(item => item.code === 'LABEL_COLLISION'));
+});

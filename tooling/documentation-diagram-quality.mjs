@@ -13,11 +13,12 @@ export function inspectDiagram(measured) {
     inner.x + inner.width <= outer.x + outer.width + tolerance && inner.y + inner.height <= outer.y + outer.height + tolerance;
   const overlaps = (a, b) => Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > 1 &&
     Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > 1;
-  if (!measured.labels.length) failures.push({ code: 'MISSING_TEXT' });
-  for (const item of [...measured.shapes, ...measured.labels]) {
+  const labels = measured.labels.flatMap(label => label.runs || [label]);
+  if (!labels.length) failures.push({ code: 'MISSING_TEXT' });
+  for (const item of [...measured.shapes, ...labels]) {
     if (!inside(item.bounds, measured.bounds)) failures.push({ code: 'CLIPPED_CONTENT', item: item.text || item.name, bounds: item.bounds });
   }
-  for (const item of measured.labels) {
+  for (const item of labels) {
     if (!(item.bounds.width > 0 && item.bounds.height > 0)) failures.push({ code: 'INVISIBLE_LABEL', text: item.text });
     if (!/Manrope/.test(item.font)) failures.push({ code: 'FONT_FALLBACK', text: item.text, font: item.font });
     if (item.fontSize < 12) failures.push({ code: 'SMALL_TEXT', text: item.text, size: item.fontSize });
@@ -26,7 +27,7 @@ export function inspectDiagram(measured) {
     const ratio = !validColors ? NaN : Math.min(...item.backgrounds.map(background => contrastRatio(item.fill, background)));
     if (!Number.isFinite(ratio) || ratio < 4.5) failures.push({ code: 'LOW_TEXT_CONTRAST', text: item.text, ratio });
   }
-  for (const [items, code] of [[measured.labels, 'LABEL_COLLISION'], [measured.nodes, 'NODE_COLLISION']]) {
+  for (const [items, code] of [[labels, 'LABEL_COLLISION'], [measured.nodes, 'NODE_COLLISION']]) {
     for (let a = 0; a < items.length; a++) {
       for (let b = a + 1; b < items.length; b++) {
         if (overlaps(items[a].bounds, items[b].bounds)) failures.push({ code, items: [items[a].text || items[a].name, items[b].text || items[b].name] });
@@ -62,13 +63,26 @@ export function measureDiagram(mode) {
     }
     return result;
   };
-  const labels = [...svg.querySelectorAll('text')].filter(element => element.textContent.trim()).map(element => {
+  const context = document.createElement('canvas').getContext('2d');
+  const paintedRun = element => {
     const style = getComputedStyle(element);
+    const area = bounds(element);
+    context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const metrics = context.measureText(element.textContent);
+    const scale = area.height / (metrics.fontBoundingBoxAscent + metrics.fontBoundingBoxDescent);
+    const ink = { x: area.x - metrics.actualBoundingBoxLeft * scale,
+      y: area.y + area.height - (metrics.fontBoundingBoxDescent + metrics.actualBoundingBoxAscent) * scale,
+      width: (metrics.actualBoundingBoxLeft + metrics.actualBoundingBoxRight) * scale,
+      height: (metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent) * scale };
     const node = element.closest('.node');
     const shape = node?.querySelector('rect, polygon, circle, ellipse, path');
-    return { text: element.textContent.trim(), bounds: visible(element) ? bounds(element) : { x: 0, y: 0, width: 0, height: 0 },
+    return { text: element.textContent.trim(), bounds: visible(element) ? ink : { x: 0, y: 0, width: 0, height: 0 },
       font: style.fontFamily, fontSize: parseFloat(style.fontSize), fill: color(style.fill),
       backgrounds: [backdrop(element)], container: shape ? bounds(shape) : null };
+  };
+  const labels = [...svg.querySelectorAll('text')].filter(element => element.textContent.trim()).map(element => {
+    const leaves = [...element.querySelectorAll('tspan')].filter(span => !span.querySelector('tspan') && span.textContent.trim());
+    return { text: element.textContent.trim(), runs: (leaves.length ? leaves : [element]).map(paintedRun) };
   });
   return { bounds: bounds(svg), labels,
     shapes: shapes.map(element => ({ name: element.id || element.getAttribute('class') || element.tagName, bounds: bounds(element) })),

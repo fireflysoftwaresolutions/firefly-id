@@ -53,6 +53,24 @@ try {
     window.diagramEngine = (await import(base + '/mermaid/mermaid.esm.min.mjs')).default;
   }, origin);
   assert.equal(await page.evaluate(() => document.fonts.check('16px Manrope')), true);
+  await page.evaluate(() => {
+    document.body.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="180" viewBox="0 0 300 180">' +
+      '<style>text{font-family:Manrope;font-size:16px;fill:#fff}text>tspan{fill:#272820}</style>' +
+      '<rect width="300" height="180" fill="#fff"/>' +
+      '<text x="100" y="50" dominant-baseline="central"><tspan dy="-8">Customer</tspan></text>' +
+      '<text x="100" y="50" dominant-baseline="central"><tspan dy="8">Domain</tspan></text></svg>';
+  });
+  const separated = inspectDiagram(await page.evaluate(measureDiagram, 'light'));
+  await page.evaluate(() => document.querySelectorAll('tspan')[1].setAttribute('dy', '-8'));
+  const overlapping = inspectDiagram(await page.evaluate(measureDiagram, 'light'));
+  await page.evaluate(() => { document.querySelector('tspan').style.fill = '#fff'; });
+  const invisible = inspectDiagram(await page.evaluate(measureDiagram, 'light'));
+  summary.measurementRegression = { separated: separated.length === 0,
+    collisionDetected: overlapping.some(finding => finding.code === 'LABEL_COLLISION'),
+    contrastDetected: invisible.some(finding => finding.code === 'LOW_TEXT_CONTRAST') };
+  if (Object.values(summary.measurementRegression).some(result => !result)) {
+    summary.failures.push({ phase: 'MEASUREMENT_REGRESSION', separated, overlapping, invisible });
+  }
   for (const diagram of diagrams) {
     for (const mode of ['light', 'dark']) {
       try {
@@ -78,6 +96,19 @@ try {
           document.body.innerHTML = result.svg;
           const svg = document.querySelector('svg');
           svg.style.backgroundColor = surface;
+          const dimensions = svg.viewBox.baseVal;
+          svg.setAttribute('width', dimensions.width);
+          svg.setAttribute('height', dimensions.height);
+          svg.style.removeProperty('max-width');
+          const labelSelectors = ['.messageText', '.loopText', '.sectionTitle', '.edgeLabel text'];
+          for (const label of svg.querySelectorAll(labelSelectors.join(','))) {
+            for (const run of [label, ...label.querySelectorAll('tspan')]) {
+              run.style.paintOrder = 'stroke fill';
+              run.style.stroke = surface;
+              run.style.strokeWidth = '4px';
+              run.style.strokeLinejoin = 'round';
+            }
+          }
           const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
           title.id = 'title-' + diagram.id + '-' + mode;
           title.textContent = diagram.title;

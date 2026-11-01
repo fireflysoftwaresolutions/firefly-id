@@ -9,7 +9,7 @@ Keep workforce in its own realm, clients and user store, with a server-managed `
 ```mermaid
 flowchart TD
     Employee[Employee opens an application] --> Session{Eligible workforce SSO session?}
-    Session -->|Yes| Application[Continue authorization-code flow]
+    Session -->|Yes| Application[Continue authorization code flow]
     Session -->|No| Password[Enter password]
     Password --> Enrolled{OTP enrolled?}
     Enrolled -->|No| Setup[Enroll server-provided authenticator]
