@@ -52,4 +52,31 @@
     <addUniqueConstraint tableName="ff_reproofing_execution" columnNames="authorization_id" constraintName="ff_reproofing_grant_once"/>
     <createIndex tableName="ff_reproofing_notification" indexName="ff_reproofing_notification_pending"><column name="status"/><column name="next_attempt_at"/></createIndex>
   </changeSet>
+  <changeSet id="firefly-independent-reproofing-fences-1" author="firefly-id">
+    <addColumn tableName="ff_reproofing_notification"><column name="lease_token" type="VARCHAR(64)"/></addColumn>
+    <addNotNullConstraint tableName="ff_reproofing_state" columnName="realm_id" columnDataType="VARCHAR(512)"/>
+    <addNotNullConstraint tableName="ff_reproofing_state" columnName="subject" columnDataType="VARCHAR(512)"/>
+    <addNotNullConstraint tableName="ff_reproofing_state" columnName="epoch" columnDataType="VARCHAR(128)"/>
+    <addNotNullConstraint tableName="ff_reproofing_state" columnName="failures" columnDataType="INT"/>
+    <addNotNullConstraint tableName="ff_reproofing_ceremony" columnName="realm_id" columnDataType="VARCHAR(512)"/>
+    <addNotNullConstraint tableName="ff_reproofing_ceremony" columnName="csrf_digest" columnDataType="VARCHAR(128)"/>
+    <addNotNullConstraint tableName="ff_reproofing_ceremony" columnName="stage" columnDataType="VARCHAR(32)"/>
+    <addNotNullConstraint tableName="ff_reproofing_ceremony" columnName="expires_at" columnDataType="BIGINT"/>
+    <addNotNullConstraint tableName="ff_reproofing_execution" columnName="realm_id" columnDataType="VARCHAR(512)"/>
+    <addNotNullConstraint tableName="ff_reproofing_execution" columnName="ceremony_id" columnDataType="VARCHAR(128)"/>
+    <addNotNullConstraint tableName="ff_reproofing_execution" columnName="case_id" columnDataType="VARCHAR(64)"/>
+    <addNotNullConstraint tableName="ff_reproofing_execution" columnName="authorization_id" columnDataType="VARCHAR(64)"/>
+    <addNotNullConstraint tableName="ff_reproofing_execution" columnName="binding_json" columnDataType="VARCHAR(8192)"/>
+    <addNotNullConstraint tableName="ff_reproofing_execution" columnName="authorization_json" columnDataType="VARCHAR(8192)"/>
+    <addNotNullConstraint tableName="ff_reproofing_notification" columnName="realm_id" columnDataType="VARCHAR(512)"/>
+    <addNotNullConstraint tableName="ff_reproofing_notification" columnName="subject" columnDataType="VARCHAR(512)"/>
+    <addNotNullConstraint tableName="ff_reproofing_notification" columnName="destination_encrypted" columnDataType="VARCHAR(2048)"/>
+    <addNotNullConstraint tableName="ff_reproofing_notification" columnName="destination_digest" columnDataType="VARCHAR(128)"/>
+    <addNotNullConstraint tableName="ff_reproofing_notification" columnName="status" columnDataType="VARCHAR(32)"/>
+  </changeSet>
+  <changeSet id="firefly-independent-reproofing-checks-1" author="firefly-id" dbms="postgresql">
+    <sql>ALTER TABLE ff_reproofing_state ADD CONSTRAINT ff_reproofing_failure_bound CHECK (failures BETWEEN 0 AND 3)</sql>
+    <sql>ALTER TABLE ff_reproofing_notification ADD CONSTRAINT ff_reproofing_delivery_bound CHECK (attempts BETWEEN 0 AND 8 AND status IN ('PENDING','SENDING','DELIVERED','FAILED'))</sql>
+    <sql>ALTER TABLE ff_reproofing_ceremony ADD CONSTRAINT ff_reproofing_stage CHECK (stage IN ('IDENTIFY','VERIFY','ENROLL','COMPLETE'))</sql>
+  </changeSet>
 </databaseChangeLog>

@@ -17,10 +17,10 @@ public interface ReproofingContracts {
             String providerSessionId, Instant expiresAt, Authorization authorization) {
         @Override public String toString() { return "ReproofingCase[REDACTED]"; }
     }
-    record Journey(Case value, String verificationUrl) { }
+    record Journey(Case value, String verificationUrl) { @Override public String toString() { return "ReproofingJourney[REDACTED]"; } }
     record NativeRequest(Binding binding, UUID caseId, UUID executionId) {
         @Override public String toString() { return "ReproofingNativeRequest[REDACTED]"; }
     }
-    record Admission(Binding binding, boolean eligible, Instant expiresAt) { }
-    record Execution(UUID caseId, UUID executionId, Binding binding, String outcome, Instant committedAt) { }
+    record Admission(Binding binding, boolean eligible, Instant expiresAt) { @Override public String toString() { return "ReproofingAdmission[REDACTED]"; } }
+    record Execution(UUID caseId, UUID executionId, Binding binding, String outcome, Instant committedAt) { @Override public String toString() { return "ReproofingExecution[REDACTED]"; } }
 }

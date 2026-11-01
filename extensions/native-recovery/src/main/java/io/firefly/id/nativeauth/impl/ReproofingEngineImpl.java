@@ -12,7 +12,7 @@ import java.util.*;
 import static io.firefly.id.nativeauth.NativeSecurity.*;
 
 final class ReproofingEngineImpl {
-    record View(String id, String csrf, String stage, String verificationUrl, String secret, boolean failed) { }
+    record View(String id, String csrf, String stage, String verificationUrl, String secret, boolean failed) { @Override public String toString() { return "ReproofingView[REDACTED]"; } }
     private final KeycloakSession request;
     ReproofingEngineImpl(KeycloakSession request) { this.request = request; }
     View create() {
@@ -63,6 +63,9 @@ final class ReproofingEngineImpl {
             c.bindingJson = ReproofingWireImpl.json(b); c.stage = "VERIFY"; return b;
         });
         // Independent proofing uses the same provider journey for eligible, held, ambiguous and decoy bindings.
+        start(id, binding);
+    }
+    private void start(String id, Binding binding) {
         var journey = gateway().begin(binding);
         NativePhases.run(request, child -> {
             var store = new ReproofingStoreImpl(child); var c = store.ceremony(id, true); var value = journey.value();
@@ -71,6 +74,8 @@ final class ReproofingEngineImpl {
         });
     }
     void confirm(String id) {
+        Binding unstarted = NativePhases.run(request, child -> { var store = new ReproofingStoreImpl(child); var c = store.ceremony(id, true); return c.caseId == null ? store.binding(c) : null; });
+        if (unstarted != null) { start(id, unstarted); return; }
         var pending = NativePhases.run(request, child -> {
             var store = new ReproofingStoreImpl(child); var c = store.ceremony(id, true); require(c.caseId != null); return new NativeRequest(store.binding(c), UUID.fromString(c.caseId), null);
         });

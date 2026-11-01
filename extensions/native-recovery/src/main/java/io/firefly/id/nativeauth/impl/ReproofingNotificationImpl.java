@@ -26,5 +26,7 @@ public class ReproofingNotificationImpl {
     public int attempts;
     @Column(name="status", length=32)
     public String status;
+    @Column(name="lease_token", length=64)
+    public String leaseToken;
     @Override public String toString() { return "ReproofingNotificationImpl[REDACTED]"; }
 }

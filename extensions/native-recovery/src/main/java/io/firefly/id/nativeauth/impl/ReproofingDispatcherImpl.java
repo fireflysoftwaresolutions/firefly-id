@@ -11,18 +11,20 @@ import static io.firefly.id.nativeauth.NativeSecurity.require;
 final class ReproofingDispatcherImpl {
     private final KeycloakSession request;
     ReproofingDispatcherImpl(KeycloakSession request) { this.request = request; }
+    record Lease(String id, String token) { }
+    static boolean owns(ReproofingNotificationImpl notification, String token) { return notification != null && "SENDING".equals(notification.status) && token != null && token.equals(notification.leaseToken); }
     int dispatch() {
         String header = request.getContext().getRequestHeaders().getHeaderString("Authorization");
         NativePhases.run(request, child -> { ReproofingRpcImpl.workload(child, header, "dispatch"); return null; });
         int processed = 0;
         for (int n = 0; n < 10; n++) {
-            String id = NativePhases.run(request, child -> {
+            Lease lease = NativePhases.run(request, child -> {
                 var store = new ReproofingStoreImpl(child); long now = store.now();
                 var rows = store.em.createQuery("select n from ReproofingNotificationImpl n where n.realmId = :realm and n.status in ('PENDING','SENDING') and n.nextAttemptAt <= :now and n.attempts < 8 order by n.nextAttemptAt", ReproofingNotificationImpl.class)
                         .setParameter("realm", store.config.realm.getId()).setParameter("now", now).setLockMode(LockModeType.PESSIMISTIC_WRITE).setMaxResults(1).getResultList();
-                if (rows.isEmpty()) return null; var notification = rows.get(0); notification.attempts++; notification.status = "SENDING"; notification.nextAttemptAt = now + 60_000L; return notification.id;
+                if (rows.isEmpty()) return null; var notification = rows.get(0); notification.attempts++; notification.status = "SENDING"; notification.nextAttemptAt = now + 60_000L; notification.leaseToken = java.util.UUID.randomUUID().toString(); return new Lease(notification.id, notification.leaseToken);
             });
-            if (id == null) break;
+            if (lease == null) break; String id = lease.id();
             boolean delivered;
             try {
                 NativePhases.run(request, child -> {
@@ -40,6 +42,7 @@ final class ReproofingDispatcherImpl {
             final boolean success = delivered;
             NativePhases.run(request, child -> {
                 var store = new ReproofingStoreImpl(child); var notification = store.em.find(ReproofingNotificationImpl.class, id, LockModeType.PESSIMISTIC_WRITE);
+                if (!owns(notification, lease.token())) return null;
                 if (success) { notification.status = "DELIVERED"; notification.deliveredAt = store.now(); }
                 else { notification.status = notification.attempts >= 8 ? "FAILED" : "PENDING"; notification.nextAttemptAt = store.now() + Math.min(3600_000L, 30_000L * (1L << notification.attempts)); }
                 return null;
