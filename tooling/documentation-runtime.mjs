@@ -66,7 +66,7 @@ try {
       stage = `search-${width}-${mode}`;
       await page.goto(base, { waitUntil: 'networkidle' });
       if (width === 390) await page.locator('.md-header__button[for="__search"]').click();
-      await page.locator('[data-md-component="search-query"]').fill('notification');
+      await page.locator('[data-md-component="search-query"]').pressSequentially('notification');
       await page.locator('.md-search-result__link[href*="notification-operations"]').first().waitFor();
       await page.keyboard.press('Escape');
       summary.search.push({ width, mode, result: 'notification-operations' });
