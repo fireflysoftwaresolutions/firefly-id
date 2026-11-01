@@ -8,6 +8,7 @@ import { reportFailure } from './safe-errors.mjs';
 import { isAuthorizationRefusal } from './protocol-assertions.mjs';
 import { selectNewRecoveryMessage } from './recovery-mail.mjs';
 import { observeConsole } from './console-diagnostics.mjs';
+import { assertIdentityArtworkReady } from './identity-artwork.mjs';
 
 const stateDir = resolve(process.env.FIREFLY_ID_STATE || '.state/sandbox');
 const evidence = resolve('.work/runtime');
@@ -142,17 +143,21 @@ async function login({ capture = false, checkReplay = false } = {}) {
           const width = document.querySelector('main').getBoundingClientRect().width;
           return width >= 440 && width <= 500;
         }), 'Desktop form measure is outside the reviewed composition');
+        await assertIdentityArtworkReady(page, 'light');
         await page.screenshot({ path: `${evidence}/login-desktop-light.png`, fullPage: true });
         await page.emulateMedia({ colorScheme: 'dark' });
         await page.waitForFunction(() => document.documentElement.classList.contains('pf-v5-theme-dark'));
+        await assertIdentityArtworkReady(page, 'dark');
         await page.screenshot({ path: `${evidence}/login-desktop-dark.png`, fullPage: true });
         await page.setViewportSize({ width: 390, height: 844 });
         await page.emulateMedia({ colorScheme: 'light' });
         await page.waitForFunction(() => !document.documentElement.classList.contains('pf-v5-theme-dark'));
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+        await assertIdentityArtworkReady(page, 'light');
         await page.screenshot({ path: `${evidence}/login-mobile-light.png`, fullPage: true });
         await page.emulateMedia({ colorScheme: 'dark' });
         await page.waitForFunction(() => document.documentElement.classList.contains('pf-v5-theme-dark'));
+        await assertIdentityArtworkReady(page, 'dark');
         await page.screenshot({ path: `${evidence}/login-mobile-dark.png`, fullPage: true });
         phase = 'login mobile bounds';
         await writeFile(`${evidence}/layout.json`, JSON.stringify(await page.evaluate(() => ({

@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { reportFailure } from './safe-errors.mjs';
+import { assertIdentityArtworkReady } from './identity-artwork.mjs';
 
 const base = 'http://id.firefly.test:8180';
 const issuer = `${base}/realms/sandbox-customers`;
@@ -68,6 +69,7 @@ async function captureMobile(page, locale, surface) {
       const action = await page.locator('#kc-logout').boundingBox();
       assert.ok(description && action && action.y - description.y - description.height >= 20, 'Logout action lacks separation from its instruction');
     }
+    await assertIdentityArtworkReady(page, scheme);
     await page.screenshot({ path: `${directory}/${locale}-${surface}-mobile-${scheme}.png`, fullPage: true });
   }
 }
@@ -141,6 +143,7 @@ try {
       await page.goto(auth.url.href);
       await page.locator('#username').waitFor();
       await assertLocale(page, scenario.expected);
+      await assertIdentityArtworkReady(page, 'light');
       await page.screenshot({ path: `${directory}/${scenario.extra.ui_locales ? 'application-override' : 'browser-fallback'}-login.png`, fullPage: true });
       results.push(scenario.label);
     } finally { await context.close(); }
@@ -157,10 +160,12 @@ try {
       await page.goto(auth.url.href);
       await page.locator('#username').waitFor();
       await assertLocale(page, locale);
+      await assertIdentityArtworkReady(page, 'light');
       await page.screenshot({ path: `${directory}/${locale}-login-desktop-light.png`, fullPage: true });
       await page.emulateMedia({ colorScheme: 'dark' });
       await page.waitForFunction(() => document.documentElement.classList.contains('pf-v5-theme-dark'));
       await assertLocale(page, locale);
+      await assertIdentityArtworkReady(page, 'dark');
       await page.screenshot({ path: `${directory}/${locale}-login-desktop-dark.png`, fullPage: true });
       await captureMobile(page, locale, 'login');
 
@@ -182,6 +187,7 @@ try {
         await assertLocale(page, selected);
       }
       await page.locator('.ffid-footer #login-select-toggle').focus();
+      await assertIdentityArtworkReady(page, 'dark');
       await page.screenshot({ path: `${directory}/${locale}-locale-footer-mobile-dark.png`, fullPage: true });
 
       phase = `localized ${locale} generic sign-in refusal`;

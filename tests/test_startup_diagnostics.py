@@ -64,6 +64,47 @@ class StartupDiagnosticsTest(unittest.TestCase):
         self.assertEqual([], result['exception_classes'])
         self.assertNotIn('DO-NOT-PRINT', json.dumps(result))
 
+    def test_password_import_wrapper_identifies_rejection_without_guessing_policy(self):
+        result = self.module.classify(
+            'Caused by: org.keycloak.policy.PasswordPolicyNotMetException: DO-NOT-PRINT\n'
+            'Caused by: org.keycloak.models.ModelException: private-cause user=private-user@example.invalid')
+        self.assertEqual(['PASSWORD_CREDENTIAL_IMPORT_REJECTED'], result['causes'])
+        self.assertEqual(['PasswordPolicyNotMetException'], result['exception_classes'])
+        for private in ('DO-NOT-PRINT', 'private-cause', 'private-user@example.invalid'):
+            self.assertNotIn(private, json.dumps(result))
+
+    def test_pinned_password_policy_keys_return_only_fixed_categories(self):
+        for key, category in [
+                ('invalidPasswordMinLengthMessage', 'PASSWORD_POLICY_MIN_LENGTH'),
+                ('invalidPasswordMaxLengthMessage', 'PASSWORD_POLICY_MAX_LENGTH'),
+                ('invalidPasswordNotUsernameMessage', 'PASSWORD_POLICY_USERNAME'),
+                ('invalidPasswordNotEmailMessage', 'PASSWORD_POLICY_EMAIL'),
+                ('invalidPasswordHistoryMessage', 'PASSWORD_POLICY_HISTORY'),
+                ('invalidPasswordBlacklistedMessage', 'PASSWORD_POLICY_DENYLIST')]:
+            with self.subTest(policy=key):
+                result = self.module.classify(
+                    'Caused by: org.keycloak.policy.PasswordPolicyNotMetException: ' + key + '\n'
+                    'Caused by: org.keycloak.models.ModelException: ' + key + '\n'
+                    'user=private-user@example.invalid password=DO-NOT-PRINT')
+                self.assertEqual(sorted(['PASSWORD_CREDENTIAL_IMPORT_REJECTED', category]), result['causes'])
+                for private in (key, 'private-user@example.invalid', 'DO-NOT-PRINT'):
+                    self.assertNotIn(private, json.dumps(result))
+
+    def test_unknown_password_keys_and_unrelated_model_errors_stay_unknown(self):
+        for text in ('org.keycloak.models.ModelException: DO-NOT-PRINT',
+                     'invalidPasswordUnknownMessage', 'prefixinvalidPasswordBlacklistedMessage',
+                     'invalidPasswordBlacklistedMessageSuffix',
+                     'evil.org.keycloak.policy.PasswordPolicyNotMetException: DO-NOT-PRINT',
+                     'org.other.PasswordPolicyNotMetException: DO-NOT-PRINT'):
+            with self.subTest(text=text):
+                result = self.module.classify(text)
+                self.assertEqual(['UNKNOWN_STARTUP_FAILURE'], result['causes'])
+                self.assertEqual([], result['exception_classes'])
+                self.assertNotIn('DO-NOT-PRINT', json.dumps(result))
+        result = self.module.classify('org.keycloak.policy.PasswordPolicyNotMetException: invalidPasswordUnknownMessage')
+        self.assertEqual(['PASSWORD_CREDENTIAL_IMPORT_REJECTED'], result['causes'])
+        self.assertNotIn('invalidPasswordUnknownMessage', json.dumps(result))
+
     def test_trusted_source_frames_keep_only_allowlisted_filenames_and_line_numbers(self):
         result = self.module.classify('java.lang.NullPointerException: DO-NOT-PRINT private value\n'
             '\tat org.keycloak.services.resources.admin.AdminConsole.secretMethod(AdminConsole.java:353)\n'

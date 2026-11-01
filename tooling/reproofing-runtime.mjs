@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { totpCode } from './extended-runtime.mjs';
 import { reportFailure } from './safe-errors.mjs';
+import { assertIdentityArtworkReady } from './identity-artwork.mjs';
 
 const directory = resolve(process.env.FIREFLY_NATIVE_STATE || '');
 assert.ok(process.env.GITHUB_ACTIONS === 'true' && directory.includes('/.state/native-'), 'Owned hosted fixture required');
@@ -233,6 +234,7 @@ async function capture(page, name, { enrollment = false } = {}) {
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Actual journey clips horizontally');
       const links = await page.locator('a.ffid-journey-return').evaluateAll(items => items.filter(item => item.getClientRects().length).map(item => item.getBoundingClientRect().height));
       assert.ok(links.every(height => height >= 43.5), 'Return links require 44px targets');
+      await assertIdentityArtworkReady(page, mode);
       await page.screenshot({ path: `${output}/${name}-${width}-${mode}.png`, fullPage: true, mask: masks, maskColor: '#272820' });
     }
   }

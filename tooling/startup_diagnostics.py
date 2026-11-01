@@ -29,6 +29,18 @@ THEME_EXCEPTIONS = {
     'freemarker.template.TemplateModelException': 'TemplateModelException',
     'freemarker.core.ParseException': 'ParseException',
 }
+PASSWORD_EXCEPTIONS = {
+    'org.keycloak.policy.PasswordPolicyNotMetException': 'PasswordPolicyNotMetException',
+}
+# Exact error keys from the pinned 26.8.1 password-policy providers, never their parameters.
+PASSWORD_POLICY_MESSAGES = {
+    'invalidPasswordMinLengthMessage': 'PASSWORD_POLICY_MIN_LENGTH',
+    'invalidPasswordMaxLengthMessage': 'PASSWORD_POLICY_MAX_LENGTH',
+    'invalidPasswordNotUsernameMessage': 'PASSWORD_POLICY_USERNAME',
+    'invalidPasswordNotEmailMessage': 'PASSWORD_POLICY_EMAIL',
+    'invalidPasswordHistoryMessage': 'PASSWORD_POLICY_HISTORY',
+    'invalidPasswordBlacklistedMessage': 'PASSWORD_POLICY_DENYLIST',
+}
 SOURCE_FILES = {
     'AdminConsole.java', 'DefaultThemeManager.java', 'DefaultThemeSelectorProvider.java',
     'DefaultFreeMarkerProvider.java', 'FreeMarkerLoginFormsProvider.java', 'HostnameV2Provider.java',
@@ -106,7 +118,7 @@ def classify(logs):
                 break
     pattern = r'(?<![\w$])(?:[\w$]+\.)*(' + '|'.join(sorted(EXCEPTIONS)) + r')(?![\w$])'
     observed = set(re.findall(pattern, logs))
-    for qualified, simple in THEME_EXCEPTIONS.items():
+    for qualified, simple in (THEME_EXCEPTIONS | PASSWORD_EXCEPTIONS).items():
         if re.search(r'(?<![\w$.])' + re.escape(qualified) + r'(?![\w$])', logs):
             observed.add(simple)
     classes = sorted(observed)
@@ -115,6 +127,7 @@ def classify(logs):
         'MEMORY_ALLOCATION_FAILURE': {'OutOfMemoryError'},
         'DATABASE_FAILURE': {'PSQLException', 'SQLException', 'SQLGrammarException', 'JDBCConnectionException'},
         'REALM_IMPORT_FAILURE': {'ModelDuplicateException'},
+        'PASSWORD_CREDENTIAL_IMPORT_REJECTED': {'PasswordPolicyNotMetException'},
         'CONFIGURATION_FAILURE': {'ConfigurationException'},
         'AUGMENTATION_FAILURE': {'BuildException', 'DeploymentException'},
         'LISTENER_BIND_FAILURE': {'BindException'},
@@ -125,6 +138,9 @@ def classify(logs):
     for category, kinds in groups.items():
         if observed & kinds:
             causes.add(category)
+    for message, cause in PASSWORD_POLICY_MESSAGES.items():
+        if re.search(r'(?<![\w$])' + re.escape(message) + r'(?![\w$])', logs):
+            causes.add(cause)
     if re.search(r'failed to import realm', logs, re.IGNORECASE):
         causes.add('REALM_IMPORT_FAILURE')
     if re.search(r'unknown option|unmatched argument', logs, re.IGNORECASE):

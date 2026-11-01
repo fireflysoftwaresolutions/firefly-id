@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { totpCode } from './extended-runtime.mjs';
 import { reportFailure } from './safe-errors.mjs';
+import { assertIdentityArtworkReady } from './identity-artwork.mjs';
 
 const directory = resolve(process.env.FIREFLY_NATIVE_STATE || '');
 assert.ok(process.env.GITHUB_ACTIONS === 'true' && directory.includes('/.state/native-'), 'Owned hosted native state required');
@@ -422,6 +423,7 @@ async function captureSafeJourney(page, name) {
       for (let index = 1; index < returns.length; index++) {
         assert.ok(returns[index].top >= returns[index - 1].bottom + 3.5, 'Adjacent native return links must stack with 4px separation');
       }
+      await assertIdentityArtworkReady(page, mode);
       await page.screenshot({ path: `${output}/${name}-${width}-${mode}.png`, fullPage: true });
     }
   }
@@ -442,6 +444,7 @@ async function captureEmptyNativeForm(page, name) {
       await page.waitForFunction(dark => document.documentElement.classList.contains('pf-v5-theme-dark') === dark, mode === 'dark');
       await empty();
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Actual empty native form has horizontal clipping');
+      await assertIdentityArtworkReady(page, mode);
       await page.screenshot({ path: `${output}/${name}-empty-form-${width}-${mode}.png`, fullPage: true });
     }
   }
