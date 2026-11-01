@@ -257,7 +257,7 @@ class HostedTransport:
                 '--network', self.network, '--network-alias', DATABASE_HOST,
                 '--network-alias', WRONG_DATABASE_HOST, '--memory', '512m',
                 '--tmpfs', '/var/lib/postgresql/data:rw,size=512m',
-                '--log-driver', 'local', '--log-opt', 'max-size=2m', '--log-opt', 'max-file=1',
+                '--log-driver', 'json-file', '--log-opt', 'max-size=2m', '--log-opt', 'max-file=1',
                 '--env-file', str(environment)]
         args += self.mount(self.state / 'database.key', '/fixture/server.key')
         args += self.mount(self.state / 'database.pem', '/fixture/server.crt')
@@ -295,7 +295,7 @@ class HostedTransport:
         args = ['docker', 'run', '-d', '--name', name, '--label', OWNER_LABEL + '=' + self.owner,
                 '--network', self.network, '--memory', '1536m', '--cpus', '2',
                 '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true',
-                '--log-driver', 'local', '--log-opt', 'max-size=2m', '--log-opt', 'max-file=1',
+                '--log-driver', 'json-file', '--log-opt', 'max-size=2m', '--log-opt', 'max-file=1',
                 '--env-file', str(environment)]
         args += self.mount(ROOT / 'deploy/keycloak.production.conf.example', '/opt/keycloak/conf/keycloak.conf')
         args += self.mount(self.state / authority, '/run/secrets/database-ca.pem')
