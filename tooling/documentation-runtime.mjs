@@ -40,7 +40,10 @@ try {
         const response = await page.goto(`${base}/${route}`, { waitUntil: 'networkidle' });
         assert.equal(response.status(), 200);
         await page.evaluate(() => document.fonts.ready);
-        const measured = await page.evaluate(() => ({
+        const measured = await page.evaluate(() => {
+          const link = document.querySelector('main .md-typeset p a:not(.headerlink), main .md-typeset td a:not(.headerlink)');
+          const active = document.querySelector('.md-sidebar--primary .md-nav__link--active');
+          return {
           font: getComputedStyle(document.body).fontFamily,
           fontLoaded: document.fonts.check('16px Manrope'),
           width: document.documentElement.clientWidth,
@@ -49,11 +52,16 @@ try {
           h1: document.querySelector('main h1')?.textContent?.trim(),
           footer: document.querySelector('.md-copyright')?.textContent,
           brokenImages: [...document.images].filter(img => !img.complete || img.naturalWidth === 0).length,
-        }));
+          linkColor: link ? getComputedStyle(link).color : null,
+          activeLinkColor: active ? getComputedStyle(active).color : null,
+        }; });
         summary.lastObservation = { route, width, mode, ...measured };
         assert.match(measured.font, /Manrope/); assert.ok(measured.fontLoaded);
         assert.ok(measured.h1 && measured.scrollWidth <= measured.width + 1, 'Reading surface overflows its viewport');
         assert.equal(measured.background, mode === 'dark' ? 'rgb(16, 17, 15)' : 'rgb(243, 241, 235)');
+        const linkColor = mode === 'dark' ? 'rgb(255, 179, 74)' : 'rgb(133, 84, 20)';
+        if (measured.linkColor) assert.equal(measured.linkColor, linkColor, 'Body links drifted from the canonical Firefly palette');
+        if (measured.activeLinkColor) assert.equal(measured.activeLinkColor, linkColor, 'Active navigation drifted from the canonical Firefly palette');
         assert.equal(measured.brokenImages, 0);
         assert.ok(await page.locator('.md-header__button.md-logo').isVisible(), 'Product branding is missing from the masthead');
         if (route) assert.ok(await page.locator('.md-path').isVisible(), 'Inner page has no breadcrumb trail');
