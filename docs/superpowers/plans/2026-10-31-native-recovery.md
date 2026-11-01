@@ -59,6 +59,6 @@
 ### Task 5: Review, operational documentation and evidence
 
 - [x] Independently review implemented security boundaries and actual target-size UI captures; correct locale and adjacent-link findings.
-- [ ] Complete Spanish empty PIN mutation-form captures and rerun integrated qualification for the naming-only `Impl` successors.
+- [x] Complete Spanish empty PIN mutation-form captures and rerun integrated qualification for the naming-only `Impl` successors; 48 gates passed at `4be004b`.
 - [x] Expand installation, configuration, recovery/support operations, population policies, upgrade and failure documentation; verify repository metadata readback.
 - [x] Record exact source/artifacts/tests and external production/assisted-support/delegation gates without turning source proof into release or compliance claims.
