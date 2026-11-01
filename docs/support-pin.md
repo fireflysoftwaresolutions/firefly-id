@@ -12,6 +12,8 @@ An enabled, eligible local customer needs an ordinary SSO identity cookie plus a
 
 Replacing the PIN advances its independent credential generation, invalidating previous proofs and attempts. Revocation removes the credential and records the lifecycle event. Three failed/reserved verification attempts hold the PIN; there is no automatic timed release. Its verification budget is separate from login and recovery budgets. A successful support PIN check cannot reset an account lock or revoke a fraud/HR hold.
 
+Accepted lifecycle form submissions redirect with HTTP 303 to the authenticated status GET, so refreshing does not resubmit secrets or repeat a change. Status GET does not allocate a new native mutation ceremony. Any generic failure notice belongs to the same authenticated subject's consumed ceremony; a fresh set/revoke form creates its own one-time CSRF state.
+
 ## Credential protection and key rotation
 
 Native storage uses an independently versioned HMAC-SHA-256 pepper followed by the native Argon2 password hash provider. HMAC input includes the realm and opaque subject. This protects a low-entropy PIN from database-only offline guessing; it does not make an eight-digit secret a high-entropy factor or establish factor independence by itself.

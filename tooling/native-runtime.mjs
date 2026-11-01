@@ -26,6 +26,7 @@ let currentStage = 'initialization';
 let lastPage;
 let lastHttpStatus;
 let lastNativeSubmission;
+let activePopulation;
 const stage = value => { currentStage = value; };
 let browser;
 let server;
@@ -59,12 +60,39 @@ async function nextCode(profile) {
   if (counter <= factor.lastCounter) { await delay((factor.lastCounter + 1) * 30000 - Date.now() + 300); counter = Math.floor(Date.now() / 30000); }
   factor.lastCounter = counter; return totpCode(factor.secret, counter * 30);
 }
-async function submitNativeForm(page, profile, selector, path = '') {
-  const submitted = page.waitForRequest(request => request.method() === 'POST'
-    && request.url() === `${profile.issuer}/firefly-recovery${path}`);
+async function submitNativeForm(page, profile, selector, path = '', redirectPath = path) {
+  const source = `${profile.issuer}/firefly-recovery${path}`;
+  const target = `${profile.issuer}/firefly-recovery${redirectPath}`;
+  const submitted = page.waitForResponse(response => response.request().method() === 'POST' && response.url() === source);
+  const document = page.waitForResponse(response => response.request().isNavigationRequest()
+    && response.request().method() === 'GET' && response.url() === target)
+    .then(response => ({ response }), error => ({ error }));
   await page.locator(selector).click();
-  const headers = await (await submitted).allHeaders();
+  const post = await submitted; const headers = await post.request().allHeaders();
+  const form = new URLSearchParams(post.request().postData() || '');
+  const expectedCookieName = path.startsWith('/support-pin') ? 'FF_NATIVE_PIN' : 'FF_NATIVE_RECOVERY';
+  lastNativeSubmission = { status: post.status(),
+    originClass: headers.origin === origin ? 'same' : headers.origin === 'null' ? 'null' : headers.origin ? 'other' : 'absent',
+    nativeCookiePresent: (headers.cookie || '').split(';').some(cookie => cookie.trim().startsWith(`${expectedCookieName}=`)),
+    csrfPresent: Boolean(form.get('csrf')) };
+  lastHttpStatus = post.status();
   assert.equal(headers.origin, origin, 'Actual native browser form must send the exact trusted Origin');
+  assert.equal(post.status(), 303, 'Valid native form processing must redirect after POST');
+  assert.equal(new URL(await post.headerValue('location'), post.url()).href, target, 'Native POST must redirect only to its exact canonical owner GET');
+  const final = await document; if (final.error) throw final.error;
+  assert.equal(final.response.status(), 200); assert.equal(final.response.request().method(), 'GET');
+  assert.equal(final.response.request().redirectedFrom()?.method(), 'POST');
+  assert.equal(final.response.request().redirectedFrom()?.url(), source);
+  assert.equal(page.url(), target, 'The current document must be the canonical GET, without credential POST history');
+  lastNativeSubmission.documentStatus = final.response.status(); lastNativeSubmission.documentMethod = 'GET';
+  lastHttpStatus = final.response.status();
+  return post;
+}
+async function resumeNativePage(page, profile, path = '') {
+  const response = await page.goto(`${profile.issuer}/firefly-recovery${path}`);
+  lastHttpStatus = response.status();
+  assert.equal(response.request().method(), 'GET', 'Native resume must use the cookie GET endpoint');
+  assert.equal(response.status(), 200, 'Native cookie GET must resume the preserved ceremony');
 }
 async function authenticate(profile, context, wrong = false, enroll = false) {
   const state = randomBytes(20).toString('base64url'), verifier = randomBytes(32).toString('base64url');
@@ -126,29 +154,22 @@ async function recovery(profile, context, username, password) {
   if (known) await captureEmptyNativeForm(page, `${profile.kind}-recovery-password-es`);
   stage(`${profile.kind}-native-password-submit`);
   await page.locator('#username').fill(username); await page.locator('#password').fill(password);
-  const submitted = page.waitForResponse(response => response.request().method() === 'POST'
-    && response.url() === `${profile.issuer}/firefly-recovery`);
-  await page.locator('#ffid-recovery-continue').click();
-  const response = await submitted; lastHttpStatus = response.status();
-  const headers = await response.request().allHeaders();
-  const form = new URLSearchParams(response.request().postData() || '');
-  lastNativeSubmission = { status: response.status(),
-    originClass: headers.origin === origin ? 'same' : headers.origin === 'null' ? 'null' : headers.origin ? 'other' : 'absent',
-    nativeCookiePresent: /(?:^|;\s*)FF_NATIVE_RECOVERY=/.test(headers.cookie || ''), csrfPresent: Boolean(form.get('csrf')) };
+  await submitNativeForm(page, profile, '#ffid-recovery-continue');
   try { lastNativeSubmission.ceremony = JSON.parse(nativeTool('ceremony_state', profile.kind)); }
   catch { lastNativeSubmission.ceremony = { stage: 'unavailable' }; }
-  assert.equal(lastNativeSubmission.originClass, 'same', 'Actual native password form must send the exact trusted Origin');
-  assert.equal(response.status(), 200, 'Actual browser native password POST must retain the generic factor stage');
   await page.locator('#otp').waitFor();
   await assertNativeFont(page, `${profile.kind}-masked-native-factor-form`);
   if (known) {
     await captureEmptyNativeForm(page, `${profile.kind}-recovery-totp-es`);
     const reserved = snapshot(profile.kind);
-    await page.reload(); await page.locator('#otp').waitFor();
-    assert.equal(await page.locator('#username').count(), 0, 'Reload must preserve the completed password stage');
+    stage(`${profile.kind}-native-literal-browser-reload-after-prg`);
+    const reloaded = await page.reload(); lastHttpStatus = reloaded.status();
+    assert.equal(reloaded.request().method(), 'GET'); assert.equal(reloaded.status(), 200);
+    await page.locator('#otp').waitFor();
+    assert.equal(await page.locator('#username').count(), 0, 'Literal browser reload must preserve the completed password stage');
     assert.ok((await page.locator('html').getAttribute('lang')).startsWith('es'), 'Native recovery must preserve Spanish locale');
-    assert.equal(snapshot(profile.kind).core[0].attempts, reserved.core[0].attempts, 'Reload must not reserve another verification');
-    passed(`${profile.kind}-spanish-reload-preserves-native-progress-and-core-budget`);
+    assert.deepEqual(snapshot(profile.kind), reserved, 'Literal browser reload must not change native/Core evidence or budgets');
+    passed(`${profile.kind}-prg-literal-spanish-browser-reload-preserves-native-progress-and-core-budget`);
   }
   return page;
 }
@@ -333,7 +354,7 @@ async function reconcileLostRecord(profile, page, committed) {
   assert.equal(committed.native.executionId, committed.core[0].executionId);
   nativeTool('restart');
   stage(`${profile.kind}-committed-record-restart-resume`);
-  await page.reload(); await page.locator('#ffid-recovery-audit-retry').waitFor();
+  await resumeNativePage(page, profile, '/complete'); await page.locator('#ffid-recovery-audit-retry').waitFor();
   assert.equal(await page.locator('input[type="password"], #otp, #username').count(), 0, 'Audit-only resume must not ask for factors');
   const fields = await page.locator('#ffid-recovery-audit-retry input').evaluateAll(inputs => inputs.map(input => input.name));
   assert.deepEqual(fields, ['csrf'], 'Audit reconciliation must send only fresh CSRF');
@@ -341,7 +362,7 @@ async function reconcileLostRecord(profile, page, committed) {
   assert.equal(retained.native.executionId, committed.native.executionId);
   assert.equal(retained.core[0].attempts, committed.core[0].attempts);
   stage(`${profile.kind}-committed-record-csrf-only-reconciliation`);
-  await submitNativeForm(page, profile, '#ffid-recovery-audit-retry button[type="submit"]');
+  await submitNativeForm(page, profile, '#ffid-recovery-audit-retry button[type="submit"]', '', '/complete');
   await page.locator('#ffid-recovery-audit-retry').waitFor({ state: 'detached' });
   const reconciled = snapshot(profile.kind);
   assert.equal(reconciled.native.recorded, true); assert.equal(reconciled.native.recordAttempts, 2);
@@ -356,7 +377,7 @@ async function concurrentExecution(profile, context, page, csrf) {
   nativeTool('arm_verify_race', profile.kind);
   const code = await nextCode(profile);
   const submit = token => context.request.post(`${profile.issuer}/firefly-recovery`, {
-    headers: { Origin: origin }, form: { csrf: token, otp: code }, timeout: 20000,
+    headers: { Origin: origin }, form: { csrf: token, otp: code }, timeout: 20000, maxRedirects: 0,
   }).then(response => ({ response }), error => ({ error }));
   stage(`${profile.kind}-first-genuine-online-verification`);
   const first = submit(csrf);
@@ -365,23 +386,26 @@ async function concurrentExecution(profile, context, page, csrf) {
   assert.equal(faultStatus(profile.kind).verifyRaceArrivals, 1, 'First request must reach accepted real online verification before racing');
   // Cookie GET is the actual interrupted-delivery resume path: it rotates CSRF and reuses committed proof.
   stage(`${profile.kind}-concurrent-cookie-resume-fresh-csrf`);
-  await page.reload(); await page.locator('#otp').waitFor();
+  await resumeNativePage(page, profile); await page.locator('#otp').waitFor();
   const freshCsrf = await page.locator('input[name="csrf"]').inputValue();
   assert.notEqual(freshCsrf, csrf);
   stage(`${profile.kind}-second-genuine-online-verification`);
   const both = await Promise.all([first, submit(freshCsrf)]);
   for (const result of both) {
-    if (result.error) throw result.error; assert.equal(result.response.status(), 200);
+    if (result.error) throw result.error; assert.equal(result.response.status(), 303);
+    const target = new URL(result.response.headers().location, result.response.url()).href;
+    assert.equal(target, `${profile.issuer}/firefly-recovery/complete`, 'Each concurrent request must take the genuine committed completion redirect');
+    const document = await context.request.get(target); assert.equal(document.status(), 200);
     const complete = await page.evaluate(({ html, title }) => {
       const document = new DOMParser().parseFromString(html, 'text/html');
       return document.querySelector('#kc-page-title')?.textContent.trim() === title
         && !document.querySelector('#ffid-native-recovery, .ffid-native-journey [role="alert"]');
-    }, { html: await result.response.text(), title: await sourceMessage('es', 'ffidRecoveryCompleteTitle') });
+    }, { html: await document.text(), title: await sourceMessage('es', 'ffidRecoveryCompleteTitle') });
     assert.equal(complete, true, 'Each genuine concurrent response must report COMPLETE without a recovery failure alert');
   }
   const barrier = faultStatus(profile.kind);
   assert.equal(barrier.verifyRaceArrivals, 2); assert.equal(barrier.verifyRaceSpent, true);
-  await page.reload();
+  await resumeNativePage(page, profile, '/complete');
   assert.equal(await page.locator('#otp, #password').count(), 0, 'Both actual native requests must settle on the same completed journal');
   const settled = snapshot(profile.kind);
   assert.equal(settled.native.executions, 1); assert.equal(settled.native.executionId, settled.core[0].executionId);
@@ -403,6 +427,10 @@ async function supportPin(profile, context) {
     await submitNativeForm(page, profile, '#ffid-pin-save', '/support-pin');
     await page.locator('#ffid-support-pin').waitFor({ state: 'detached' });
     assert.equal(snapshot(profile.kind).native.pinActive, expected, 'Actual native PIN lifecycle state differs');
+    const retained = snapshot(profile.kind);
+    const reloaded = await page.reload(); assert.equal(reloaded.request().method(), 'GET'); assert.equal(reloaded.status(), 200);
+    assert.equal(await page.locator('#ffid-support-pin, input[type="password"]').count(), 0);
+    assert.deepEqual(snapshot(profile.kind), retained, 'PIN status reload must not repeat a credential operation');
     assert.equal(await page.locator('input[type="password"]').count(), 0, 'Credential field must not enter status capture');
     await assertTranslation(page, 'en', 'ffidPinTitle');
     await captureSafeJourney(page, `customers-pin-${suffix}-${results.length}`);
@@ -432,6 +460,7 @@ try {
   stage('owned-chromium-launch');
   browser = await chromium.launch();
   for (const profile of credentials.profiles) {
+    activePopulation = profile.kind;
     const previousSession = await browser.newContext();
     const tokens = await authenticate(profile, previousSession, false, true);
     assert.ok(tokens.refresh_token, 'Real refresh/offline session required for retirement check');
@@ -491,7 +520,7 @@ try {
     if (transportFaults && profile.population === 'HUMAN') nativeTool('arm_record_loss', profile.kind);
     stage(`${profile.kind}-native-accepted-possession-submit`);
     if (transportFaults && profile.population === 'STAFF') await concurrentExecution(profile, context, page, csrf);
-    else { await page.locator('#otp').fill(await nextCode(profile)); await submitNativeForm(page, profile, '#ffid-recovery-continue'); }
+    else { await page.locator('#otp').fill(await nextCode(profile)); await submitNativeForm(page, profile, '#ffid-recovery-continue', '', '/complete'); }
     await page.locator('#ffid-native-recovery').waitFor({ state: 'detached' });
     assert.equal((await user(profile)).enabled, true, 'Native password+TOTP recovery did not unlock');
     const after = snapshot(profile.kind); assert.equal(after.native.executions, 1); assert.equal(after.native.maximumChecksPerReservation, 1);
@@ -561,6 +590,20 @@ try {
     return match ? [`native-runtime.mjs:${match[1]}:${match[2]}`] : [];
   }).slice(0, 6);
   let inventory = {};
+  let counters = {};
+  if (activePopulation) {
+    try {
+      const state = snapshot(activePopulation);
+      const numeric = (object, keys) => Object.fromEntries(keys.filter(key => Number.isSafeInteger(object[key]) && object[key] >= 0)
+        .map(key => [key, object[key]]));
+      counters = { native: numeric(state.native, ['bootstrap', 'knowledge', 'possession', 'attestations', 'executions',
+        'recordAttempts', 'maximumChecksPerReservation', 'unlockAudits', 'recordAudits']), operationCount: state.core.length,
+      core: state.core.slice(0, 4).map(operation => ({ ...numeric(operation, ['attempts', 'challenges', 'verifiedKnowledge',
+        'verifiedPossession', 'pendingReservations', 'successAudits']),
+        state: ['OPEN', 'CONSUMED', 'EXHAUSTED'].includes(operation.state) ? operation.state : 'other',
+        outcome: ['PENDING', 'UNKNOWN', 'SUCCEEDED', 'FAILED'].includes(operation.outcome) ? operation.outcome : 'none' })) };
+    } catch { counters = {}; }
+  }
   if (lastPage && !lastPage.isClosed()) {
     try {
       for (const selector of ['#username', '#password', '#otp', '#totpSecret', '#kc-totp-secret-key', '.ffid-recovery-entry', '#ffid-native-recovery', '#ffid-support-pin']) {
@@ -575,7 +618,7 @@ try {
   await writeFile(`${output}/summary.json`, JSON.stringify({ status: 'FAILED', passed: results, lastCompleted: phase,
     currentStage, errorKind: allowedNames.has(error?.name) ? error.name : 'Error', sourceFrames: frames,
     networkCauseCode: allowedNetworkCodes.has(error?.cause?.code) ? error.cause.code : 'unclassified',
-    lastHttpStatus, lastNativeSubmission, inventory, scope: 'Partial native integration; uncompleted stages are not qualified.' }, null, 2));
+    lastHttpStatus, lastNativeSubmission, inventory, counters, scope: 'Partial native integration; uncompleted stages are not qualified.' }, null, 2));
   process.exitCode = 1;
 } finally {
   pending.clear(); privateProofs.clear(); if (browser) await browser.close(); if (server) await new Promise(ok => server.close(ok));

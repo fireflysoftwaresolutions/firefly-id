@@ -112,4 +112,9 @@
     </addColumn>
     <addUniqueConstraint tableName="ff_native_execution" columnNames="ceremony_id" constraintName="ff_native_execution_ceremony"/>
   </changeSet>
+  <changeSet id="firefly-native-form-feedback-1" author="firefly-id">
+    <addColumn tableName="ff_native_ceremony">
+      <column name="failed" type="BOOLEAN" defaultValueBoolean="false"><constraints nullable="false"/></column>
+    </addColumn>
+  </changeSet>
 </databaseChangeLog>

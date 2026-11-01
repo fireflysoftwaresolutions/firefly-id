@@ -20,12 +20,24 @@ public final class NativeResource {
         try { require("https".equals(session.getContext().getUri().getBaseUri().getScheme()));
             var existing = session.getContext().getRequestHeaders().getCookies().get(COOKIE);
             if (existing != null) {
-                try { return render(new NativeEngine(session).resume(existing.getValue()), null, false); }
+                try { return render(new NativeEngine(session).resume(existing.getValue()), false); }
                 catch (NativeRefusal expired) { /* A fresh ceremony gets a fresh CSRF state. */ }
             }
-            return render(new NativeEngine(session).create(), null, true);
+            return render(new NativeEngine(session).create(), true);
         }
         catch (Exception refusal) { return unavailable(); }
+    }
+    @GET @Path("complete") @Produces(MediaType.TEXT_HTML)
+    public Response completed() {
+        try {
+            require("https".equals(session.getContext().getUri().getBaseUri().getScheme()));
+            var existing = session.getContext().getRequestHeaders().getCookies().get(COOKIE);
+            if (existing != null) {
+                try { return render(new NativeEngine(session).completion(existing.getValue()), false); }
+                catch (NativeRefusal unavailable) { /* The generic result never grants or renews recovery authority. */ }
+            }
+            return render(new NativeEngine.View(null, null, NativeEngine.COMPLETE, false), false);
+        } catch (Exception refusal) { return unavailable(); }
     }
     @POST @Consumes(MediaType.APPLICATION_FORM_URLENCODED) @Produces(MediaType.TEXT_HTML)
     public Response submit(@FormParam("username") String username, @FormParam("password") String password,
@@ -51,7 +63,8 @@ public final class NativeResource {
                         if (attestation != null) gateway.complete(actor.assertion(), reservation, attestation);
                     }
                 } catch (Exception generic) { /* Keep the unknown and ineligible first step indistinguishable. */ }
-                return render(engine.stage(id, NativeEngine.TOTP, view.csrf()), null, false);
+                engine.stage(id, NativeEngine.TOTP, view.csrf(), false);
+                return redirect();
             }
             require(NativeEngine.TOTP.equals(stage) && otp != null && otp.matches("[0-9]{6,8}"));
             try {
@@ -65,7 +78,9 @@ public final class NativeResource {
                 Authorization verified = gateway.verifyAuthorization(actor.assertion(), receipt); require(receipt.equals(verified));
                 engine.execute(id, verified);
                 return complete(engine, id, view.csrf());
-            } catch (Exception generic) { return render(engine.stage(id, NativeEngine.TOTP, view.csrf()), "ffidRecoveryFailed", false); }
+            } catch (Exception generic) {
+                engine.stage(id, NativeEngine.TOTP, view.csrf(), true); return redirect();
+            }
         } catch (Exception generic) { return unavailable(); }
     }
     @POST @Path("rpc/{route}") @Consumes(MediaType.APPLICATION_JSON) @Produces(MediaType.APPLICATION_JSON)
@@ -82,17 +97,25 @@ public final class NativeResource {
         boolean recorded = false;
         try { recorded = engine.reconcile(id, gateway()); }
         catch (Exception transport) { /* Leave the exact committed receipt available for bounded audit-only resume. */ }
-        return render(engine.stage(id, NativeEngine.COMPLETE, csrf), recorded ? null : "ffidRecoveryFailed", false);
+        engine.stage(id, NativeEngine.COMPLETE, csrf, !recorded); return redirect(true);
     }
     private String cookie() {
         var cookie = session.getContext().getRequestHeaders().getCookies().get(COOKIE); require(cookie != null); return cookie.getValue();
     }
-    private Response render(NativeEngine.View view, String message, boolean setCookie) {
+    private Response redirect() {
+        return redirect(false);
+    }
+    private Response redirect(boolean complete) {
+        String target = NativeProfile.of(session.getContext().getRealm()).issuer() + "/" + NativeContracts.EXTENSION;
+        return Response.seeOther(java.net.URI.create(target + (complete ? "/complete" : ""))).header("Cache-Control", "no-store").build();
+    }
+    private Response render(NativeEngine.View view, boolean setCookie) {
         NativeProfile profile = NativeProfile.of(session.getContext().getRealm());
         Response response = session.getProvider(LoginFormsProvider.class).setAttribute("stage", view.stage()).setAttribute("csrf", view.csrf())
                 .setAttribute("actionUrl", profile.issuer() + "/" + NativeContracts.EXTENSION).setAttribute("signInUrl", profile.issuer() + "/account")
-                .setAttribute("auditRetry", NativeEngine.COMPLETE.equals(view.stage()) && new NativeEngine(session).recordPending(view.ceremonyId()))
-                .setAttribute("messageKey", message).setAttribute("nativeCredentialForm", true).createForm("firefly-recovery.ftl");
+                .setAttribute("auditRetry", view.ceremonyId() != null && NativeEngine.COMPLETE.equals(view.stage()) && new NativeEngine(session).recordPending(view.ceremonyId()))
+                .setAttribute("messageKey", view.failed() ? "ffidRecoveryFailed" : null)
+                .setAttribute("nativeCredentialForm", true).createForm("firefly-recovery.ftl");
         var builder = Response.fromResponse(response).header("Cache-Control", "no-store");
         if (setCookie) builder.cookie(new NewCookie.Builder(COOKIE).value(view.ceremonyId()).path("/realms/" + session.getContext().getRealm().getName() + "/" + NativeContracts.EXTENSION)
                 .httpOnly(true).secure(true).sameSite(NewCookie.SameSite.STRICT).maxAge(profile.ttlSeconds()).build());

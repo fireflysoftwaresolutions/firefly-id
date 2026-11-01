@@ -18,6 +18,8 @@ public class NativeCeremony {
     public long expiresAt;
     @Column(name="stage", length=1024)
     public String stage;
+    @Column(name="failed", nullable=false)
+    public boolean failed;
     @Column(name="generation", length=1024)
     public String generation;
     @Column(name="binding_json", length=8192)

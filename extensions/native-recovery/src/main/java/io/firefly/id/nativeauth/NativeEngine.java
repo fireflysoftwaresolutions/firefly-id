@@ -15,7 +15,7 @@ import static io.firefly.id.nativeauth.NativeSecurity.*;
 
 final class NativeEngine {
     static final String PASSWORD = "PASSWORD", TOTP = "TOTP", COMPLETE = "COMPLETE";
-    record View(String ceremonyId, String csrf, String stage) { }
+    record View(String ceremonyId, String csrf, String stage, boolean failed) { }
     record Prepared(String assertion, Binding binding) { }
     private final KeycloakSession request;
     NativeEngine(KeycloakSession request) { this.request = request; }
@@ -25,15 +25,23 @@ final class NativeEngine {
             NativeProfile profile = NativeProfile.of(session.getContext().getRealm());
             NativeCeremony ceremony = new NativeCeremony(); ceremony.id = randomToken(); ceremony.realmId = session.getContext().getRealm().getId();
             ceremony.csrfDigest = digest(csrf); ceremony.stage = PASSWORD; ceremony.expiresAt = System.currentTimeMillis() + profile.ttlSeconds() * 1000L;
-            new NativeStore(session).em.persist(ceremony); return new View(ceremony.id, csrf, PASSWORD);
+            new NativeStore(session).em.persist(ceremony); return new View(ceremony.id, csrf, PASSWORD, false);
         });
     }
     View resume(String id) {
+        return resume(id, false);
+    }
+    View completion(String id) {
+        return resume(id, true);
+    }
+    private View resume(String id, boolean completionOnly) {
         String csrf = randomToken();
         return NativePhases.run(request, session -> {
             NativeStore store = new NativeStore(session); NativeCeremony c = store.ceremony(id);
-            c.stage = resumedStage(c.stage, c.bindingJson != null, journal(store, c) != null);
-            c.csrfDigest = digest(csrf); return new View(c.id, csrf, c.stage);
+            NativeExecution committed = journal(store, c);
+            c.stage = resumedStage(c.stage, c.bindingJson != null, committed != null);
+            if (completionOnly) { require(committed != null && COMPLETE.equals(c.stage)); committed.authorization(c); }
+            c.csrfDigest = digest(csrf); return new View(c.id, csrf, c.stage, c.failed);
         });
     }
     static String resumedStage(String stage, boolean admitted, boolean committed) {
@@ -59,8 +67,8 @@ final class NativeEngine {
         return NativePhases.run(request, session -> {
             NativeStore store = new NativeStore(session); NativeCeremony ceremony = store.ceremony(id);
             require(matches(csrf, ceremony.csrfDigest) && expected.equals(ceremony.stage));
-            ceremony.csrfDigest = digest(next); ceremony.stage = "PROCESSING";
-            return new View(ceremony.id, next, expected);
+            ceremony.csrfDigest = digest(next); ceremony.stage = "PROCESSING"; ceremony.failed = false;
+            return new View(ceremony.id, next, expected, false);
         });
     }
     /** Bootstrap charges a durable generation budget; it supplies admission, not factor evidence. */
@@ -156,15 +164,22 @@ final class NativeEngine {
             return proof.id;
         });
     }
-    View stage(String id, String next, String csrf) {
+    View stage(String id, String next, String csrf, boolean failed) {
         return NativePhases.run(request, session -> {
-            NativeStore store = new NativeStore(session); var c = store.ceremony(id);
-            c.stage = journal(store, c) == null ? next : COMPLETE; return new View(c.id, csrf, c.stage);
+            NativeStore store = new NativeStore(session); var c = store.storedCeremony(id);
+            NativeExecution committed = journal(store, c);
+            stage(c, committed, next, failed, System.currentTimeMillis());
+            return new View(c.id, csrf, c.stage, c.failed);
         });
+    }
+    static void stage(NativeCeremony ceremony, NativeExecution committed, String next, boolean failed, long now) {
+        if (committed == null) require(ceremony.expiresAt > now);
+        else committed.authorization(ceremony);
+        ceremony.stage = committed == null ? next : COMPLETE; ceremony.failed = failed;
     }
     boolean recordPending(String id) {
         return NativePhases.run(request, session -> {
-            NativeStore store = new NativeStore(session); NativeCeremony c = store.ceremony(id); NativeExecution journal = journal(store, c);
+            NativeStore store = new NativeStore(session); NativeCeremony c = store.storedCeremony(id); NativeExecution journal = journal(store, c);
             if (journal == null) return false;
             journal.authorization(c);
             return !journal.recorded && journal.recordAttempts < 3 && c.expiresAt / 1000 > System.currentTimeMillis() / 1000;

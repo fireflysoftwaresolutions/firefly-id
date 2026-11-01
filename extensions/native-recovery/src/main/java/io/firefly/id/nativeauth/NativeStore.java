@@ -62,9 +62,14 @@ final class NativeStore {
         audit.subject = subject; audit.eventType = event; audit.referenceId = reference; audit.occurredAt = System.currentTimeMillis(); em.persist(audit);
     }
     NativeCeremony ceremony(String id) {
+        NativeCeremony ceremony = storedCeremony(id);
+        require(ceremony.expiresAt > System.currentTimeMillis()); return ceremony;
+    }
+    /** Scoped storage access only; callers must not use an expired row as live authority. */
+    NativeCeremony storedCeremony(String id) {
         require(id != null && id.length() <= 64);
         NativeCeremony ceremony = em.find(NativeCeremony.class, id, LockModeType.PESSIMISTIC_WRITE);
-        require(ceremony != null && ceremony.realmId.equals(session.getContext().getRealm().getId()) && ceremony.expiresAt > System.currentTimeMillis());
+        require(ceremony != null && ceremony.realmId.equals(session.getContext().getRealm().getId()));
         return ceremony;
     }
     boolean isAdministrator(UserModel user) {

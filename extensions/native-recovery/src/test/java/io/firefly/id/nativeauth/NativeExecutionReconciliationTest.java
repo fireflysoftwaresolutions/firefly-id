@@ -64,4 +64,33 @@ class NativeExecutionReconciliationTest {
         assertEquals(NativeEngine.COMPLETE, NativeEngine.resumedStage("TOTP", true, true));
         assertEquals(NativeEngine.COMPLETE, NativeEngine.resumedStage("COMPLETE", true, true));
     }
+    @Test void expiredUncommittedCeremonyCannotAdvanceThroughFeedback() {
+        var c = ceremony(); c.expiresAt = System.currentTimeMillis() - 1; c.stage = "PROCESSING";
+        assertThrows(NativeRefusal.class, () -> NativeEngine.stage(c, null, NativeEngine.TOTP, true, System.currentTimeMillis()));
+        assertEquals("PROCESSING", c.stage); assertFalse(c.failed);
+    }
+    @Test void expiryAfterCommitAllowsResultPresentationWithoutRenewingAuditAuthority() {
+        var c = ceremony(); var committed = NativeExecution.committed(c, receipt, "SUCCEEDED", System.currentTimeMillis());
+        c.expiresAt = System.currentTimeMillis() - 1; long originalExpiry = c.expiresAt;
+        NativeEngine.stage(c, committed, NativeEngine.COMPLETE, true, System.currentTimeMillis());
+        assertEquals(NativeEngine.COMPLETE, c.stage); assertTrue(c.failed); assertEquals(originalExpiry, c.expiresAt);
+        assertEquals(receipt, committed.authorization(c));
+        assertThrows(NativeRefusal.class, () -> committed.reserveRecording(c, System.currentTimeMillis()));
+        assertEquals(0, committed.recordAttempts);
+    }
+    @Test void expiredFeedbackRequiresTheOriginalCanonicalExecution() {
+        var c = ceremony(); c.expiresAt = System.currentTimeMillis() - 1; c.stage = "PROCESSING";
+        var committed = journal(); committed.ceremonyId = "different-ceremony";
+        assertThrows(NativeRefusal.class, () -> NativeEngine.stage(c, committed, NativeEngine.COMPLETE, true, System.currentTimeMillis()));
+        assertEquals("PROCESSING", c.stage); assertFalse(c.failed);
+    }
+    @Test void expiredPinFeedbackIsLimitedToTheSameOwnerAndConsumedCeremony() {
+        var c = ceremony(); c.expiresAt = System.currentTimeMillis() - 1; c.stage = "PIN_SET";
+        assertThrows(NativeRefusal.class, () -> NativePinResource.setFeedback(c, c.subject, true));
+        c.stage = "USED";
+        assertThrows(NativeRefusal.class, () -> NativePinResource.setFeedback(c, "different-subject", true));
+        assertFalse(c.failed);
+        NativePinResource.setFeedback(c, c.subject, true); assertTrue(c.failed);
+        assertEquals("USED", c.stage); assertTrue(c.expiresAt < System.currentTimeMillis());
+    }
 }
