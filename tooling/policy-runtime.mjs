@@ -535,7 +535,8 @@ async function main() {
       const minimum = Number(policy.match(/(?:^| and )length\((\d+)\)/)?.[1]);
       const maximum = Number(policy.match(/(?:^| and )maxLength\((\d+)\)/)?.[1]);
       assert.ok(minimum >= 16 && maximum === 128);
-      async function replacePassword(value, expectedStatus) {
+      async function replacePassword(value, expectedStatus, boundary) {
+        phase = `real password policy ${population} ${boundary}`;
         const response = await admin(api(population, `/users/${fixture.id}/reset-password`), 'PUT',
           { type: 'password', value, temporary: false });
         assert.equal(response.status, expectedStatus, 'Password policy response differs from expected boundary');
@@ -545,18 +546,19 @@ async function main() {
         }
       }
       const phrase = size => (`${randomBytes(7).toString('hex')} ${'calm words '.repeat(20)}`).slice(0, size);
-      await replacePassword(phrase(minimum - 1), 400);
+      await replacePassword(phrase(minimum - 1), 400, 'below-minimum');
       const minimumPassword = phrase(minimum);
-      await replacePassword(minimumPassword, 204);
+      await replacePassword(minimumPassword, 204, 'at-minimum');
       const maximumPassword = phrase(maximum);
-      await replacePassword(maximumPassword, 204);
-      await replacePassword(phrase(maximum + 1), 400);
+      await replacePassword(maximumPassword, 204, 'at-maximum');
+      await replacePassword(phrase(maximum + 1), 400, 'above-maximum');
       const deniedPassword = denied.find(value => value.length >= minimum && value.length <= maximum);
       assert.ok(deniedPassword, 'No denylist entry exercises this population boundary');
-      await replacePassword(deniedPassword, 400);
-      await replacePassword(fixture.username, 400);
-      await replacePassword(fixture.email, 400);
-      await replacePassword(minimumPassword, 400);
+      await replacePassword(deniedPassword, 400, 'denylist');
+      await replacePassword(fixture.username, 400, 'username');
+      await replacePassword(fixture.email, 400, 'email');
+      await replacePassword(minimumPassword, 400, 'history');
+      phase = `real password policy ${population} fresh-login`;
       const flow = await begin(population);
       try {
         await flow.submit(fixture.username, maximumPassword);
@@ -637,6 +639,15 @@ async function main() {
       scope: 'Synthetic provider policies and visible-response/status equality only; no universal EU-compliance or production acceptance.' }, null, 2) + '\n');
   } catch (error) {
     reportFailure(error, phase);
+    const scalar = value => typeof value === 'boolean' || (Number.isInteger(value) && value >= 0 && value <= 1000) ? value : undefined;
+    const sourceFrames = String(error?.stack || '').split('\n').flatMap(line => {
+      const frame = line.match(/tooling\/policy-runtime\.mjs:(\d+):(\d+)/);
+      return frame ? [`policy-runtime.mjs:${frame[1]}:${frame[2]}`] : [];
+    }).slice(0, 4);
+    const evidence = resolve('.work/policy-runtime'); await mkdir(evidence, { recursive: true });
+    await writeFile(`${evidence}/summary.json`, JSON.stringify({ status: 'FAILED', results, phase, sourceFrames,
+      actual: scalar(error?.actual), expected: scalar(error?.expected),
+      scope: 'Bounded policy failure diagnostics; no credential values, bodies or raw errors.' }, null, 2) + '\n');
     process.exitCode = 1;
   } finally {
     pending.clear();
