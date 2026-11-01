@@ -19,7 +19,7 @@ final class ReproofingDispatcherImpl {
     }
     int dispatch() {
         String header = request.getContext().getRequestHeaders().getHeaderString("Authorization");
-        NativePhases.run(request, child -> { ReproofingRpcImpl.workload(child, header, "dispatch"); return null; });
+        NativePhases.run(request, child -> { ReproofingRpcImpl.authenticate(child, header, "dispatch"); return null; });
         int processed = 0;
         for (int n = 0; n < 10; n++) {
             Lease lease = NativePhases.run(request, child -> {

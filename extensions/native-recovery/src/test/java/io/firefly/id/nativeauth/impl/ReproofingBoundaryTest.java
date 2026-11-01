@@ -29,7 +29,7 @@ class ReproofingBoundaryTest {
     }
     @Test void privateWorkloadWithOrdinaryGrantEnabledIsRejected() {
         var session = mock(KeycloakSession.class); var context = mock(KeycloakContext.class); var realm = realm(); var clients = mock(ClientProvider.class); var client = mock(ClientModel.class);
-        when(session.getContext()).thenReturn(context); when(context.getRealm()).thenReturn(realm); when(session.clients()).thenReturn(clients); when(clients.getClientByClientId(realm, "core-owner")).thenReturn(client);
+        when(session.getContext()).thenReturn(context); when(context.getRealm()).thenReturn(realm); when(session.clients()).thenReturn(clients); rawClient(session, realm, clients, client);
         when(client.isEnabled()).thenReturn(true); when(client.isStandardFlowEnabled()).thenReturn(true); when(client.validateSecret("secret")).thenReturn(true);
         String header = "Basic " + Base64.getEncoder().encodeToString("core-owner:secret".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         assertThrows(RuntimeException.class, () -> ReproofingRpcImpl.workload(session, header, "admit"));
@@ -54,7 +54,7 @@ class ReproofingBoundaryTest {
     @Test void privateJwtAuthorizationGrantClientIsRejected() { grantAttributeRefused("oauth2.jwt.authorization.grant.enabled"); }
     private void grantAttributeRefused(String attribute) {
         var session = mock(KeycloakSession.class); var context = mock(KeycloakContext.class); var realm = realm(); var clients = mock(ClientProvider.class); var client = mock(ClientModel.class);
-        when(session.getContext()).thenReturn(context); when(context.getRealm()).thenReturn(realm); when(session.clients()).thenReturn(clients); when(clients.getClientByClientId(realm, "core-owner")).thenReturn(client);
+        when(session.getContext()).thenReturn(context); when(context.getRealm()).thenReturn(realm); when(session.clients()).thenReturn(clients); rawClient(session, realm, clients, client);
         when(client.isEnabled()).thenReturn(true); when(client.validateSecret("secret")).thenReturn(true); when(client.getAttribute(attribute)).thenReturn("true");
         String header = "Basic " + Base64.getEncoder().encodeToString("core-owner:secret".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         assertThrows(RuntimeException.class, () -> ReproofingRpcImpl.workload(session, header, "admit"));
@@ -70,6 +70,13 @@ class ReproofingBoundaryTest {
         notification.status = "DELIVERED"; assertEquals(false, expire.invoke(null, notification, 2000L)); assertEquals("DELIVERED", notification.status);
         notification.status = "SENDING"; notification.leaseToken = "newer-lease"; notification.nextAttemptAt = 3000L;
         assertEquals(false, expire.invoke(null, notification, 2000L)); assertEquals("newer-lease", notification.leaseToken);
+    }
+    private void rawClient(KeycloakSession session, RealmModel realm, ClientProvider clients, ClientModel client) {
+        var em = mock(jakarta.persistence.EntityManager.class); var jpa = mock(org.keycloak.connections.jpa.JpaConnectionProvider.class);
+        when(session.getProvider(org.keycloak.connections.jpa.JpaConnectionProvider.class)).thenReturn(jpa); when(jpa.getEntityManager()).thenReturn(em); when(session.getProvider(ClientProvider.class)).thenReturn(clients);
+        when(client.getId()).thenReturn("client-row"); var entity = new org.keycloak.models.jpa.entities.ClientEntity(); entity.setId("client-row");
+        when(em.find(org.keycloak.models.jpa.entities.ClientEntity.class,"client-row")).thenReturn(entity);
+        when(clients.getClientByClientId(realm,"core-owner")).thenReturn(client); when(clients.getClientById(realm,"client-row")).thenReturn(client);
     }
     private RealmModel realm() {
         var realm = mock(RealmModel.class); when(realm.getName()).thenReturn("customers");

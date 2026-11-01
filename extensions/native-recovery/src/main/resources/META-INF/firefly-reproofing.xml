@@ -82,4 +82,10 @@
   <changeSet id="firefly-independent-reproofing-invalidation-1" author="firefly-id">
     <addColumn tableName="ff_reproofing_state"><column name="invalidation_version" type="BIGINT" defaultValueNumeric="0"><constraints nullable="false"/></column></addColumn>
   </changeSet>
+  <changeSet id="firefly-independent-reproofing-realm-policy-1" author="firefly-id">
+    <createTable tableName="ff_reproofing_realm_policy">
+      <column name="id" type="VARCHAR(512)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="revision" type="BIGINT" defaultValueNumeric="0"><constraints nullable="false"/></column>
+    </createTable>
+  </changeSet>
 </databaseChangeLog>

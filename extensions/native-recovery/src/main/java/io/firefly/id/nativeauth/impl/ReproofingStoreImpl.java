@@ -17,7 +17,7 @@ import static io.firefly.id.nativeauth.NativeSecurity.*;
 final class ReproofingStoreImpl {
     final KeycloakSession session;
     final EntityManager em;
-    final ReproofingConfigImpl config;
+    ReproofingConfigImpl config;
     ReproofingStoreImpl(KeycloakSession session) { this.session = session; this.config = new ReproofingConfigImpl(session.getContext().getRealm()); em = session.getProvider(JpaConnectionProvider.class).getEntityManager(); }
     long now() { return ((Number) em.createNativeQuery("select cast(extract(epoch from clock_timestamp()) * 1000 as bigint)").getSingleResult()).longValue(); }
     ReproofingCeremonyImpl ceremony(String id, boolean live) {
@@ -31,8 +31,11 @@ final class ReproofingStoreImpl {
         UserEntity entity = em.find(UserEntity.class, subject, LockModeType.PESSIMISTIC_WRITE);
         require(entity != null && config.realm.getId().equals(entity.getRealmId())); em.refresh(entity, LockModeType.PESSIMISTIC_WRITE);
         require(entity.getFederationLink() == null && entity.getServiceAccountClientLink() == null);
-        UserModel user = UserStoragePrivateUtil.userLocalStorage(session).getUserById(config.realm, subject);
-        require(user != null && !user.isFederated() && !user.isServiceAccount() && session.users().getFederatedIdentitiesStream(config.realm, user).findAny().isEmpty());
+        require(ReproofingRealmPolicyImpl.lock(session) != null);
+        config = new ReproofingConfigImpl(ReproofingRealmPolicyImpl.freshRealm(session));
+        var users = UserStoragePrivateUtil.userLocalStorage(session);
+        UserModel user = users.getUserById(config.realm, subject);
+        require(user != null && !user.isFederated() && !user.isServiceAccount() && users.getFederatedIdentitiesStream(config.realm, user).findAny().isEmpty());
         return user;
     }
     NativeState nativeState(UserModel user) { return em.find(NativeState.class, digest(config.realm.getId() + "\n" + user.getId()), LockModeType.PESSIMISTIC_WRITE); }
@@ -43,8 +46,7 @@ final class ReproofingStoreImpl {
         require(state != null); return state;
     }
     boolean eligible(UserModel user, NativeState nativeState) {
-        var admin = session.clients().getClientByClientId(config.realm, "realm-management");
-        boolean customer = (admin == null || admin.getRolesStream().noneMatch(user::hasRole))
+        boolean customer = !administrator(user)
                 && user.isEmailVerified() && user.getEmail() != null && user.getEmail().length() <= 512
                 && config.value("tenant").equals(single(user, config.value("tenant-attribute")))
                 && user.credentialManager().getStoredCredentialsByTypeStream("password").count() == 1;
@@ -61,11 +63,33 @@ final class ReproofingStoreImpl {
         }
         var otp = config.realm.getOTPPolicy();
         var recovery = em.find(ReproofingStateImpl.class, digest(config.realm.getId() + "\n" + user.getId()), LockModeType.PESSIMISTIC_WRITE);
-        return digest(ReproofingWireImpl.json(Arrays.asList(recovery == null ? 0L : recovery.invalidationVersion, credentials, user.getEmail(), user.isEmailVerified(), user.isEnabled(),
+        var policyFence = ReproofingRealmPolicyImpl.lock(session); require(policyFence != null);
+        return digest(ReproofingWireImpl.json(Arrays.asList(policyFence.revision, recovery == null ? 0L : recovery.invalidationVersion, credentials, user.getEmail(), user.isEmailVerified(), user.isEnabled(),
                 user.getFirstAttribute(UserModel.DISABLED_REASON), single(user, config.value("tenant-attribute")), single(user, config.value("link-attribute")),
-                user.getRoleMappingsStream().map(RoleModel::getId).sorted().toList(), session.users().getNotBeforeOfUser(config.realm, user),
+                effectiveRoles(user), session.users().getNotBeforeOfUser(config.realm, user),
                 nativeState == null ? null : Arrays.asList(nativeState.hold, nativeState.locked, nativeState.generation, nativeState.pinCredentialId, nativeState.pinKeyVersion, nativeState.pinGeneration, nativeState.pinHeld, nativeState.pinRevokedAt, nativeState.pinCreatedAt, nativeState.pinReplacedAt, nativeState.pinFailures, nativeState.pinReserved),
                 config.realm.getPasswordPolicy().toString(), otp.getAlgorithm(), otp.getDigits(), otp.getPeriod(), otp.getType())));
+    }
+    void initializePolicy() { ReproofingRealmPolicyImpl.initialize(session); config = new ReproofingConfigImpl(ReproofingRealmPolicyImpl.freshRealm(session)); }
+    void decoyPolicy() { require(ReproofingRealmPolicyImpl.lock(session) != null); config = new ReproofingConfigImpl(ReproofingRealmPolicyImpl.freshRealm(session)); }
+    private static final String EFFECTIVE_ROLES = """
+            with recursive user_groups(id) as (
+              select m.group_id from user_group_membership m join keycloak_group g on g.id=m.group_id where m.user_id=:subject and g.realm_id=:realm
+              union select p.id from keycloak_group g join user_groups u on g.id=u.id join keycloak_group p on p.id=g.parent_group where p.realm_id=:realm
+            ), assigned(id) as (
+              select m.role_id from user_role_mapping m join keycloak_role r on r.id=m.role_id where m.user_id=:subject and r.realm_id=:realm
+              union select m.role_id from group_role_mapping m join keycloak_role r on r.id=m.role_id where m.group_id in (select id from user_groups) and r.realm_id=:realm
+            ), effective(id) as (
+              select id from assigned
+              union select c.child_role from composite_role c join effective e on c.composite=e.id join keycloak_role r on r.id=c.child_role where r.realm_id=:realm
+            )
+            """;
+    private jakarta.persistence.Query roles(UserModel user, String suffix) { return em.createNativeQuery(EFFECTIVE_ROLES + suffix).setParameter("subject", user.getId()).setParameter("realm", config.realm.getId()); }
+    private boolean administrator(UserModel user) {
+        return ((Number) roles(user, "select count(*) from effective e join keycloak_role r on r.id=e.id join client c on c.id=r.client where c.client_id='realm-management' and c.realm_id=:realm").getSingleResult()).longValue() != 0;
+    }
+    private java.util.List<String> effectiveRoles(UserModel user) {
+        return roles(user, "select id from effective order by id").getResultList().stream().map(Object::toString).toList();
     }
     static String single(UserModel user, String attribute) { var values = user.getAttributeStream(attribute).toList(); require(values.size() == 1 && values.get(0) != null && !values.get(0).isBlank() && values.get(0).length() <= 512); return values.get(0); }
     Binding binding(ReproofingCeremonyImpl c) { return ReproofingWireImpl.read(c.bindingJson, Binding.class); }

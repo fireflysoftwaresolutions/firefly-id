@@ -2,6 +2,7 @@ package io.firefly.id.nativeauth;
 
 import org.keycloak.Config;
 import io.firefly.id.nativeauth.impl.ReproofingStateImpl;
+import io.firefly.id.nativeauth.impl.ReproofingRealmPolicyImpl;
 import jakarta.persistence.LockModeType;
 import org.keycloak.events.*;
 import org.keycloak.events.admin.AdminEvent;
@@ -51,6 +52,7 @@ public final class NativeInvalidationFactoryImpl implements EventListenerProvide
                 boolean reproofingTracked = store.em.find(ReproofingStateImpl.class, stateId) != null;
                 if (!nativeTracked && !reproofingTracked) return;
                 if (deleted) {
+                    ReproofingRealmPolicyImpl.lock(session);
                     if (reproofingTracked) invalidateReproofing(store, stateId, subject, admin, event, selfEventId);
                     if (!nativeTracked) return;
                     NativeState removed = store.state(subject, false);
@@ -59,6 +61,7 @@ public final class NativeInvalidationFactoryImpl implements EventListenerProvide
                     return;
                 }
                 var user = store.local(subject, false);
+                ReproofingRealmPolicyImpl.lock(session);
                 if (reproofingTracked) invalidateReproofing(store, stateId, subject, admin, event, selfEventId);
                 if (!nativeTracked) return;
                 NativeState state;
@@ -78,6 +81,12 @@ public final class NativeInvalidationFactoryImpl implements EventListenerProvide
             if (admin) store.auditAdmin(subject, "REPROOFING_INVALIDATED_ADMINISTRATIVE", state.epoch, event);
             else store.audit(subject, "REPROOFING_INVALIDATED_SELF_SERVICE", selfEventId == null ? state.epoch : selfEventId);
         }
+        private void invalidateRealmPolicy(AdminEvent event) {
+            var policy = ReproofingRealmPolicyImpl.lock(session);
+            if (policy == null) return;
+            policy.revision = Math.addExact(policy.revision, 1L);
+            new NativeStoreImpl(session).auditAdmin(null, "REPROOFING_REALM_POLICY_INVALIDATED", Long.toString(policy.revision), event);
+        }
         @Override public void onEvent(Event event) {
             if (event.getError() == null && Set.of("UPDATE_PROFILE", "UPDATE_CREDENTIAL", "REMOVE_CREDENTIAL", "UPDATE_PASSWORD", "UPDATE_TOTP", "REMOVE_TOTP", "DELETE_ACCOUNT").contains(event.getType().name())) invalidate(event.getUserId(), false, event.getType() == EventType.DELETE_ACCOUNT, null, event.getId());
         }
@@ -88,6 +97,7 @@ public final class NativeInvalidationFactoryImpl implements EventListenerProvide
                     path.length == 2 && event.getOperationType() == OperationType.DELETE, event, null);
             else if (session.getContext().getRealm().getAttribute("firefly.native-recovery.population") != null
                     && event.getResourcePath().startsWith("attack-detection/brute-force")) veto(session);
+            else { try { invalidateRealmPolicy(event); } catch (Exception error) { veto(session); } }
         }
         @Override public void close() { }
     }; }

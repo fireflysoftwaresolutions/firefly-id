@@ -18,7 +18,7 @@ final class ReproofingEngineImpl {
     View create() {
         ReproofingKeyringImpl.configured().requireActive();
         return NativePhases.run(request, child -> {
-            var store = new ReproofingStoreImpl(child); var c = new ReproofingCeremonyImpl(); c.id = randomToken(); c.realmId = store.config.realm.getId();
+            var store = new ReproofingStoreImpl(child); store.initializePolicy(); var c = new ReproofingCeremonyImpl(); c.id = randomToken(); c.realmId = store.config.realm.getId();
             String csrf = randomToken(); c.csrfDigest = digest(csrf); c.stage = "IDENTIFY"; c.expiresAt = store.now() + store.config.ttl() * 1000L;
             store.em.persist(c); return new View(c.id, csrf, c.stage, null, null, false, false);
         });
@@ -57,6 +57,7 @@ final class ReproofingEngineImpl {
                         UUID.fromString(ReproofingStoreImpl.single(user, store.config.value("link-attribute"))), "HUMAN", "CREDENTIAL_REPLACEMENT", state.epoch, store.revision(user, ns), c.id);
                 c.subject = user.getId(); c.notificationDestination = seal(c.id + ":email", user.getEmail());
             } else {
+                store.decoyPolicy();
                 b = new Binding(store.config.value("issuer"), store.config.realm.getName(), store.config.value("tenant"), UUID.randomUUID().toString(), UUID.randomUUID(),
                         "HUMAN", "CREDENTIAL_REPLACEMENT", UUID.randomUUID().toString(), randomToken(), c.id);
             }

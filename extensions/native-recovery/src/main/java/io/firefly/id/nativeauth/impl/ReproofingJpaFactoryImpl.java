@@ -8,7 +8,7 @@ import java.util.List;
 public final class ReproofingJpaFactoryImpl implements JpaEntityProviderFactory {
     @Override public String getId() { return "firefly-independent-reproofing"; }
     @Override public JpaEntityProvider create(KeycloakSession session) { return new JpaEntityProvider() {
-        @Override public List<Class<?>> getEntities() { return List.of(ReproofingStateImpl.class, ReproofingCeremonyImpl.class, ReproofingExecutionImpl.class, ReproofingNotificationImpl.class); }
+        @Override public List<Class<?>> getEntities() { return List.of(ReproofingRealmPolicyEntityImpl.class, ReproofingStateImpl.class, ReproofingCeremonyImpl.class, ReproofingExecutionImpl.class, ReproofingNotificationImpl.class); }
         @Override public String getChangelogLocation() { return "META-INF/firefly-reproofing.xml"; }
         @Override public String getFactoryId() { return getId(); }
         @Override public void close() { }

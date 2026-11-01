@@ -25,7 +25,7 @@ class ReproofingPolicyLockOrderTest {
         var owner=new UserEntity(); owner.setId("subject"); owner.setRealmId("realm"); when(em.find(UserEntity.class,"subject",LockModeType.PESSIMISTIC_WRITE)).thenReturn(owner);
         var realmEntity=new RealmEntity(); realmEntity.setId("realm"); when(em.find(RealmEntity.class,"realm")).thenReturn(realmEntity); when(realms.getRealm("realm")).thenReturn(realm);
         Object row=policy.getConstructor().newInstance(); policy.getField("id").set(row,"realm"); when(em.find(policy,"realm",LockModeType.PESSIMISTIC_WRITE)).thenReturn(row);
-        var users=mock(UserProvider.class); var user=mock(UserModel.class); when(users.getUserById(realm,"subject")).thenReturn(user); when(session.users().getFederatedIdentitiesStream(realm,user)).thenReturn(Stream.empty());
+        var users=mock(UserProvider.class); var user=mock(UserModel.class); when(users.getUserById(realm,"subject")).thenReturn(user); when(users.getFederatedIdentitiesStream(realm,user)).thenReturn(Stream.empty());
         try(var local=mockStatic(UserStoragePrivateUtil.class)) {
             local.when(() -> UserStoragePrivateUtil.userLocalStorage(session)).thenReturn(users);
             assertEquals(user,new ReproofingStoreImpl(session).local("subject"));

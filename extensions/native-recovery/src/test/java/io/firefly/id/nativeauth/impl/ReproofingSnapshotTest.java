@@ -27,12 +27,15 @@ class ReproofingSnapshotTest {
         when(user.credentialManager().getStoredCredentialsStream()).thenAnswer(call -> Stream.of(credential));
         UserEntity owner = new UserEntity(); owner.setId("subject"); CredentialEntity stored = new CredentialEntity(); stored.setId("history-id"); stored.setType("password-history"); stored.setUser(owner); stored.setSecretData("old-hash");
         when(em.find(CredentialEntity.class,"history-id",LockModeType.PESSIMISTIC_WRITE)).thenReturn(stored);
+        var policyFence = new ReproofingRealmPolicyEntityImpl(); when(em.find(ReproofingRealmPolicyEntityImpl.class,"realm-id",LockModeType.PESSIMISTIC_WRITE)).thenReturn(policyFence);
+        var roles = mock(jakarta.persistence.Query.class); when(em.createNativeQuery(anyString())).thenReturn(roles); when(roles.setParameter(anyString(),any())).thenReturn(roles); when(roles.getResultList()).thenReturn(List.of("role"));
         var state = new NativeState(); state.pinGeneration = "pin-epoch"; var store = new ReproofingStoreImpl(session); String original = store.revision(user,state);
         when(user.getEmail()).thenReturn("second@example.test"); assertNotEquals(original,store.revision(user,state)); when(user.getEmail()).thenReturn("first@example.test");
         when(user.isEmailVerified()).thenReturn(false); assertNotEquals(original,store.revision(user,state)); when(user.isEmailVerified()).thenReturn(true);
         stored.setSecretData("replacement-history-hash"); assertNotEquals(original,store.revision(user,state)); stored.setSecretData("old-hash");
         state.pinGeneration = "new-pin-epoch"; assertNotEquals(original,store.revision(user,state)); state.pinGeneration = "pin-epoch";
         assertEquals(original,store.revision(user,state));
+        policyFence.revision = 1; assertNotEquals(original,store.revision(user,state)); policyFence.revision = 0;
         var recovery = new ReproofingStateImpl(); when(em.find(eq(ReproofingStateImpl.class),anyString(),eq(LockModeType.PESSIMISTIC_WRITE))).thenReturn(recovery);
         assertEquals(original,store.revision(user,state)); recovery.invalidationVersion = 1; assertNotEquals(original,store.revision(user,state));
         when(user.credentialManager().getStoredCredentialsStream()).thenAnswer(call -> Stream.empty()); assertNotEquals(original,store.revision(user,state));
