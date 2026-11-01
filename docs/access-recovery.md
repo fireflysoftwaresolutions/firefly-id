@@ -35,6 +35,10 @@ The owning service must establish the identity-proofing case, independently veri
 
 A permanently locked account with a forgotten password needs an explicitly scoped recovery purpose and native transaction designed for **credential replacement plus the eligible lock transition**. It must not reuse the current known-password proof, clear a hold or call stock Admin REST reset-password/enable as two uncoordinated public steps. Partial completion and retries must retain the original case, operation, lock generation and execution identity.
 
+For a lost-factor or takeover recovery, ordinary authentication must stay blocked or purpose-restricted until required replacement factors are bound and superseded, lost or compromised authenticators have been retired. Removing old sessions alone does not invalidate their TOTP/passkey credentials. Activation needs an authoritative atomic or durably gated protocol with no temporary enablement gap.
+
+The owner confirmed that no approved reproofing provider/process currently exists. The [open-source KYC/KYB evaluation](identity-proofing-evaluation.md) records concrete candidates, actual license limits and the required document/biometric-to-recovery boundary.
+
 The actual case/delegation and identity-proofing owner contracts, producer SDKs and operational procedures must exist before that route is enabled. The current native grant proposal is not such an authority. See [support PIN](support-pin.md), [native unlock protocol](native-recovery.md) and [zero trust](zero-trust.md). Production generation remains closed; this document does not claim that the missing assisted journey is implemented.
 
 ## Workforce and privileged accounts

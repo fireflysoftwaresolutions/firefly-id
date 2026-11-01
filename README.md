@@ -6,7 +6,7 @@ Firefly Identity provides customer identity and access management (CIAM) for Ope
 
 The distribution packages Keycloak 26.8.1 through supported themes and configuration. OpenPlatform applications retain their business identities, permissions, consent, and persistence. Jafly remains an independent framework: applications integrate through its generic security ports and may select another identity provider.
 
-**Current qualification:** the [normal distribution](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41259584415) has passed real Keycloak browser/OIDC/account/admin journeys, separate policies/locales and published Jafly integration. The optional native extension has [39 passing source tests](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41263900768), and [17 actual customer unlock gates](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41261037446) passed with real Keycloak/Core/Domain services. Its complete PIN and workforce journeys are still being qualified. Forgotten-credential recovery, assisted identity proofing, platform-wide workforce delegation and production rollout remain separate unfinished gates. Read [implementation evidence](docs/progress.md) for exact revisions, failures and scope.
+**Current qualification:** the [normal distribution](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41259584415) passed real Keycloak browser/OIDC/account/admin journeys, separate policies/locales and published Jafly integration. The optional native extension passed [39 source tests](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41267428936) and [48 actual customer/workforce gates](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41267431287): known-password two-factor unlock, concurrent execution, session retirement and the support-PIN lifecycle with attributed administrative revocation. A naming-only `Impl` successor is being requalified with fresh owning-service pins. Forgotten-credential recovery, assisted identity proofing, BPO authorization, platform-wide workforce delegation and production rollout remain unfinished gates. Read [implementation evidence](docs/progress.md) for exact revisions, failures and limits.
 
 ## Who uses it
 
@@ -93,6 +93,7 @@ The [integration matrix](docs/integration-contract.md) records actual public sou
 | [Security](docs/security.md) | Identity proof, protected claims, grants, proxy and secrets |
 | [Authentication policies](docs/authentication-policies.md) | Separate customer/employee requirements, three-failure lock, passwords and EU applicability |
 | [Access journeys](docs/access-recovery.md) | Known-credential unlock versus forgotten username/password, lost factors and assisted reproofing |
+| [Open-source KYC/KYB evaluation](docs/identity-proofing-evaluation.md) | Actual licenses, document/biometric and casework boundaries, candidates and required recovery integration |
 | [Native recovery](docs/native-recovery.md) | Optional provider installation, exact owner protocol, durable retry and acceptance gates |
 | [Support PIN](docs/support-pin.md) | Customer lifecycle, pepper rotation and fail-closed telephone/BPO verification boundary |
 | [Zero trust](docs/zero-trust.md) | Per-service authentication/authorization, framework independence and workforce delegation |

@@ -39,7 +39,7 @@
 - [x] Implement durable permanent-lock capture, generic administrative bypass refusal, hold/revision invalidation and canonical population admission.
 - [x] Implement bounded restricted ceremony, native credential attestations, exact Core reservation contract, online receipt verification and generation-atomic journaled execution.
 - [x] Add separate hashed support-PIN credential lifecycle/verification capability with strong-auth gate and context-limited output.
-- [ ] Test native API contracts, persistence, concurrency, rollback and secure failures on the real pinned provider.
+- [x] Qualify the configured native API, persistence, administrative-veto, concurrency and secure-failure cases on the real pinned provider; 48 actual gates at `6b7eb4f` (see progress for limits).
 
 ### Task 3: Actual Domain orchestration and generated SDK
 
@@ -53,10 +53,12 @@
 - [x] Implement actual product native admission/factor/journal adapters and recovery-only policy in separate product integration modules.
 - [x] Extend generator/build/runtime wiring for owned qualified native artifacts and separate customer/workforce configuration.
 - [x] Add native English/Spanish recovery/PIN pages using existing Manrope/light/dark theme and accessible generic state handling.
-- [ ] Run fresh isolated HTTPS/native+Core+Domain/provider browser integration, including hostile substitutions, expiry, restart, concurrent execution, session retirement and support credential cases.
+- [x] Run fresh isolated HTTPS/native+Core+Domain/browser integration with hostile substitutions, server-ceremony expiry, restart, concurrent execution, actual online/offline retirement and support-PIN lifecycle cases.
+- [ ] Qualify admitted-actor JWT and consumed-receipt expiry in the real native runtime; do not confuse server-ceremony expiry with those gates.
 
 ### Task 5: Review, operational documentation and evidence
 
-- [ ] Independently review security boundaries and actual target-size UI captures; correct material findings.
+- [x] Independently review implemented security boundaries and actual target-size UI captures; correct locale and adjacent-link findings.
+- [ ] Complete Spanish empty PIN mutation-form captures and rerun integrated qualification for the naming-only `Impl` successors.
 - [x] Expand installation, configuration, recovery/support operations, population policies, upgrade and failure documentation; verify repository metadata readback.
 - [x] Record exact source/artifacts/tests and external production/assisted-support/delegation gates without turning source proof into release or compliance claims.
