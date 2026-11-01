@@ -1,0 +1,128 @@
+site_name: Firefly Identity
+site_description: Architecture, integration, security and operations for the Firefly Keycloak distribution.
+site_url: https://firefly-identity-handbook.me-1867.chatgpt.site/
+repo_url: https://github.com/fireflysoftwaresolutions/firefly-id
+repo_name: firefly-id
+edit_uri: ''
+docs_dir: docs
+site_dir: .work/documentation/site
+strict: true
+exclude_docs: |
+  superpowers/
+  overrides/
+  private-source-index.example.json
+hooks:
+  - tooling/mkdocs_hooks.py
+theme:
+  name: material
+  custom_dir: docs/overrides
+  language: en
+  font: false
+  logo: assets/brand/firefly-id-dark.svg
+  favicon: assets/brand/favicon.svg
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - navigation.tracking
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  palette:
+    - media: '(prefers-color-scheme)'
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light appearance
+    - media: '(prefers-color-scheme: light)'
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark appearance
+    - media: '(prefers-color-scheme: dark)'
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Follow system appearance
+plugins:
+  - search
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+  - tables
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+extra_css:
+  - stylesheets/extra.css
+extra:
+  generator: false
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+  links:
+    not_found: warn
+    absolute_links: warn
+    unrecognized_links: warn
+    anchors: warn
+nav:
+  - Overview:
+      - Handbook: index.md
+      - Why Keycloak: why-keycloak.md
+      - Solution inventory: solution-overview.md
+      - Architecture and lifecycle: architecture.md
+      - Journey map: customer-journeys.md
+      - Glossary: glossary.md
+      - Questions and answers: faq.md
+  - Configure:
+      - Start safely: getting-started.md
+      - Synthetic sandbox: sandbox.md
+      - Configuration reference: configuration-reference.md
+      - Generated policy catalogue: reference/effective-defaults.md
+      - Authentication policies: authentication-policies.md
+      - Versions and provenance: reference/versions.md
+  - Integrate:
+      - Application contract: integration-contract.md
+      - Verified claims: provider-claim-profile.md
+      - Receiver audiences: receiver-audiences.md
+      - Independent Jafly: jafly.md
+      - Configuration lookup client: configuration-service-client.md
+      - Zero trust in each service: zero-trust.md
+      - Proofing provider contract: assurance-provider-contract.md
+      - Provider evaluation: identity-proofing-evaluation.md
+  - Recover access:
+      - Choose the right recovery: access-recovery.md
+      - Permanent blocking: permanent-recovery.md
+      - Known-password two-factor unlock: native-recovery.md
+      - Lost-credential replacement: credential-loss-recovery.md
+      - Customer support PIN: support-pin.md
+      - Notification operations: notification-operations.md
+      - Verification and enrollment: extended-flows.md
+  - Customize:
+      - Themes and surfaces: themes.md
+      - English and Spanish: localization.md
+      - Design tokens: design-tokens.md
+      - Brand system: brand.md
+      - Isometric artwork: isometric-backgrounds.md
+  - Operate and govern:
+      - Regulated deployment: regulated-deployment.md
+      - EU and US controls: controls-matrix.md
+      - Workforce and administration: workforce-administration.md
+      - Security model: security.md
+      - Deployment and operations: operations.md
+      - Retained data and recovery: retained-data.md
+      - Observability and incidents: observability-incidents.md
+      - Troubleshooting: troubleshooting.md
+      - Qualification and acceptance: evidence.md
+      - Detailed implementation history: progress.md
+      - Maintain this handbook: documentation.md

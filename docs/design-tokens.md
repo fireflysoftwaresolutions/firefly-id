@@ -1,5 +1,7 @@
 # Interface tokens and functional icons
 
+The [handbook stylesheet](stylesheets/extra.css) extends this family for a Read surface without changing authentication tokens. It keeps canonical Manrope and color roles, with 16 px body text, a 74ch prose measure, 42/35 px desktop/mobile document titles, 25/23 px section headings and 13.6 px navigation/reference text. Code uses a system monospace stack for aligned technical content. The larger document-title hierarchy and bounded scrolling tables are scoped to documentation; the 27 px authentication title remains unchanged.
+
 `themes/tokens.css` is the shared interface token layer. Load it after Keycloak's inherited styles and before the surface stylesheet. Package the same file for login, account, administration and welcome; avoid independent copies of its values in each surface stylesheet. Font declarations remain beside the packaged font so their relative URLs stay valid.
 
 ## Authority

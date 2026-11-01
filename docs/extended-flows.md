@@ -1,6 +1,6 @@
 # Extended synthetic identity flows
 
-`tooling/extended-runtime.mjs` adds real-provider verification, profile-integrity, and workforce MFA checks beyond the main browser runner. The latest profile-storage and verification-replay changes are implemented but have not been validated locally because the host is below the allowed disk floor. Hosted execution must establish their actual outcomes. It does not modify Jafly or prove business authorization.
+`tooling/extended-runtime.mjs` adds real-provider verification, profile-integrity, and workforce MFA checks beyond the main browser runner. The initial source was not run locally under the resource restriction. Later [ordinary hosted qualification](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41331178246) passed verification/consumed-link handling, profile integrity for both populations and workforce enrollment/challenge. [Current evidence](evidence.md) identifies the exact scope and source. It does not modify Jafly or prove business authorization.
 
 ## Fixtures and execution
 
@@ -58,7 +58,7 @@ Offline validation exercises fresh-fixture policy generation and RFC-compatible 
 
 - Genuine expiration rejection of a signed email-verification action after its configured lifetime; no forged timestamp or signature-corrupted token is presented as expiry proof.
 - Passkey/WebAuthn enrollment and assertion with an actual configured RP and virtual/physical authenticator. No virtual-authenticator path is advertised as passed or silently skipped.
-- Lost-factor recovery, recovery-code enrollment/use, phishing-resistant step-up, registration/broker profile forgery, and institution-specific authentication policy.
+- Real-provider lost-factor recovery, workforce/administrator/passkey/external-store recovery, recovery-code enrollment/use, phishing-resistant step-up, registration/broker profile forgery and institution-specific policy. Local-customer password/TOTP replacement without old credentials separately passed with test-only proofing in the [credential-loss lane](credential-loss-recovery.md).
 - Real backend authorization, current authoritative tenant/business relationship checks, permission enforcement, and production readiness.
 
 The implementation follows the pinned upstream [verification form](https://github.com/keycloak/keycloak/blob/26.8.1/themes/src/main/resources/theme/base/login/login-verify-email.ftl), [verification handler](https://github.com/keycloak/keycloak/blob/26.8.1/services/src/main/java/org/keycloak/authentication/actiontoken/verifyemail/VerifyEmailActionTokenHandler.java), [account API](https://github.com/keycloak/keycloak/blob/26.8.1/services/src/main/java/org/keycloak/services/resources/account/AccountRestService.java), [account request implementation](https://github.com/keycloak/keycloak/blob/26.8.1/js/apps/account-ui/src/api/request.ts), [TOTP setup form](https://github.com/keycloak/keycloak/blob/26.8.1/themes/src/main/resources/theme/base/login/login-config-totp.ftl), and [OTP challenge form](https://github.com/keycloak/keycloak/blob/26.8.1/themes/src/main/resources/theme/base/login/login-otp.ftl). Actual hosted observations take precedence over assumptions from source review.

@@ -10,7 +10,7 @@ Protocol forms and authenticator logic remain inherited. A narrow copy of the ex
 | --- | --- | --- |
 | Username/password, account selection, broker choices | Inherited login forms | Real browser login in runtime lane |
 | Registration and profile required actions | Inherited declarative-profile forms | Production policy and full flow review pending |
-| Recovery and verification | Inherited action-token forms and email bodies, branded email layout | Real synthetic password replacement/fresh login and email verification/consumed-link handling; expiry, lost-factor and native secure unlock remain separate gates |
+| Recovery and verification | Inherited action-token forms and email bodies, branded email layout | Real synthetic password replacement/fresh login and email verification/consumed-link handling; action-token expiry and real-provider lost-factor acceptance remain separate; native known-password unlock and test-only customer credential replacement passed the exact [current lanes](evidence.md) |
 | Logout, expiration and errors | Inherited server forms | Logout and protocol negatives in runtime lane |
 | OTP, passkeys, recovery codes | Inherited authenticators and required actions | Real workforce TOTP enrollment, invalid-code refusal and valid challenge; passkeys, lost-factor and recovery-code review pending |
 | Account self-service | Upstream React account console with branded supported properties/CSS | Real customer/workforce protected-profile write/removal, unchanged stored attributes and fresh signed-claim checks; complete session administration remains separate |

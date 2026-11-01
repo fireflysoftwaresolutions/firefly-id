@@ -2,6 +2,8 @@
 
 Unreleased product extension for Keycloak 26.8.1, Java 21. It contains no Jafly dependency. The owning distribution must explicitly select the `firefly-native-recovery` brute-force provider and deploy this JAR together with the qualified product gateway. This source is not production or regulatory approval.
 
+The known-password/PIN protocol below is distinct from the separate [customer credential-loss purpose](../../docs/credential-loss-recovery.md), which enrolls replacement credentials after independent proofing. Statements about no enrollment in known-password unlock do not describe that separate purpose.
+
 ## Native boundaries
 
 The `firefly-recovery` RealmResourceProvider serves native recovery and customer support-PIN pages. Internal JSON RPC is rooted at `/realms/{realm}/firefly-recovery/rpc/{route}`. Browser cookies are Secure, HttpOnly and SameSite Strict; POSTs require exact configured HTTPS Origin and a persisted one-use CSRF digest. Root-owned FreeMarker templates supply the branded UI.
@@ -29,7 +31,7 @@ The actual transport implementation is discovered through `NativeCeremonyGateway
 
 ## Native persistence
 
-Eight native JPA entities are explicitly contributed by standalone `META-INF/orm.xml` to Keycloak's default persistence unit and indexed by Jandex. `JpaEntityProvider.getEntities()` is retained only for the legacy SPI signature; production discovery does not rely on it. The owning Liquibase changelog creates independent native tables and PostgreSQL append-only audit triggers. Installation changes the identity database and needs the distribution's reviewed migration/backup process; it is not performed by this task.
+Thirteen native JPA entities (eight original unlock/PIN records plus five credential-loss records) are explicitly contributed by standalone `META-INF/orm.xml` to Keycloak's default persistence unit and indexed by Jandex. `JpaEntityProvider.getEntities()` is retained only for the legacy SPI signature; production discovery does not rely on it. The owning Liquibase changelog creates independent native tables and PostgreSQL append-only audit triggers. Installation changes the identity database and needs the distribution's reviewed migration/backup process; it is not performed by this task.
 
 Credential snapshots lock and refresh native credential rows for final checks. Listener snapshots preserve pending changes. Interleaved native administrative paths can have different lock order; database deadlock/rollback must remain fail closed and be covered by real provider concurrency tests. No JVM map, cache flag or HTTP read-then-write is an unlock fence.
 
@@ -43,8 +45,10 @@ Supply `FIREFLY_SUPPORT_PIN_KEYS_DIR` as an external secret mount, `FIREFLY_SUPP
 
 `NativeSupportPinServiceImpl` is intentionally not an HTTP business API. It requires exactly one qualified `NativeSupportAuthorization.Factory` that resolves the genuine STAFF actor, customer, case/call, tenant, approval and narrow purpose. No implementation is supplied here. Until the owning support/delegation contract is qualified, BPO verification remains unavailable. A PIN reference is knowledge evidence only and cannot authorize login, unlock, payment or staff impersonation.
 
-## Validation state
+## Current validation state
 
-XML/source checks ran locally. No Java compilation, unit test, Keycloak boot, schema installation, credential attempt, database/container operation or dependency resolution ran locally under the resource floor. The module includes unit regression source for secret redaction, PIN input/key binding, actual-JTA veto dispatch, credential-row snapshot behavior and RFC3339 RPC output. Mocked boundary tests are not actual Admin REST rollback or native persistence proof.
+The [79-test source/packaging lane](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41331182922), [48-control customer/workforce known-password/PIN lane](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41331177242) and [25-control customer credential-loss lane](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41332055134) passed at the exact sources recorded in [the evidence register](../../docs/evidence.md). The integration lanes use the same native JAR hash and genuine owning Core/Domain services over HTTPS. The credential-loss success provider is test-classpath-only, excluded from production JARs.
 
-Required hosted qualification includes compilation/unit tests, native entity discovery and migrations, actual customer/workforce password/TOTP flow through Core/Domain callbacks, permanent-lock capture at failure three across nodes, negative/replayed/swapped factors, admin/profile/credential races, failed commits, retained budgets across restart, response-loss reconciliation, old-session retirement, PIN lifecycle and key revocation. Root owns those workflows and the real provider/consumer fixture. Source presence and a passing source-only check do not establish those outcomes.
+Initial implementation did not run Java/database/container operations locally under the resource restriction; later hosted qualification supplies the actual receipts. Mocked tests remain distinct from actual persistence/administration proof. Qualified coverage includes actual factors, permanent lock/restart, scoped concurrent execution, current holds/links/contact, retained budgets, response-loss/expiry reconciliation, session/PIN retirement and automatic notification supervision.
+
+Real verification/bank procedures, permanent privileged recovery, workforce lost factors, BPO authority, every receiver's live-state enforcement, retained-database rollout and complete multi-node crash/HA behavior remain separate gates. Installing this JAR registers additive migrations even while recovery is disabled. No release or production acceptance is inferred.

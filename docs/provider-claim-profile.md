@@ -15,11 +15,15 @@ This records the synthetic Firefly Identity profile and its evidence boundary. P
 | `exp` | JSON number on the actual provider wire; verified `Instant` after genuine Jafly 26.10.23 decoding/projection | Require future expiration at admission and after asynchronous policy work |
 | `nbf` | **Absent in the actual tested customer access token** | Do not fabricate a not-before value. A supported profile must validate it when present and explicitly handle legitimate absence |
 
-The generator is [scripts/generate.py](../scripts/generate.py). Protected tenant/party/staff attributes are admin-editable only; unmanaged attributes are disabled. Registration cannot create these links. No machine service account is enabled by this sandbox, so `MACHINE` issuance/delegation is not demonstrated here.
+The generator is [scripts/generate.py](../scripts/generate.py). Protected tenant/party/staff attributes are admin-editable only; unmanaged attributes are disabled. Registration cannot create these links. The default sandbox has no machine service account. The explicitly selected [Configuration lookup profile](configuration-service-client.md) enables a separate narrow `MACHINE` client; actual issuance and published Jafly validation passed in the ordinary hosted lane. This does not demonstrate customer impersonation, human delegation or financial authority.
 
 The explicit default scope list must include `basic`: in [Keycloak 26.8.1](https://github.com/keycloak/keycloak/blob/26.8.1/services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocolFactory.java), that scope supplies subject and authentication-time mappers. Omitting it produced a real access token without `sub`, which our receiver test refused. Restoring it corrected the issued subject without weakening validation.
 
-## Actual hosted observation
+## Current qualification
+
+[Ordinary distribution 41331178246](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41331178246), at Identity `15fd1b7ffa045835f3d4c71fdcc33020d8f24ecf`, passed actual signed customer/staff claims, protected-profile checks for both populations, workforce TOTP and the optional MACHINE/Jafly profile. [Evidence](evidence.md) separates this result from production and consumer acceptance. The failed observations below remain historical checkpoints for their original sources.
+
+## Historical hosted observations
 
 [Run 41237666931](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41237666931), source `358ea319191b410e801993c6d67331d4fe2d46b6`, passed the source job and exercised the real pinned Keycloak/PostgreSQL/Mailpit stack. The browser completed code + PKCE, state/nonce and live JWKS signature/issuer/audience checks. The safe report confirmed expected customer tenant/population/client/party presence, no staff claim, numeric expiration and absent not-before. Cross-realm use was refused. No raw token is published.
 
