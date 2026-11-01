@@ -8,6 +8,12 @@ import static io.firefly.id.nativeauth.NativeSecurity.*;
 /** A completed Keycloak transaction manager cannot be restarted; each phase owns a fresh session. */
 public final class NativePhases {
     private NativePhases() { }
+    /** Reuses the original unlock snapshot inside an already locked native transaction. */
+    public static String credentialRevision(KeycloakSession session, org.keycloak.models.UserModel user) {
+        require(session.getTransactionManager().isActive() && !session.getTransactionManager().getRollbackOnly());
+        NativeStoreImpl store = new NativeStoreImpl(session);
+        return store.revision(store.local(user.getId(), false), false);
+    }
     public static <T> T run(KeycloakSession request, Function<KeycloakSession, T> work) {
         String realmId = request.getContext().getRealm().getId();
         if (request.getTransactionManager().isActive()) {

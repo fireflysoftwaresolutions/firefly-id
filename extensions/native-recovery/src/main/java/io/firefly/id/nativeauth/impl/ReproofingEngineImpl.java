@@ -116,6 +116,7 @@ final class ReproofingEngineImpl {
             require(replacementOtp != null && user.credentialManager().isValid(new UserCredentialModel(replacementOtp.getId(), OTPCredentialModel.TYPE, otp)));
             var ns = store.nativeState(user);
             if (ns != null) { ns.locked = false; ns.generation = UUID.randomUUID().toString(); ns.pinCredentialId = null; ns.pinGeneration = UUID.randomUUID().toString(); ns.pinRevokedAt = now; ns.pinHeld = true; }
+            if (ns != null) ns.credentialRevision = NativePhases.credentialRevision(child, user);
             user.removeAttribute(UserModel.DISABLED_REASON); user.setEnabled(true);
             child.loginFailures().removeUserLoginFailure(store.config.realm, user.getId());
             child.sessions().getOfflineUserSessionsStream(store.config.realm, user).toList().forEach(s -> child.sessions().removeOfflineUserSession(store.config.realm, s));
