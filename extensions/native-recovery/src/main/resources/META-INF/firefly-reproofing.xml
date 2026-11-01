@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+  <changeSet id="firefly-independent-reproofing-1" author="firefly-id">
+    <createTable tableName="ff_reproofing_state">
+      <column name="id" type="VARCHAR(128)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="realm_id" type="VARCHAR(512)"></column>
+      <column name="subject" type="VARCHAR(512)"></column>
+      <column name="epoch" type="VARCHAR(128)"></column>
+      <column name="failures" type="INT"></column>
+    </createTable>
+    <createTable tableName="ff_reproofing_ceremony">
+      <column name="id" type="VARCHAR(128)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="realm_id" type="VARCHAR(512)"></column>
+      <column name="subject" type="VARCHAR(512)"></column>
+      <column name="binding_json" type="VARCHAR(8192)"></column>
+      <column name="csrf_digest" type="VARCHAR(128)"></column>
+      <column name="stage" type="VARCHAR(32)"></column>
+      <column name="expires_at" type="BIGINT"></column>
+      <column name="case_id" type="VARCHAR(64)"></column>
+      <column name="authorization_json" type="VARCHAR(8192)"></column>
+      <column name="verification_url" type="VARCHAR(2048)"></column>
+      <column name="encrypted_totp" type="VARCHAR(2048)"></column>
+      <column name="notification_destination" type="VARCHAR(512)"></column>
+      <column name="failed" type="BOOLEAN"></column>
+    </createTable>
+    <createTable tableName="ff_reproofing_execution">
+      <column name="id" type="VARCHAR(64)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="realm_id" type="VARCHAR(512)"></column>
+      <column name="ceremony_id" type="VARCHAR(128)"></column>
+      <column name="case_id" type="VARCHAR(64)"></column>
+      <column name="authorization_id" type="VARCHAR(64)"></column>
+      <column name="binding_json" type="VARCHAR(8192)"></column>
+      <column name="authorization_json" type="VARCHAR(8192)"></column>
+      <column name="committed_at" type="BIGINT"></column>
+      <column name="recorded" type="BOOLEAN"></column>
+      <column name="record_attempts" type="INT"></column>
+    </createTable>
+    <createTable tableName="ff_reproofing_notification">
+      <column name="id" type="VARCHAR(64)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="realm_id" type="VARCHAR(512)"></column>
+      <column name="subject" type="VARCHAR(512)"></column>
+      <column name="destination_encrypted" type="VARCHAR(2048)"></column>
+      <column name="destination_digest" type="VARCHAR(128)"></column>
+      <column name="created_at" type="BIGINT"></column>
+      <column name="next_attempt_at" type="BIGINT"></column>
+      <column name="delivered_at" type="BIGINT"></column>
+      <column name="attempts" type="INT"></column>
+      <column name="status" type="VARCHAR(32)"></column>
+    </createTable>
+    <addUniqueConstraint tableName="ff_reproofing_state" columnNames="realm_id,subject" constraintName="ff_reproofing_subject_epoch"/>
+    <addUniqueConstraint tableName="ff_reproofing_execution" columnNames="ceremony_id" constraintName="ff_reproofing_execution_once"/>
+    <addUniqueConstraint tableName="ff_reproofing_execution" columnNames="authorization_id" constraintName="ff_reproofing_grant_once"/>
+    <createIndex tableName="ff_reproofing_notification" indexName="ff_reproofing_notification_pending"><column name="status"/><column name="next_attempt_at"/></createIndex>
+  </changeSet>
+</databaseChangeLog>

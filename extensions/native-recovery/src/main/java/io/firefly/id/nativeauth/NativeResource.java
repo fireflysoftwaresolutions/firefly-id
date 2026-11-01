@@ -88,6 +88,7 @@ public final class NativeResource {
         try { return Response.ok(NativeWire.json(new NativeRpcServiceImpl(session).call(route, rpc))).header("Cache-Control", "no-store").build(); }
         catch (Exception refusal) { return Response.status(403).entity(java.util.Map.of("error", "native_recovery_refused")).header("Cache-Control", "no-store").build(); }
     }
+    @Path("lost-credentials") public io.firefly.id.nativeauth.impl.ReproofingResourceImpl lostCredentials() { return new io.firefly.id.nativeauth.impl.ReproofingResourceImpl(session); }
     @Path("support-pin") public NativePinResource supportPin() { return new NativePinResource(session); }
     private NativeCeremonyGateway gateway() {
         var factories = ServiceLoader.load(NativeCeremonyGateway.Factory.class, getClass().getClassLoader()).stream().map(ServiceLoader.Provider::get).filter(NativeCeremonyGateway.Factory::isQualified).toList();
