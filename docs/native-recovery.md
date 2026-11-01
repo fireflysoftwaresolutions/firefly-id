@@ -70,6 +70,8 @@ Each owning service must explicitly opt in to its native owner adapter and narro
 5. Core consumes a one-time authorization. Domain verifies the exact consumed receipt online. Native compares that receipt and the current lock, generation, holds, credentials and owner before its atomic transition. It records the native execution, retires online/offline sessions and advances user not-before.
 6. Native reports the exact execution to Core through Domain and shows a fresh-sign-in action. Recovery does not issue OAuth tokens, restore an old session or create business authority. Ordinary login and applicable MFA run again.
 
+Only the native unlock/PIN documents select `same-origin` referrer policy through server-controlled head metadata. This preserves an actual Origin on browser form POSTs while withholding cross-origin Referer. Stock login/action-token pages retain their upstream policy. Exact Origin and CSRF validation remain mandatory. The real browser runner checks the observed outgoing Origin without injecting that header.
+
 Domain's HTTP root is `/api/v1/sca/recovery-operations`. It exposes create, reserve, complete, consume, online authorization verification and execution recording. The native browser server uses a per-request bearer restricted to those services; no unsigned actor headers or singleton bearer configuration supply authority. The private native RPC accepts only its separate workload credential **and** the genuine restricted signed actor, then performs phase-specific current admission.
 
 ## Retry, interruption and retained state

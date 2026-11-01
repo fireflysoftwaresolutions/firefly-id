@@ -92,6 +92,12 @@ class ThemePackagingTest(unittest.TestCase):
         upstream = upstream.replace(heading, heading + upstream_locale_header)
         upstream = upstream.replace('kc-login-tooltip" type="button"\n', 'kc-login-tooltip" type="button" \n')
         upstream = upstream.replace('class="ffid-icon ffid-icon--sync"', 'class="fa-sync-alt fas"')
+        native_referrer = '''    <#if nativeCredentialForm!false>
+    <meta name="referrer" content="same-origin">
+    </#if>
+'''
+        self.assertEqual(upstream.count(native_referrer), 1)
+        upstream = upstream.replace(native_referrer, '')
         self.assertEqual(hashlib.sha256(upstream.encode()).hexdigest(),
                          '6221a3176c73a3fd67abc97076deb9cef112378ce157735a78bd865800315b37')
 

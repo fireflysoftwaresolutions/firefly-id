@@ -24,6 +24,8 @@ Run `python3 tooling/build_theme.py`. The builder assembles source resources and
 
 The same archive includes an opt-in inherited `firefly-id-native` variant for login and account. Its login theme exposes the native recovery entry; its customer account theme adds a support PIN link. Select these only with the [native extension and actual owners](native-recovery.md) installed and qualified. Keep employee account self-service on `firefly-id`; the customer PIN is unavailable to workforce identities. Theme-only installations retain the ordinary variant and do not advertise native endpoints.
 
+Native unlock/PIN forms additionally select a same-origin document referrer policy through a server-only template attribute, preserving the Origin required by their CSRF boundary. The condition is absent from ordinary inherited action-token forms. The exact-upstream checksum test reverses this explicit metadata addition as well as the other intentional adaptations before comparing the pinned template.
+
 Edit presentation under `themes/`, shared console CSS in `themes/console.css`, and canonical editable artwork under `assets/brand/`. Rebuild after every asset change. Email uses a system font fallback because mail clients commonly block web fonts; authentication and account web surfaces use self-hosted Manrope.
 
 Review desktop and narrow layouts in both color schemes, keyboard focus, real errors, long names and recovery strings. Confirm fonts/assets finish loading before screenshots. Test the actual identity server rather than treating standalone preview HTML as flow acceptance. Keep server theme caches enabled in production; use an immutable new artifact/image for updates.

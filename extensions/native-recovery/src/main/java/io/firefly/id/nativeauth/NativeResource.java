@@ -92,7 +92,7 @@ public final class NativeResource {
         Response response = session.getProvider(LoginFormsProvider.class).setAttribute("stage", view.stage()).setAttribute("csrf", view.csrf())
                 .setAttribute("actionUrl", profile.issuer() + "/" + NativeContracts.EXTENSION).setAttribute("signInUrl", profile.issuer() + "/account")
                 .setAttribute("auditRetry", NativeEngine.COMPLETE.equals(view.stage()) && new NativeEngine(session).recordPending(view.ceremonyId()))
-                .setAttribute("messageKey", message).createForm("firefly-recovery.ftl");
+                .setAttribute("messageKey", message).setAttribute("nativeCredentialForm", true).createForm("firefly-recovery.ftl");
         var builder = Response.fromResponse(response).header("Cache-Control", "no-store");
         if (setCookie) builder.cookie(new NewCookie.Builder(COOKIE).value(view.ceremonyId()).path("/realms/" + session.getContext().getRealm().getName() + "/" + NativeContracts.EXTENSION)
                 .httpOnly(true).secure(true).sameSite(NewCookie.SameSite.STRICT).maxAge(profile.ttlSeconds()).build());

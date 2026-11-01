@@ -54,7 +54,7 @@ public final class NativePinResource {
                 .setAttribute("actionUrl", "STATUS".equals(stage) ? base + "/set" : base).setAttribute("accountUrl", profile.issuer() + "/account")
                 .setAttribute("revokeUrl", base + "/revoke").setAttribute("pinStatus", status.status())
                 .setAttribute("replacedAt", status.replacedAt() == null ? null : status.replacedAt().toString())
-                .setAttribute("messageKey", message).createForm("firefly-support-pin.ftl");
+                .setAttribute("messageKey", message).setAttribute("nativeCredentialForm", true).createForm("firefly-support-pin.ftl");
         return Response.fromResponse(response).header("Cache-Control", "no-store").cookie(new NewCookie.Builder(COOKIE).value(ceremonyId)
                 .path("/realms/" + session.getContext().getRealm().getName() + "/" + NativeContracts.EXTENSION + "/support-pin").secure(true).httpOnly(true)
                 .sameSite(NewCookie.SameSite.STRICT).maxAge(120).build()).build();

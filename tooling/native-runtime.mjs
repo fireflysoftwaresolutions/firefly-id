@@ -59,6 +59,13 @@ async function nextCode(profile) {
   if (counter <= factor.lastCounter) { await delay((factor.lastCounter + 1) * 30000 - Date.now() + 300); counter = Math.floor(Date.now() / 30000); }
   factor.lastCounter = counter; return totpCode(factor.secret, counter * 30);
 }
+async function submitNativeForm(page, profile, selector, path = '') {
+  const submitted = page.waitForRequest(request => request.method() === 'POST'
+    && request.url() === `${profile.issuer}/firefly-recovery${path}`);
+  await page.locator(selector).click();
+  const headers = await (await submitted).allHeaders();
+  assert.equal(headers.origin, origin, 'Actual native browser form must send the exact trusted Origin');
+}
 async function authenticate(profile, context, wrong = false, enroll = false) {
   const state = randomBytes(20).toString('base64url'), verifier = randomBytes(32).toString('base64url');
   const challenge = createHash('sha256').update(verifier).digest('base64url');
@@ -130,6 +137,7 @@ async function recovery(profile, context, username, password) {
     nativeCookiePresent: /(?:^|;\s*)FF_NATIVE_RECOVERY=/.test(headers.cookie || ''), csrfPresent: Boolean(form.get('csrf')) };
   try { lastNativeSubmission.ceremony = JSON.parse(nativeTool('ceremony_state', profile.kind)); }
   catch { lastNativeSubmission.ceremony = { stage: 'unavailable' }; }
+  assert.equal(lastNativeSubmission.originClass, 'same', 'Actual native password form must send the exact trusted Origin');
   assert.equal(response.status(), 200, 'Actual browser native password POST must retain the generic factor stage');
   await page.locator('#otp').waitFor();
   await assertNativeFont(page, `${profile.kind}-masked-native-factor-form`);
@@ -149,10 +157,24 @@ async function expectCsrfRefusal(profile) {
   await page.goto(`${profile.issuer}/firefly-recovery?kc_locale=en`);
   await assertTranslation(page, 'en', 'ffidRecoveryTitle');
   await captureEmptyNativeForm(page, `${profile.kind}-recovery-password-en`);
+  const before = snapshot(profile.kind);
+  const csrf = await page.locator('input[name="csrf"]').inputValue();
   const response = await context.request.post(`${profile.issuer}/firefly-recovery`, { headers: { Origin: origin },
     form: { username: profile.person.username, password: profile.person.password, csrf: 'synthetic-forged-csrf' } });
   assert.equal(response.status(), 400);
+  for (const supplied of ['null', 'https://foreign-origin.example.invalid']) {
+    stage(`${profile.kind}-valid-csrf-disallowed-origin-refusal`);
+    const refused = await context.request.post(`${profile.issuer}/firefly-recovery`, { headers: { Origin: supplied },
+      form: { username: profile.person.username, password: profile.person.password, csrf } });
+    assert.equal(refused.status(), 400, 'Valid cookie and real CSRF must not admit a null or foreign Origin');
+    const ceremony = JSON.parse(nativeTool('ceremony_state', profile.kind));
+    assert.equal(ceremony.stage, 'PASSWORD');
+    for (const key of ['hasSubject', 'hasBinding', 'hasOperation']) assert.equal(ceremony[key], false);
+    for (const key of ['bootstrapRejected', 'bootstrapReserved', 'bootstrapAdmitted']) assert.equal(ceremony[key], 0);
+    assert.deepEqual(snapshot(profile.kind), before, 'Origin rejection must not spend or reset native/Core budgets');
+  }
   await context.close(); passed(`${profile.kind}-native-csrf-refused`);
+  passed(`${profile.kind}-real-csrf-null-and-foreign-origin-refused-before-bootstrap`);
 }
 async function sourceMessage(language, key) {
   const messages = await readFile(resolve(`themes/firefly-id/login/messages/messages_${language}.properties`), 'utf8');
@@ -319,7 +341,7 @@ async function reconcileLostRecord(profile, page, committed) {
   assert.equal(retained.native.executionId, committed.native.executionId);
   assert.equal(retained.core[0].attempts, committed.core[0].attempts);
   stage(`${profile.kind}-committed-record-csrf-only-reconciliation`);
-  await page.locator('#ffid-recovery-audit-retry button[type="submit"]').click();
+  await submitNativeForm(page, profile, '#ffid-recovery-audit-retry button[type="submit"]');
   await page.locator('#ffid-recovery-audit-retry').waitFor({ state: 'detached' });
   const reconciled = snapshot(profile.kind);
   assert.equal(reconciled.native.recorded, true); assert.equal(reconciled.native.recordAttempts, 2);
@@ -378,7 +400,7 @@ async function supportPin(profile, context) {
     await captureEmptyNativeForm(page, `customers-pin-${suffix}-en-${results.length}`);
     await page.locator('#password').fill(profile.person.password); await page.locator('#otp').fill(await nextCode(profile));
     if (pin) { await page.locator('#pin').fill(pin); await page.locator('#pinConfirm').fill(pin); }
-    await page.locator('#ffid-pin-save').click();
+    await submitNativeForm(page, profile, '#ffid-pin-save', '/support-pin');
     await page.locator('#ffid-support-pin').waitFor({ state: 'detached' });
     assert.equal(snapshot(profile.kind).native.pinActive, expected, 'Actual native PIN lifecycle state differs');
     assert.equal(await page.locator('input[type="password"]').count(), 0, 'Credential field must not enter status capture');
@@ -450,7 +472,7 @@ try {
     const unknownText = await unknownPage.locator('.ffid-native-journey').innerText(); await unknown.close();
     const manual = await browser.newContext({ locale: 'es-ES' }); const heldPage = await recovery(profile, manual, profile.manual.username, profile.person.password);
     assert.equal(await heldPage.locator('.ffid-native-journey').innerText(), unknownText, 'Manual hold reveals eligibility');
-    await heldPage.locator('#otp').fill('000000'); await heldPage.locator('#ffid-recovery-continue').click();
+    await heldPage.locator('#otp').fill('000000'); await submitNativeForm(heldPage, profile, '#ffid-recovery-continue');
     assert.equal((await user(profile, true)).enabled, false); await manual.close();
     passed(`${profile.kind}-unknown-and-manual-hold-generic-unavailable`);
     if (transportFaults) await expiredServerCeremony(profile);
@@ -460,7 +482,7 @@ try {
     if (transportFaults) await privateReferenceRefusals(profile);
     const permitted = new Set([-30, 0, 30].map(offset => totpCode(factors.get(profile.kind).secret, Date.now() / 1000 + offset)));
     let invalid = 0; while (permitted.has(String(invalid).padStart(6, '0'))) invalid++;
-    await page.locator('#otp').fill(String(invalid).padStart(6, '0')); await page.locator('#ffid-recovery-continue').click();
+    await page.locator('#otp').fill(String(invalid).padStart(6, '0')); await submitNativeForm(page, profile, '#ffid-recovery-continue');
     await page.locator('[role="alert"]').waitFor();
     let rejected = snapshot(profile.kind); assert.equal(rejected.core[0].attempts, 2); assert.equal(rejected.native.possession, 1);
     assert.equal(rejected.native.maximumChecksPerReservation, 1); assert.equal((await user(profile)).enabled, false);
@@ -469,7 +491,7 @@ try {
     if (transportFaults && profile.population === 'HUMAN') nativeTool('arm_record_loss', profile.kind);
     stage(`${profile.kind}-native-accepted-possession-submit`);
     if (transportFaults && profile.population === 'STAFF') await concurrentExecution(profile, context, page, csrf);
-    else { await page.locator('#otp').fill(await nextCode(profile)); await page.locator('#ffid-recovery-continue').click(); }
+    else { await page.locator('#otp').fill(await nextCode(profile)); await submitNativeForm(page, profile, '#ffid-recovery-continue'); }
     await page.locator('#ffid-native-recovery').waitFor({ state: 'detached' });
     assert.equal((await user(profile)).enabled, true, 'Native password+TOTP recovery did not unlock');
     const after = snapshot(profile.kind); assert.equal(after.native.executions, 1); assert.equal(after.native.maximumChecksPerReservation, 1);

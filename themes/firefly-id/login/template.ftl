@@ -33,6 +33,9 @@
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
     <meta name="color-scheme" content="light${darkMode?then(' dark', '')}">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <#if nativeCredentialForm!false>
+    <meta name="referrer" content="same-origin">
+    </#if>
 
     <#if properties.meta?has_content>
         <#list properties.meta?split(' ') as meta>

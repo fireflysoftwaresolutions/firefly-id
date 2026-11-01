@@ -19,6 +19,8 @@ class NativeSecurityTest {
     @Test void originsRequireExactHttpsOriginAndRejectSuffixConfusion() {
         assertDoesNotThrow(() -> NativeSecurity.requireOrigin("https://identity.example", "https://identity.example"));
         assertThrows(NativeRefusal.class, () -> NativeSecurity.requireOrigin("https://identity.example.evil", "https://identity.example"));
+        assertThrows(NativeRefusal.class, () -> NativeSecurity.requireOrigin(null, "https://identity.example"));
+        assertThrows(NativeRefusal.class, () -> NativeSecurity.requireOrigin("null", "https://identity.example"));
         assertThrows(NativeRefusal.class, () -> NativeSecurity.requireOrigin("http://identity.example", "http://identity.example"));
     }
     @Test void secretBearingRecordsAreAlwaysRedacted() {
