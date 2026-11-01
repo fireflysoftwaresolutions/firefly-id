@@ -17,8 +17,11 @@ const origin = 'https://id.firefly.test:8443';
 const callback = 'https://localhost:8448/oidc/callback';
 const pending = new Map();
 const results = [];
+const failedGates = [];
+const accountEvidence = {};
 const factors = new Map();
 const privateProofs = new Map();
+const accountAssertions = new Map();
 const transportFaults = process.env.FIREFLY_NATIVE_TRANSPORT_FAULTS === 'true';
 const fontEvidence = [];
 let phase = 'owned-native-runtime-ready';
@@ -27,13 +30,19 @@ let lastPage;
 let lastHttpStatus;
 let lastNativeSubmission;
 let activePopulation;
+let accountAssetStatuses = {};
+let accountErrorKinds = [];
+let lastAccountInventory;
+let lastPinProtection;
 const stage = value => { currentStage = value; };
 let browser;
 let server;
 const passed = label => { phase = label; results.push(label); console.log(`PASS ${label}`); };
+const failed = (gate, reason) => { failedGates.push({ gate, reason }); console.log(`FAIL ${gate}`); };
 const delay = milliseconds => new Promise(ok => setTimeout(ok, milliseconds));
-const nativeTool = (action, population) => execFileSync('python3', ['tooling/native_integration_fixture.py', action,
-  ...(population ? ['--population', population] : [])], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+const nativeTool = (action, population, input) => execFileSync('python3', ['tooling/native_integration_fixture.py', action,
+  ...(population ? ['--population', population] : [])], { encoding: 'utf8', input: input ? JSON.stringify(input) : undefined,
+  stdio: [input ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
 const snapshot = population => JSON.parse(nativeTool('snapshot', population));
 const faultStatus = population => JSON.parse(nativeTool('fault_status', population));
 async function request(url, options = {}) {
@@ -201,6 +210,23 @@ async function sourceMessage(language, key) {
   const messages = await readFile(resolve(`themes/firefly-id/login/messages/messages_${language}.properties`), 'utf8');
   const entry = messages.split(/\r?\n/).find(line => line.startsWith(`${key}=`)); assert.ok(entry);
   return entry.slice(key.length + 1);
+}
+async function accountInventory(page) {
+  const inventory = await page.evaluate(() => {
+    const footer = document.getElementById('ffid-copyright');
+    const link = document.getElementById('ffid-support-pin-link');
+    return { bodyPageId: document.body?.dataset.pageId === 'account' ? 'account' : 'other',
+      footerCount: document.querySelectorAll('#ffid-copyright').length,
+      linkCount: document.querySelectorAll('#ffid-support-pin-link').length,
+      linkVisible: Boolean(link?.getClientRects().length),
+      attributionRawMatches: footer?.querySelector('a')?.getAttribute('href') === 'https://www.keycloak.org',
+      attributionResolvedMatches: footer?.querySelector('a')?.href === 'https://www.keycloak.org/',
+      mainCount: document.querySelectorAll('main').length,
+      loadingCount: document.querySelectorAll('.keycloak__loading-container').length,
+      scripts: Object.fromEntries(['copyright.js', 'presentation-policy.js', 'native-account-links.js'].map(name =>
+        [name, [...document.scripts].some(script => new URL(script.src || location.href).pathname.endsWith('/' + name))])) };
+  });
+  return { ...inventory, assetStatuses: accountAssetStatuses, errorKinds: accountErrorKinds };
 }
 async function assertTranslation(page, language, key) {
   assert.ok((await page.locator('html').getAttribute('lang')).startsWith(language));
@@ -416,17 +442,87 @@ async function concurrentExecution(profile, context, page, csrf) {
   passed(`${profile.kind}-two-real-online-verifications-one-native-execution-and-core-success-audit`);
 }
 
+async function protectedPinAccountDeletionRefusal(profile) {
+  stage('customers-native-pin-account-credentials-positive-control');
+  const assertion = accountAssertions.get(profile.kind);
+  if (!assertion) {
+    failed('customers-real-account-credentials-positive-control', 'actual-react-accepted-account-bearer-unavailable');
+    return;
+  }
+  const pin = JSON.parse(nativeTool('private_pin', profile.kind));
+  assert.equal(pin.active, true); assert.equal(pin.stored, 1); assert.ok(pin.credentialId);
+  const endpoint = `${profile.issuer}/account/credentials`;
+  const listed = await request(endpoint, { headers: { Authorization: assertion, Accept: 'application/json' } });
+  lastPinProtection = { accountCredentialsStatus: listed.status };
+  assert.equal(listed.status, 200, 'Actual Account bearer must be accepted by the credentials owner');
+  assert.equal(JSON.stringify(await listed.json()).includes(pin.credentialId), false, 'Generic Account credential inventory must omit the native support PIN');
+  const refused = await request(`${endpoint}/${encodeURIComponent(pin.credentialId)}`, { method: 'DELETE',
+    headers: { Authorization: assertion, Accept: 'application/json' } });
+  lastPinProtection.accountDeleteStatus = refused.status;
+  assert.equal(refused.status, 404, 'Generic Account delete must not address a native support PIN');
+  assert.deepEqual(JSON.parse(nativeTool('private_pin', profile.kind)), pin, 'Account delete refusal must preserve the same active stored PIN');
+  lastPinProtection.accountPinPreserved = true;
+  passed('customers-native-pin-hidden-from-generic-account-and-protected-from-account-deletion');
+}
+
+async function administrativePinRevocation(profile, page) {
+  stage('customers-native-pin-administrative-revocation');
+  const master = { realm: 'master' };
+  const realm = await admin(master, ''); assert.equal(realm.status, 200); const actorRealm = (await realm.json()).id; assert.ok(actorRealm);
+  const clients = await admin(master, 'clients?clientId=admin-cli'); assert.equal(clients.status, 200);
+  const actorClients = await clients.json(); assert.equal(actorClients.length, 1);
+  const users = await admin(master, 'users?username=native-bootstrap&exact=true'); assert.equal(users.status, 200);
+  const actorUsers = await users.json(); assert.equal(actorUsers.length, 1);
+  const pin = JSON.parse(nativeTool('private_pin', profile.kind)); assert.equal(pin.active, true); assert.equal(pin.stored, 1);
+  assert.equal(JSON.parse(nativeTool('private_credential_exists', profile.kind, { credentialId: pin.credentialId })).stored, 1);
+  const before = snapshot(profile.kind);
+  const revoked = await admin(profile, `users/${profile.person.id}/credentials/${encodeURIComponent(pin.credentialId)}`, { method: 'DELETE' });
+  lastPinProtection = { ...lastPinProtection, adminDeleteStatus: revoked.status }; assert.equal(revoked.status, 204);
+  const retired = JSON.parse(nativeTool('private_pin', profile.kind));
+  assert.equal(JSON.parse(nativeTool('private_credential_exists', profile.kind, { credentialId: pin.credentialId })).stored, 0);
+  assert.equal(retired.credentialId, null); assert.equal(retired.stored, 0); assert.equal(retired.active, false);
+  assert.equal(retired.revoked, true); assert.equal(retired.held, true); assert.notEqual(retired.generation, pin.generation);
+  assert.equal(retired.failures, pin.failures); assert.equal(retired.reserved, pin.reserved); assert.equal(retired.adminAuditCount, 1);
+  const audit = retired.adminAudit; assert.ok(audit);
+  lastPinProtection.actorRealmMatches = audit.actorRealmId === actorRealm;
+  lastPinProtection.actorSubjectMatches = audit.actorSubject === actorUsers[0].id;
+  lastPinProtection.actorClientMatches = audit.actorClientId === actorClients[0].id;
+  lastPinProtection.eventActorMatches = audit.eventActorMatches === true;
+  lastPinProtection.eventRealmMatches = audit.eventRealmMatches === true;
+  lastPinProtection.eventActionMatches = audit.eventActionMatches === true;
+  lastPinProtection.auditGenerationMatches = audit.generationMatches === true;
+  lastPinProtection.eventPathMatches = audit.resourcePath === `users/${profile.person.id}/credentials/${pin.credentialId}`;
+  for (const key of ['actorRealmMatches', 'actorSubjectMatches', 'actorClientMatches', 'eventActorMatches', 'eventRealmMatches',
+    'eventActionMatches', 'auditGenerationMatches', 'eventPathMatches']) assert.equal(lastPinProtection[key], true, 'Administrative PIN audit must bind the actual current administrator and Keycloak event');
+  assert.match(audit.eventId, /^[0-9a-f-]{36}$/);
+  const after = snapshot(profile.kind); assert.equal(after.native.pinActive, false);
+  assert.deepEqual({ ...after, native: { ...after.native, pinActive: true } }, before, 'PIN-only administrative revocation must preserve login, recovery, journal and all existing budgets');
+  lastPinProtection.pinRetired = true; lastPinProtection.recoveryBudgetsPreserved = true;
+  await page.goto(`${profile.issuer}/firefly-recovery/support-pin?kc_locale=en`); await assertTranslation(page, 'en', 'ffidPinTitle');
+  assert.equal(await page.locator('input[type="password"]').count(), 0);
+  await captureSafeJourney(page, 'customers-pin-administratively-revoked');
+  passed('customers-privileged-pin-revocation-is-atomic-actor-audited-and-preserves-recovery-budgets');
+}
+
 async function supportPin(profile, context) {
   let created = false;
-  for (const [suffix, pin, expected] of [['set', '70934628', true], ['set', '84173059', true], ['revoke', null, false]]) {
-    const page = await context.newPage(); await page.goto(`${profile.issuer}/firefly-recovery/support-pin/${suffix}?kc_locale=en`);
+  let extraPin;
+  do { extraPin = [...randomBytes(8)].map(value => String(value % 10)).join(''); }
+  while (/^(\d)\1{7}$/.test(extraPin) || extraPin.slice(0, 4) === extraPin.slice(4)
+    || extraPin.slice(0, 2).repeat(4) === extraPin || '01234567890123456789'.includes(extraPin) || '98765432109876543210'.includes(extraPin));
+  for (const [suffix, pin, expected, administrativelyRevoke] of [['set', '70934628', true], ['set', '84173059', true], ['revoke', null, false], ['set', extraPin, true, true]]) {
+    stage(`customers-pin-${suffix}-navigation`);
+    const page = await context.newPage(); lastPage = page;
+    lastHttpStatus = (await page.goto(`${profile.issuer}/firefly-recovery/support-pin/${suffix}?kc_locale=en`)).status();
     await assertTranslation(page, 'en', suffix === 'revoke' ? 'ffidPinRevokeTitle' : 'ffidPinTitle');
     await captureEmptyNativeForm(page, `customers-pin-${suffix}-en-${results.length}`);
     await page.locator('#password').fill(profile.person.password); await page.locator('#otp').fill(await nextCode(profile));
     if (pin) { await page.locator('#pin').fill(pin); await page.locator('#pinConfirm').fill(pin); }
+    stage(`customers-pin-${suffix}-actual-stepup-submit`);
     await submitNativeForm(page, profile, '#ffid-pin-save', '/support-pin');
     await page.locator('#ffid-support-pin').waitFor({ state: 'detached' });
     assert.equal(snapshot(profile.kind).native.pinActive, expected, 'Actual native PIN lifecycle state differs');
+    if (pin && !created) await protectedPinAccountDeletionRefusal(profile);
     const retained = snapshot(profile.kind);
     const reloaded = await page.reload(); assert.equal(reloaded.request().method(), 'GET'); assert.equal(reloaded.status(), 200);
     assert.equal(await page.locator('#ffid-support-pin, input[type="password"]').count(), 0);
@@ -436,15 +532,15 @@ async function supportPin(profile, context) {
     await captureSafeJourney(page, `customers-pin-${suffix}-${results.length}`);
     await page.goto(`${profile.issuer}/firefly-recovery/support-pin?kc_locale=es`);
     await assertTranslation(page, 'es', 'ffidPinTitle');
-    if (created) await page.waitForFunction(() => {
+    await page.waitForFunction(() => {
         const time = document.querySelector('time[data-ffid-local-date]');
         return time && time.textContent === new Intl.DateTimeFormat(document.documentElement.lang,
           { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(time.dateTime));
       });
-    else assert.equal(await page.locator('time[data-ffid-local-date]').count(), 0, 'Initial PIN creation must not fabricate a replacement date');
     if (pin) created = true;
     assert.equal(snapshot(profile.kind).native.pinActive, expected, 'Localized status GET must not change PIN lifecycle state');
     await captureSafeJourney(page, `customers-pin-${suffix}-es-${results.length}`);
+    if (administrativelyRevoke) await administrativePinRevocation(profile, page);
     await page.close(); passed(`customers-pin-${pin ? 'set-or-rotate' : 'revoke'}-${results.length}`);
   }
 }
@@ -541,13 +637,51 @@ try {
     passed(`${profile.kind}-old-refresh-online-and-real-offline-sessions-retired`);
     const fresh = await browser.newContext(); await authenticate(profile, fresh);
     passed(`${profile.kind}-fresh-password-and-pre-enrolled-mfa-required-after-unlock`);
-    const account = await fresh.newPage(); await account.goto(`${profile.issuer}/account/`);
+    stage(`${profile.kind}-native-account-navigation`);
+    const account = await fresh.newPage(); lastPage = account; accountAssetStatuses = {}; accountErrorKinds = [];
+    account.on('pageerror', error => {
+      const kind = ['TypeError', 'ReferenceError', 'SyntaxError', 'Error'].includes(error.name) ? error.name : 'Error';
+      if (accountErrorKinds.length < 5) accountErrorKinds.push(kind);
+    });
+    account.on('response', async response => {
+      try {
+        const url = new URL(response.url());
+        for (const name of ['copyright.js', 'presentation-policy.js', 'native-account-links.js', 'firefly-console.css']) {
+          if (url.pathname.endsWith('/' + name)) accountAssetStatuses[name] = response.status();
+        }
+        const accountPath = `/realms/${profile.realm}/account`;
+        if (response.status() === 200 && response.headers()['content-type']?.startsWith('application/json')
+            && url.origin === origin && (url.pathname === accountPath || url.pathname.startsWith(accountPath + '/'))) {
+          const headers = await response.request().allHeaders();
+          if (headers.authorization?.startsWith('Bearer ')) accountAssertions.set(profile.kind, headers.authorization);
+        }
+      } catch { /* Only successful actual Account API responses can supply this private fixture assertion. */ }
+    });
+    lastHttpStatus = (await account.goto(`${profile.issuer}/account/`)).status();
     await account.locator('main').waitFor();
+    lastAccountInventory = await accountInventory(account);
+    accountEvidence[profile.kind] = lastAccountInventory;
     const pinLink = account.locator(`a[href="${profile.issuer}/firefly-recovery/support-pin"]`);
     if (profile.population === 'HUMAN') {
-      await pinLink.waitFor({ state: 'visible' }); await pinLink.click();
+      stage('customers-native-account-pin-entry-wait');
+      let entryAvailable = true;
+      try { await pinLink.waitFor({ state: 'visible' }); }
+      catch {
+        entryAvailable = false;
+        lastAccountInventory = await accountInventory(account); accountEvidence[profile.kind] = lastAccountInventory;
+        failed('customers-native-account-pin-entry', 'strict-native-account-pin-link-unavailable');
+      }
+      if (entryAvailable) await pinLink.click();
+      else {
+        stage('customers-independent-direct-native-pin-status');
+        lastHttpStatus = (await account.goto(`${profile.issuer}/firefly-recovery/support-pin`)).status();
+        assert.equal(lastHttpStatus, 200, 'Independent native PIN status still requires the genuine authenticated cookie');
+      }
+      assert.equal(await account.locator('.ffid-credential-status').count(), 1, 'Actual authenticated native PIN status must be rendered');
+      await assertTranslation(account, (await account.locator('html').getAttribute('lang')).startsWith('es') ? 'es' : 'en', 'ffidPinTitle');
       assert.equal(await account.locator('input[type="password"]').count(), 0, 'PIN status entry must not request a secret');
-      passed('customers-native-account-exposes-support-pin-status');
+      assert.equal(await account.locator('time[data-ffid-local-date]').count(), 0, 'Initially absent PIN must have no fabricated date');
+      if (entryAvailable) passed('customers-native-account-exposes-support-pin-status');
       await supportPin(profile, fresh);
     } else {
       assert.equal(await pinLink.count(), 0, 'Workforce account must not offer the customer support PIN');
@@ -575,11 +709,13 @@ try {
     assert.equal(tombstone.core[0].state, 'CONSUMED');
     passed(`${profile.kind}-explicit-fixture-user-deletion-preserves-native-tombstone-and-core-evidence`);
   }
-  await writeFile(`${output}/summary.json`, JSON.stringify({ status: 'PASSED', passed: results,
+  await writeFile(`${output}/summary.json`, JSON.stringify({ status: failedGates.length ? 'FAILED' : 'PASSED', passed: results,
+    failures: failedGates, accountInventory: accountEvidence, pinProtection: lastPinProtection,
     pending: [...(transportFaults ? [] : ['true simultaneous native execution requests', 'post-commit network response-loss injection', 'natural server ceremony expiry and swapped private attestation references']),
       'admitted actor JWT and consumed authorization receipt expiry in native runtime',
       'support PIN BPO/case/delegation owner acceptance', 'production/regulatory approval'],
     scope: 'Owned synthetic HTTPS native Keycloak/Core PostgreSQL/actual generated-SDK Domain acceptance only.' }, null, 2));
+  if (failedGates.length) process.exitCode = 1;
 } catch (error) {
   reportFailure(error, phase);
   const allowedNames = new Set(['AssertionError', 'Error', 'TypeError', 'TimeoutError']);
@@ -606,20 +742,26 @@ try {
   }
   if (lastPage && !lastPage.isClosed()) {
     try {
+      if (new URL(lastPage.url()).pathname.includes('/account/')) {
+        lastAccountInventory = await accountInventory(lastPage);
+        if (activePopulation) accountEvidence[activePopulation] = lastAccountInventory;
+      }
       for (const selector of ['#username', '#password', '#otp', '#totpSecret', '#kc-totp-secret-key', '.ffid-recovery-entry', '#ffid-native-recovery', '#ffid-support-pin']) {
         inventory[selector] = await lastPage.locator(selector).count();
       }
       const path = new URL(lastPage.url()).pathname;
       inventory.canonicalPath = path.endsWith('/protocol/openid-connect/auth') ? 'oidc-authorize'
         : path.includes('/login-actions/') ? 'native-login-action' : path.endsWith('/firefly-recovery') ? 'native-recovery'
-        : path.includes('/support-pin') ? 'native-pin' : path === '/oidc/callback' ? 'owned-callback' : 'other';
+        : path.includes('/support-pin') ? 'native-pin' : path.includes('/account/') ? 'account' : path.endsWith('/firefly-recovery/complete') ? 'native-completion'
+        : path === '/oidc/callback' ? 'owned-callback' : 'other';
     } catch { inventory = {}; }
   }
-  await writeFile(`${output}/summary.json`, JSON.stringify({ status: 'FAILED', passed: results, lastCompleted: phase,
+  await writeFile(`${output}/summary.json`, JSON.stringify({ status: 'FAILED', passed: results, failures: failedGates, lastCompleted: phase,
     currentStage, errorKind: allowedNames.has(error?.name) ? error.name : 'Error', sourceFrames: frames,
     networkCauseCode: allowedNetworkCodes.has(error?.cause?.code) ? error.cause.code : 'unclassified',
-    lastHttpStatus, lastNativeSubmission, inventory, counters, scope: 'Partial native integration; uncompleted stages are not qualified.' }, null, 2));
+    lastHttpStatus, lastNativeSubmission, inventory, lastAccountInventory, accountInventory: accountEvidence, lastPinProtection, counters,
+    scope: 'Partial native integration; uncompleted stages are not qualified.' }, null, 2));
   process.exitCode = 1;
 } finally {
-  pending.clear(); privateProofs.clear(); if (browser) await browser.close(); if (server) await new Promise(ok => server.close(ok));
+  pending.clear(); privateProofs.clear(); accountAssertions.clear(); if (browser) await browser.close(); if (server) await new Promise(ok => server.close(ok));
 }

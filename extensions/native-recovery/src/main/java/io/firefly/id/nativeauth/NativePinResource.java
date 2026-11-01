@@ -73,11 +73,13 @@ public final class NativePinResource {
             c.expiresAt = System.currentTimeMillis() + 120000; store.em.persist(c); return c.id;
         });
         NativeContracts.PinStatus status = new NativePinEngine(session).status(subject);
+        var lastChanged = status.revokedAt() != null ? status.revokedAt()
+                : status.replacedAt() != null ? status.replacedAt() : status.createdAt();
         NativeProfile profile = NativeProfile.of(session.getContext().getRealm()); String base = profile.issuer() + "/" + NativeContracts.EXTENSION + "/support-pin";
         Response response = session.getProvider(LoginFormsProvider.class).setAttribute("stage", stage).setAttribute("csrf", csrf)
                 .setAttribute("actionUrl", "STATUS".equals(stage) ? base + "/set" : base).setAttribute("accountUrl", profile.issuer() + "/account")
                 .setAttribute("revokeUrl", base + "/revoke").setAttribute("pinStatus", status.status())
-                .setAttribute("replacedAt", status.replacedAt() == null ? null : status.replacedAt().toString())
+                .setAttribute("lastChangedAt", lastChanged == null ? null : lastChanged.toString())
                 .setAttribute("messageKey", message).setAttribute("nativeCredentialForm", true).createForm("firefly-support-pin.ftl");
         var builder = Response.fromResponse(response).header("Cache-Control", "no-store");
         if (ceremonyId != null) builder.cookie(new NewCookie.Builder(COOKIE).value(ceremonyId)

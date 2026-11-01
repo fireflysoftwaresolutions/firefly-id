@@ -6,6 +6,7 @@ import org.keycloak.connections.jpa.JpaConnectionProvider;
 import org.keycloak.credential.CredentialModel;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.UserModel;
+import org.keycloak.events.admin.AdminEvent;
 import org.keycloak.models.jpa.entities.UserEntity;
 import org.keycloak.models.jpa.entities.CredentialEntity;
 import org.keycloak.storage.StorageId;
@@ -58,8 +59,19 @@ final class NativeStore {
         if (cache != null) cache.evict(session.getContext().getRealm(), user);
     }
     void audit(String subject, String event, String reference) {
+        em.persist(auditRecord(subject, event, reference));
+    }
+    void auditAdmin(String subject, String event, String reference, AdminEvent source) {
+        NativeAudit audit = auditRecord(subject, event, reference);
+        var actor = source.getAuthDetails(); require(actor != null);
+        audit.actorRealmId = auditValue(actor.getRealmId()); audit.actorSubject = auditValue(actor.getUserId());
+        audit.actorClientId = auditValue(actor.getClientId()); audit.adminEventId = auditValue(source.getId());
+        em.persist(audit);
+    }
+    static String auditValue(String value) { require(value != null && !value.isBlank() && value.length() <= 1024); return value; }
+    private NativeAudit auditRecord(String subject, String event, String reference) {
         NativeAudit audit = new NativeAudit(); audit.id = UUID.randomUUID().toString(); audit.realmId = session.getContext().getRealm().getId();
-        audit.subject = subject; audit.eventType = event; audit.referenceId = reference; audit.occurredAt = System.currentTimeMillis(); em.persist(audit);
+        audit.subject = subject; audit.eventType = event; audit.referenceId = reference; audit.occurredAt = System.currentTimeMillis(); return audit;
     }
     NativeCeremony ceremony(String id) {
         NativeCeremony ceremony = storedCeremony(id);

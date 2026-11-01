@@ -13,6 +13,7 @@ import shutil
 import socket
 import ssl
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -302,6 +303,28 @@ def ceremony_state(kind):
     print(json.dumps(value))
 
 
+def private_pin(kind):
+    if kind != 'customers': raise RuntimeError('Owned customer PIN fixture required')
+    directory, owner = state()
+    profile = next(value for value in json.loads((directory / 'credentials.json').read_text())['profiles'] if value['kind'] == kind)
+    subject = profile['person']['id']
+    if not re.fullmatch(r'[0-9a-f-]{36}', subject): raise RuntimeError('Noncanonical fixture subject')
+    print(psql(directory, owner, f"SELECT json_build_object('credentialId',pin_credential_id,'stored',(SELECT count(*) FROM credential c WHERE c.id=s.pin_credential_id),'active',(pin_credential_id IS NOT NULL AND pin_revoked_at=0),'generation',pin_generation,'revoked',pin_revoked_at>0,'held',pin_held,'failures',pin_failures,'reserved',pin_reserved,'adminAuditCount',(SELECT count(*) FROM ff_native_audit a WHERE a.subject=s.subject AND a.event_type='PIN_REVOKED_ADMINISTRATIVE'),'adminAudit',(SELECT json_build_object('actorRealmId',a.actor_realm_id,'actorSubject',a.actor_subject,'actorClientId',a.actor_client_id,'eventId',a.admin_event_id,'generationMatches',a.reference_id=s.pin_generation,'eventActorMatches',e.auth_realm_id=a.actor_realm_id AND e.auth_user_id=a.actor_subject AND e.auth_client_id=a.actor_client_id,'eventRealmMatches',e.realm_id=s.realm_id,'eventActionMatches',e.operation_type='ACTION' AND e.resource_type='USER' AND e.error IS NULL,'resourcePath',e.resource_path) FROM ff_native_audit a LEFT JOIN admin_event_entity e ON e.id=a.admin_event_id WHERE a.subject=s.subject AND a.event_type='PIN_REVOKED_ADMINISTRATIVE' ORDER BY a.occurred_at DESC LIMIT 1)) FROM ff_native_state s WHERE s.subject='{subject}';", 'native_kc'))
+
+
+def private_credential_exists(kind):
+    if kind != 'customers': raise RuntimeError('Owned customer credential fixture required')
+    directory, owner = state()
+    profile = next(item for item in json.loads((directory / 'credentials.json').read_text())['profiles'] if item['kind'] == kind)
+    subject = profile['person']['id']
+    if not re.fullmatch(r'[0-9a-f-]{36}', subject): raise RuntimeError('Noncanonical fixture subject')
+    value = json.loads(sys.stdin.read(2049))
+    if set(value) != {'credentialId'} or not isinstance(value['credentialId'], str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', value['credentialId']):
+        raise RuntimeError('Canonical private credential reference required')
+    stored = psql(directory, owner, f"SELECT count(*) FROM credential WHERE id='{value['credentialId']}' AND user_id='{subject}';", 'native_kc')
+    print(json.dumps({'stored': int(stored)}))
+
+
 def serve_proxy(kind):
     if not faults_enabled(): raise RuntimeError('Owned transport faults require explicit hosted opt-in')
     directory, owner = state()
@@ -409,7 +432,7 @@ def stop():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['prepare', 'start', 'stop', 'restart', 'snapshot', 'serve_proxy', 'arm_record_loss', 'arm_verify_race', 'fault_status', 'private_proof', 'ceremony_state'])
+    parser.add_argument('action', choices=['prepare', 'start', 'stop', 'restart', 'snapshot', 'serve_proxy', 'arm_record_loss', 'arm_verify_race', 'fault_status', 'private_proof', 'ceremony_state', 'private_pin', 'private_credential_exists'])
     parser.add_argument('--population', choices=['customers', 'workforce'])
     args = parser.parse_args(); require_hosted()
     if args.action == 'snapshot': snapshot(args.population)
@@ -419,6 +442,8 @@ def main():
     elif args.action == 'fault_status': fault_status(args.population)
     elif args.action == 'private_proof': private_proof(args.population)
     elif args.action == 'ceremony_state': ceremony_state(args.population)
+    elif args.action == 'private_pin': private_pin(args.population)
+    elif args.action == 'private_credential_exists': private_credential_exists(args.population)
     else: globals()[args.action]()
 
 

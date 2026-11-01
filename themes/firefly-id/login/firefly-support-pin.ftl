@@ -38,7 +38,7 @@
         <p>${msg("ffidPinStatusInstruction")}</p>
         <dl class="ffid-credential-status">
           <div><dt>${msg("ffidPinStatusLabel")}</dt><dd><#if (pinStatus!"ABSENT") == "ACTIVE">${msg("ffidPinActive")}<#elseif (pinStatus!"ABSENT") == "LOCKED">${msg("ffidPinLocked")}<#else>${msg("ffidPinAbsent")}</#if></dd></div>
-          <#if replacedAt?? && replacedAt?has_content><div><dt>${msg("ffidPinReplacedLabel")}</dt><dd><time datetime="${replacedAt}" data-ffid-local-date>${replacedAt}</time></dd></div></#if>
+          <#if lastChangedAt?? && lastChangedAt?has_content><div><dt>${msg("ffidPinReplacedLabel")}</dt><dd><time datetime="${lastChangedAt}" data-ffid-local-date>${lastChangedAt}</time></dd></div></#if>
         </dl>
         <a class="${properties.kcButtonClass!} ${properties.kcButtonPrimaryClass!} ${properties.kcButtonBlockClass!}" href="${actionUrl}">${msg("ffidPinReplace")}</a>
         <#if revokeUrl?? && (pinStatus!"ABSENT") != "ABSENT"><a class="ffid-journey-return" href="${revokeUrl}">${msg("ffidPinRevoke")}</a></#if>

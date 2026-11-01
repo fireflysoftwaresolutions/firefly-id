@@ -14,6 +14,10 @@ Replacing the PIN advances its independent credential generation, invalidating p
 
 Accepted lifecycle form submissions redirect with HTTP 303 to the authenticated status GET, so refreshing does not resubmit secrets or repeat a change. Status GET does not allocate a new native mutation ceremony. Any generic failure notice belongs to the same authenticated subject's consumed ceremony; a fresh set/revoke form creates its own one-time CSRF state.
 
+Privileged security administration has a separate, access-reducing **revocation-only** policy. Keycloak's authenticated, target-user management permission may delete a compromised native PIN without asking the customer for that PIN or password. The native listener retires its credential reference and generation, records revocation time and hold, and preserves login/recovery/verification budgets. It cannot create or replace the PIN, unlock an account or confer customer authority. Ordinary Account REST cannot remove this custom credential through its generic deletion endpoint; customer self-service uses the native step-up journey.
+
+Administrative revocation emits an append-only `PIN_REVOKED_ADMINISTRATIVE` record with the actual authenticated admin realm, subject, internal client row ID and Keycloak administrative event ID. These values come from the server's `AdminEvent`, never request headers or body claims. Missing attribution vetoes the transaction. The native event and credential deletion commit together; the status then reads not configured and shows the actual latest lifecycle change. Production administration still requires its private ingress, named least-privileged identities, strong MFA and approved operational procedure. A BPO support session is not an administrative identity.
+
 ## Credential protection and key rotation
 
 Native storage uses an independently versioned HMAC-SHA-256 pepper followed by the native Argon2 password hash provider. HMAC input includes the realm and opaque subject. This protects a low-entropy PIN from database-only offline guessing; it does not make an eight-digit secret a high-entropy factor or establish factor independence by itself.
