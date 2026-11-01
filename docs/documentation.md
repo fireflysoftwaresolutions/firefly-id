@@ -12,6 +12,7 @@ The handbook lives with the implementation. Markdown is the authored source; MkD
 | `docs/stylesheets/extra.css` | Read-surface styles using canonical Firefly tokens and self-hosted Manrope |
 | `docs/overrides/partials/copyright.html` | Foundation copyright, Keycloak recognition and documentation-tool credit |
 | `docs/overrides/partials/source.html` | Plain repository link without automatic third-party repository-statistics requests |
+| `docs/overrides/partials/path.html` | Accessible handbook/section/page trail, including a homepage grouped under Overview |
 | `tooling/documentation_support.py` | Dependency-free source-link, publication-scope and generated-policy helpers |
 | `tooling/mkdocs_hooks.py` | Generated references, original asset inclusion and build provenance |
 | `.github/workflows/documentation.yml` | Hosted strict build/output/browser qualification |
