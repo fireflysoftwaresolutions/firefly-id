@@ -6,11 +6,27 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { reportFailure } from './safe-errors.mjs';
 import { selectNewRecoveryMessage } from './recovery-mail.mjs';
+import { readAdminValidation } from './policy-runtime.mjs';
 
 const BASE = 'http://id.firefly.test:8180';
 const REDIRECT = 'http://localhost:3000/oidc/callback';
 const CLIENT = 'sandbox-web';
 const delay = milliseconds => new Promise(ok => setTimeout(ok, milliseconds));
+
+export function extendedFailureDiagnostics(error) {
+  const result = { sourceFrames: String(error?.stack || '').split('\n').flatMap(line => {
+    const frame = line.match(/tooling\/extended-runtime\.mjs:(\d{1,6}):(\d{1,5})/);
+    return frame ? [`extended-runtime.mjs:${frame[1]}:${frame[2]}`] : [];
+  }).slice(0, 4) };
+  const allowed = new Set(['localhost', 'http://localhost:8180', 'required', 'preferred', 'discouraged', 'not specified']);
+  for (const name of ['actual', 'expected']) {
+    const value = error?.[name];
+    const type = typeof value;
+    result[`${name}Type`] = ['undefined', 'boolean', 'number', 'string', 'object'].includes(type) ? type : 'other';
+    if (type === 'boolean' || (Number.isInteger(value) && value >= 0 && value <= 1000) || allowed.has(value)) result[name] = value;
+  }
+  return result;
+}
 
 export function verificationExpiryDelay(claims, now = Date.now()) {
   assert.ok(Number.isInteger(claims.iat) && Number.isInteger(claims.exp)
@@ -113,6 +129,7 @@ async function main() {
   let server;
   let phase = 'extended setup';
   let ownedRealm;
+  let adminValidation;
   const pending = new Map();
   try {
     const selected = (process.env.FIREFLY_ID_EXTENDED_FLOWS || 'verify,profile,mfa').split(',');
@@ -145,6 +162,7 @@ async function main() {
     let adminAuthorization;
     async function adminRead(url) {
       if (!adminPage) {
+        const callerPhase = phase;
         const context = await browser.newContext();
         adminPage = await context.newPage();
         adminPage.setDefaultTimeout(20000);
@@ -152,11 +170,16 @@ async function main() {
           && new URL(response.url()).pathname.startsWith('/admin/realms')
           && (await response.request().allHeaders()).authorization?.startsWith('Bearer '), { timeout: 40000 });
         authenticated.catch(() => {});
+        phase = 'administrative console navigation';
         await adminPage.goto(`${BASE}/admin/master/console/`);
+        phase = 'administrative username form';
         await adminPage.locator('#username').fill('sandbox-bootstrap');
+        phase = 'administrative password form';
         await adminPage.locator('#password').fill((await readFile(`${stateDir}/secrets/admin-password`, 'utf8')).trim());
+        phase = 'administrative authenticated response';
         await adminPage.locator('#kc-login').click();
         adminAuthorization = (await (await authenticated).request().allHeaders()).authorization;
+        phase = callerPhase;
       }
       assert.ok(adminAuthorization?.startsWith('Bearer '), 'Actual browser administrative bearer required');
       const claims = JSON.parse(Buffer.from(adminAuthorization.slice(7).split('.')[1], 'base64url'));
@@ -182,6 +205,7 @@ async function main() {
         method: create ? 'POST' : 'PUT', headers: { Authorization: adminAuthorization, 'Content-Type': 'application/json' },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
+      if (response.status !== (create ? 201 : 204)) adminValidation = await readAdminValidation(response);
       assert.equal(response.status, create ? 201 : 204, 'Owned authenticator fixture operation refused');
     }
 
@@ -331,20 +355,28 @@ async function main() {
       const name = `sandbox-authenticators-${randomBytes(6).toString('hex')}`;
       const fixture = authenticatorFixtureRealm(JSON.parse(await readFile(`${stateDir}/realms/sandbox-customers-realm.json`, 'utf8')),
         name, `Aa1${randomBytes(36).toString('base64url')}`);
-      phase = 'isolated realm import and exact RP readback';
+      phase = 'isolated realm import HTTP response';
       await fixtureWrite(name, '', fixture, true);
       ownedRealm = name;
       const realmApi = `${BASE}/admin/realms/${name}`;
+      phase = 'isolated realm administrative readback HTTP response';
       const installed = await adminRead(realmApi);
-      assert.equal(installed.attributes.frontendUrl, 'http://localhost:8180');
+      phase = 'isolated realm frontend origin readback';
+      assert.equal(installed.attributes?.frontendUrl, 'http://localhost:8180');
+      phase = 'isolated realm RP identifier readback';
       assert.equal(installed.webAuthnPolicyPasswordlessRpId, 'localhost');
+      phase = 'isolated realm resident-key policy readback';
       assert.equal(installed.webAuthnPolicyPasswordlessResidentKey, 'required');
+      phase = 'isolated realm user-verification policy readback';
       assert.equal(installed.webAuthnPolicyPasswordlessUserVerificationRequirement, 'required');
       const population = name.slice('sandbox-'.length);
       const issuer = `http://localhost:8180/realms/${name}`;
+      phase = 'isolated realm discovery HTTP response';
       const metadata = await jsonRequest(`${issuer}/.well-known/openid-configuration`);
+      phase = 'isolated realm discovery issuer readback';
       assert.equal(metadata.issuer, issuer);
       metadataCache.set(population, metadata);
+      phase = 'isolated realm synthetic user readback';
       const users = await adminRead(`${realmApi}/users?max=10`);
       async function userFor(username) {
         const matches = users.filter(user => user.username === username);
@@ -654,6 +686,7 @@ async function main() {
     const evidence = resolve('.work/extended-runtime');
     await mkdir(evidence, { recursive: true });
     await writeFile(`${evidence}/summary.json`, JSON.stringify({ status: 'failed', phase, results,
+      ...extendedFailureDiagnostics(error), ...(adminValidation ? { adminValidation } : {}),
       scope: 'Fixed stage labels only; no raw mail, credentials, tokens, authenticator keys or browser traces.' }, null, 2));
     process.exitCode = 1;
   } finally {

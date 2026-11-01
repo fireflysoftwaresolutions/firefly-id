@@ -12,6 +12,23 @@ class ExtendedAuthenticatorFixtureTest(unittest.TestCase):
                                 text=True, capture_output=True, cwd=ROOT)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_failure_diagnostics_expose_only_fixed_values_and_source_locations(self):
+        self.node("""
+import assert from 'node:assert/strict';
+import { extendedFailureDiagnostics } from './tooling/extended-runtime.mjs';
+const error = { actual: 'PRIVATE_SENTINEL', expected: 201,
+  stack: 'Error PRIVATE_SENTINEL https://private.invalid/?token=PRIVATE_SENTINEL\\n at run (file:///owned/tooling/extended-runtime.mjs:123:45)' };
+const result = extendedFailureDiagnostics(error);
+assert.deepEqual(result.sourceFrames, ['extended-runtime.mjs:123:45']);
+assert.equal(result.expected, 201);
+assert.equal(result.actualType, 'string');
+assert.ok(!JSON.stringify(result).includes('PRIVATE_SENTINEL'));
+assert.equal(extendedFailureDiagnostics({ actual: false, expected: true }).actual, false);
+assert.equal(extendedFailureDiagnostics({ actual: 'localhost', expected: 'required' }).actual, 'localhost');
+assert.equal(extendedFailureDiagnostics({ actual: undefined }).actualType, 'undefined');
+assert.ok(!Object.hasOwn(extendedFailureDiagnostics({ actual: 123456789 }), 'actual'));
+""")
+
     def test_owned_rp_fixture_does_not_modify_existing_realm_or_open_other_origins(self):
         self.node("""
 import assert from 'node:assert/strict';
