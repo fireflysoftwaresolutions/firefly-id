@@ -15,6 +15,7 @@ import ssl
 import subprocess
 import sys
 import time
+import traceback
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -22,6 +23,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 LABEL = 'org.firefly-id.native-fixture'
 PHASE = 'initialization'
+PROCESS_FAILURE = {}
 
 
 def faults_enabled():
@@ -121,11 +123,13 @@ def tls(directory, credentials):
 
 
 def wait_https(url, directory, process=None):
-    global PHASE
+    global PHASE, PROCESS_FAILURE
     PHASE = 'https-readiness-' + str(urllib.parse.urlsplit(url).port)
     context = ssl.create_default_context(cafile=str(directory / 'tls/ca.crt'))
     for _ in range(120):
-        if process is not None and process.poll() is not None: raise RuntimeError('Owned service exited before TLS readiness')
+        if process is not None and process.poll() is not None:
+            PROCESS_FAILURE = {'stage': PHASE, 'exitCode': process.returncode}
+            raise RuntimeError('Owned service exited before TLS readiness')
         try:
             with urllib.request.urlopen(url, context=context, timeout=2) as response:
                 if response.status < 500: return
@@ -326,6 +330,8 @@ def private_credential_exists(kind):
 
 
 def serve_proxy(kind):
+    global PHASE
+    PHASE = 'relay-initialization'
     if not faults_enabled(): raise RuntimeError('Owned transport faults require explicit hosted opt-in')
     directory, owner = state()
     profile = next(value for value in json.loads((directory / 'credentials.json').read_text())['profiles'] if value['kind'] == kind)
@@ -391,10 +397,13 @@ def serve_proxy(kind):
     class OwnedServer(http.server.ThreadingHTTPServer):
         daemon_threads = True
         def handle_error(self, *_): pass
+    PHASE = 'relay-bind'
     server = OwnedServer(('127.0.0.1', profile['domain_port']), Proxy)
     tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    PHASE = 'relay-certificate-load'
     tls_context.load_cert_chain(directory / 'tls/server.crt', directory / 'tls/proxy.key')
     server.socket = tls_context.wrap_socket(server.socket, server_side=True)
+    PHASE = 'relay-serving'
     server.serve_forever()
 
 
@@ -449,13 +458,37 @@ def main():
 
 if __name__ == '__main__':
     try: main()
-    except Exception:
+    except Exception as failure:
         evidence = ROOT / '.work/native-integration'
         evidence.mkdir(parents=True, exist_ok=True)
-        diagnostic = {'status': 'BOOT_OR_LIFECYCLE_FAILED', 'stage': PHASE, 'exceptionClasses': []}
+        allowed_python_errors = {'OSError', 'FileNotFoundError', 'PermissionError', 'RuntimeError', 'TypeError', 'ValueError',
+                                 'SSLError', 'SSLCertVerificationError', 'StopIteration', 'JSONDecodeError'}
+        diagnostic = {'status': 'BOOT_OR_LIFECYCLE_FAILED', 'stage': PHASE, 'exceptionClasses': [],
+                      'component': 'relay' if len(sys.argv) > 1 and sys.argv[1] == 'serve_proxy' else 'fixture',
+                      'pythonErrorKind': type(failure).__name__ if type(failure).__name__ in allowed_python_errors else 'Error',
+                      'pythonErrno': {2: 'ENOENT', 13: 'EACCES', 48: 'EADDRINUSE', 98: 'EADDRINUSE'}.get(getattr(failure, 'errno', None), 'unclassified'),
+                      'sourceFrames': ['native_integration_fixture.py:' + str(frame.lineno) for frame in traceback.extract_tb(failure.__traceback__)
+                                       if Path(frame.filename).resolve() == Path(__file__).resolve()][-6:]}
+        if PROCESS_FAILURE: diagnostic['processFailure'] = PROCESS_FAILURE
+        try:
+            previous = json.loads((evidence / 'boot-summary.json').read_text())
+            if previous.get('component') == 'relay':
+                diagnostic['relayFailure'] = {key: previous[key] for key in ('stage', 'pythonErrorKind', 'pythonErrno', 'sourceFrames') if key in previous}
+        except (OSError, ValueError): pass
         try:
             directory, owner = state()
             credentials = json.loads((directory / 'credentials.json').read_text())
+            diagnostic['processStates'] = []
+            known_kinds = {service + '-' + population for service in ('core', 'domain', 'proxy') for population in ('customers', 'workforce')}
+            for process in owner['processes']:
+                command = Path('/proc') / str(process['pid']) / 'cmdline'
+                try: owned_running = process['jar'].encode() in command.read_bytes()
+                except OSError: owned_running = False
+                diagnostic['processStates'].append({'kind': process['kind'] if process['kind'] in known_kinds else 'other', 'ownedRunning': owned_running})
+            diagnostic['loopbackPorts'] = {}
+            for port in (8443, 8444, 8445, 8446, 8447, 8449, 8451):
+                with socket.socket() as probe:
+                    probe.settimeout(0.2); diagnostic['loopbackPorts'][str(port)] = probe.connect_ex(('127.0.0.1', port)) == 0
             secrets_to_redact = [credentials[key] for key in ('postgres', 'keycloak-db', 'core-db', 'admin', 'store')]
             secrets_to_redact += [profile['person']['password'] for profile in credentials['profiles']]
             secrets_to_redact += [path.read_text().strip() for path in (directory / 'secrets').iterdir() if path.is_file()]
