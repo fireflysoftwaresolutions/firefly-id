@@ -7,9 +7,12 @@ The `firefly-id` theme gives login, logout, account management, administration, 
 | Theme | Select for | Backend requirement |
 | --- | --- | --- |
 | `firefly-id` | Ordinary login, account, administration, email and welcome | Standard Keycloak distribution |
-| `firefly-id-native` | Login with native recovery and customer account support-PIN entry | Installed/configured native provider, gateway and relevant owning services |
+| `firefly-id-native` login | Adds the existing-factor **Unlock your account** entry | Installed/configured native provider, Domain gateway and Domain/Core SCA services |
+| `firefly-id-native` account | Adds the customer support-PIN entry | Installed/configured native provider, customer profile and PIN keys |
 
 Keep workforce account self-service on `firefly-id`; the customer support PIN is not an employee credential. Select the native login theme only after configuring its backend endpoints. Theme selection displays the entry point; it does not install the native API.
+
+The ordinary `firefly-id` login also displays **Recover access** when the realm enables customer credential-loss recovery and configures its Domain origin. Install and configure the native provider, Core KYCB, customer Domain and verification adapter before enabling that feature. A deployment offering credential-loss recovery alone can keep the ordinary login theme; the supplied native image still bundles both provider JARs. See [credential-loss setup](credential-loss-recovery.md#configure-native-identity).
 
 ## Build the package
 

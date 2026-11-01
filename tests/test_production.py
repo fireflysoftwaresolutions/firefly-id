@@ -135,6 +135,27 @@ class ProductionAuditTest(unittest.TestCase):
         realms['customers']['passwordPolicy'] += ' and length(1)'
         self.assertIn('REALM_PASSWORD_POLICY', self.findings(realms=realms))
 
+    def test_whitespace_cannot_hide_last_wins_password_policy_overrides(self):
+        for override in ('length (1)', ' length(1)', '\tlength\t(1)',
+                         'passwordHistory (0)', ' hashAlgorithm (pbkdf2)'):
+            with self.subTest(override=override):
+                realms = copy.deepcopy(self.realms)
+                realms['customers']['passwordPolicy'] += ' and ' + override
+                self.assertIn('REALM_PASSWORD_POLICY', self.findings(realms=realms))
+
+    def test_proxy_ranges_cannot_collectively_trust_every_address(self):
+        for proxies in ('0.0.0.0/1,128.0.0.0/1', '::/1,8000::/1',
+                        '0.0.0.0/2,64.0.0.0/2,128.0.0.0/1',
+                        '10.24.0.0/24,::/1,8000::/1'):
+            with self.subTest(proxies=proxies):
+                server = dict(self.server, **{'proxy-trusted-addresses': proxies})
+                self.assertIn('SERVER_PROXY_TRUST', self.findings(server=server))
+
+    def test_explicit_dual_stack_proxy_networks_remain_valid(self):
+        server = dict(self.server, **{
+            'proxy-trusted-addresses': '10.24.0.0/25,10.24.0.128/25,fd24::/64'})
+        self.assertEqual([], self.findings(server=server))
+
     def test_management_tls_override_and_opaque_grant_switches_are_refused(self):
         server = dict(self.server, **{'https-management-protocols': 'TLSv1'})
         self.assertIn('SERVER_TRANSPORT', self.findings(server=server))

@@ -54,6 +54,8 @@ python3 scripts/sandbox.py status --state .state/evaluation
 | Purpose | Address |
 | --- | --- |
 | Identity service | `http://id.firefly.test:8180` |
+| Customer Account Console | `http://id.firefly.test:8180/realms/sandbox-customers/account/` |
+| Workforce Account Console | `http://id.firefly.test:8180/realms/sandbox-workforce/account/` |
 | Customer discovery | `http://id.firefly.test:8180/realms/sandbox-customers/.well-known/openid-configuration` |
 | Temporary administration | `http://id.firefly.test:8180/admin/master/console/` |
 | Synthetic mail viewer | `http://127.0.0.1:8025` |
@@ -62,6 +64,8 @@ python3 scripts/sandbox.py status --state .state/evaluation
 The administrator username is `sandbox-bootstrap`; its random password is in `.state/evaluation/secrets/admin-password`. Application usernames/passwords are in `.state/evaluation/credentials.json`. Read these locally and keep them out of logs, tickets and commits.
 
 ## Sign in and explore
+
+Open the customer Account Console and sign in with the customer username/password recorded in `.state/evaluation/credentials.json`. This built-in application lets you explore profile, credentials and sessions immediately. Use the workforce Account Console with its separate recorded workforce credentials to try employee enrollment and sign-in.
 
 The environment has separate customer, workforce and institutional-human realms. Workforce users enroll an authenticator before finishing their first fresh sign-in. Customer MFA is optional in the base sandbox. English and Spanish follow native locale selection and the optional footer control.
 

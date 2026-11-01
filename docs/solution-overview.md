@@ -19,7 +19,7 @@ The standard distribution can operate without native recovery. Applications conn
 | Component | Responsibility | Needed for |
 | --- | --- | --- |
 | Native recovery provider | Local factor checks, lock tracking, protected ceremonies and credential/session changes | Existing-factor unlock, support PIN and credential replacement |
-| Domain gateway | Authenticated communication between the native provider and recovery orchestration | Native unlock and credential-loss journeys |
+| Domain gateway | Authenticated communication between the native provider and Domain SCA | Existing-factor unlock |
 | Domain/Core SCA services | Purpose-bound challenges and authorization for existing-factor unlock | Unlock with remembered password and enrolled authenticator |
 | Core KYCB | Authoritative verification records, recovery cases, grants and execution references | Recovery after losing credentials |
 | Customer KYC/KYB Domain | Integrates the selected verification provider and coordinates the customer journey | Independent identity verification |
@@ -27,7 +27,7 @@ The standard distribution can operate without native recovery. Applications conn
 
 These services have separate credentials and responsibilities. Identity owns passwords, authenticator state and native account restrictions. Core owns business records and recovery authority. Domain coordinates the appropriate service and provider. A successful browser redirect or a machine credential does not substitute for the owner's authorization.
 
-Install the native provider and its database changes before enabling native behavior. Configure all service endpoints, workload identities, origins and keys, then select the native login/customer-account theme. See [native installation](native-recovery.md) and [credential-loss recovery](credential-loss-recovery.md).
+Install the native provider and its database changes before enabling native behavior. The supplied native image bundles both provider JARs; credential-loss communication with customer Domain is implemented inside the native recovery provider. Configure the endpoints, workload identities, origins and keys for the selected journey. Select `firefly-id-native` login only when offering existing-factor unlock, and its customer account theme when offering support PIN management. Configured credential-loss recovery is available from the ordinary `firefly-id` login theme. See [native installation](native-recovery.md) and [credential-loss recovery](credential-loss-recovery.md).
 
 ## Identity populations
 

@@ -39,6 +39,8 @@ The account and administration consoles use their inherited translation bundles 
 
 Keycloak selects transactional email language from its user/session locale context. The theme supplies subjects, action labels, HTML/plain-text content and footer copy. It does not choose recipients or send mail itself. Configure and verify the real email channel separately.
 
+The service's root welcome page is independent of any realm. Its self-hosted presentation script selects the first supported English or Spanish browser preference, without redirecting or changing an authentication session. It falls back to English when JavaScript is unavailable or no supported preference exists. Realm, profile and OIDC locale choices apply after entering the application's authentication journey.
+
 ## Verify the experience
 
 Check a fresh English browser, a fresh Spanish browser, an unsupported browser language and an explicit application override. Continue through sign-in, refusal, logout, verification, recovery and enabled factor enrollment without losing the original flow. Review Spanish wrapping, keyboard focus, masked password fields and delivered HTML/plain-text messages in both appearances.

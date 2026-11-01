@@ -92,6 +92,9 @@ class ThemePackagingTest(unittest.TestCase):
         upstream = upstream.replace(heading, heading + upstream_locale_header)
         upstream = upstream.replace('kc-login-tooltip" type="button"\n', 'kc-login-tooltip" type="button" \n')
         upstream = upstream.replace('class="ffid-icon ffid-icon--sync"', 'class="fa-sync-alt fas"')
+        accessible_group = '<@field.group name="kc-attempted-username" label=label>'
+        self.assertEqual(upstream.count(accessible_group), 1)
+        upstream = upstream.replace(accessible_group, '<@field.group name="username" label=label>')
         native_referrer = '''    <#if nativeCredentialForm!false>
     <meta name="referrer" content="same-origin">
     </#if>
@@ -145,6 +148,9 @@ class ThemePackagingTest(unittest.TestCase):
                 self.assertIn("META-INF/LICENSE", names)
                 self.assertIn("META-INF/NOTICE", names)
                 self.assertIn("META-INF/licenses/lucide-ISC-MIT.txt", names)
+                welcome_script = "theme/firefly-id/welcome/resources/js/welcome-locale.js"
+                self.assertEqual(archive.read(welcome_script),
+                                 (ROOT / "themes/firefly-id/welcome/resources/js/welcome-locale.js").read_bytes())
                 for kind in ("login", "account", "admin"):
                     self.assertIn(f"theme/firefly-id/{kind}/resources/css/firefly-tokens.css", names)
                     self.assertIn(f"theme/firefly-id/{kind}/resources/img/icons/16/error.svg", names)
@@ -161,6 +167,8 @@ class ThemePackagingTest(unittest.TestCase):
         self.assertNotIn("http://", layout)
         self.assertIn('${locale.language}', layout)
         self.assertIn("Firefly Identity", layout)
+        self.assertIn('>identity</span>', layout)
+        self.assertNotIn('>id</span>', layout)
 
     def test_packaged_footers_recognize_keycloak_without_losing_firefly_copyright(self):
         spec = importlib.util.spec_from_file_location("build_theme", ROOT / "tooling/build_theme.py")

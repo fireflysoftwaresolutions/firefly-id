@@ -60,7 +60,9 @@ Passwords, TOTP secrets and raw biometric/document evidence do not enter the ser
 
 ## Configure Native Identity
 
-Install the providers, matching theme and native database objects described in [native installation](native-recovery.md#install-and-expose-the-entry). The feature is disabled unless explicitly configured. All attributes below use prefix `firefly.reproofing.`:
+Build the bundled native image and install its database objects using [native installation](native-recovery.md#build-the-native-image). Credential-loss recovery uses the customer Domain transport inside the native recovery provider; the separate gateway and SCA services serve existing-factor unlock. Keep `firefly-id` as the login theme when offering credential-loss recovery alone. Its **Recover access** link appears when `firefly.reproofing.enabled=true`, population is `HUMAN` and `domain-origin` is configured. Select `firefly-id-native` login only if existing-factor unlock is also configured, since that variant additionally displays **Unlock your account**.
+
+The feature is disabled unless explicitly configured. All attributes below use prefix `firefly.reproofing.`:
 
 | Attribute | Value or purpose |
 | --- | --- |

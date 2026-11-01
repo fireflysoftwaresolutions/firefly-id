@@ -17,6 +17,28 @@ Eligible people are local, nonprivileged identities in an explicitly configured 
 
 ## Install and expose the entry
 
+### Build the native image
+
+Use a build host with Python 3.11+, Node.js 22, Java 21, Maven and a container engine. Maven must be able to retrieve the dependencies declared in `extensions/pom.xml` and its two modules; the image build must be able to retrieve the pinned Keycloak image. Run from the repository root, with `dist/native` absent:
+
+```sh
+make check
+python3 tooling/build_theme.py
+mvn -B -ntp -f extensions/pom.xml verify
+python3 tooling/package_native.py \
+  --native-jar extensions/native-recovery/target/firefly-id-native-recovery-26.10.1-SNAPSHOT.jar \
+  --gateway-jar extensions/native-domain-gateway/target/firefly-id-native-domain-gateway-26.10.1-SNAPSHOT.jar
+docker build --file deploy/Containerfile.native --tag firefly-id-native:local .
+```
+
+The packager validates Java 21 class versions, provider registrations, database mappings and notices. It writes the two installation JARs under `dist/native/providers/` and their hashes in `dist/native/manifest.json`. The image consumes those JARs and the matching theme, then runs Keycloak's optimized build with the native brute-force provider selected.
+
+Packaging refuses an existing output. Preserve previous packages; use a fresh build checkout for another image build, or choose a new `--output` for a separately retained package. The supplied Containerfile always reads `dist/native/providers/`. Use a unique image tag for deployment and retain its immutable digest with the package manifest.
+
+### Install and configure
+
+Deploy the built image using the server configuration, protected mounts and network setup in [operations](operations.md). For an existing supported Keycloak installation, use the packaged JARs as follows:
+
 1. Install the two native provider JARs in the Keycloak provider directory with the matching theme. The [native container definition](../deploy/Containerfile.native) shows the optimized-image arrangement. Keep application-service libraries out of the provider directory.
 2. Back up the native database and approve its additive JPA/Liquibase changes before starting the upgraded provider. Feature configuration does not prevent schema registration.
 3. Configure the actual Domain and Core SCA services and trusted HTTPS connectivity in both directions.
@@ -50,6 +72,8 @@ All of these are server-controlled realm attributes under `firefly.native-recove
 | `ttl-seconds` | Positive ceremony lifetime, at most 300 seconds for customers or 180 for workforce |
 
 Make tenant and owner-link attributes administrative fields, not editable profile inputs. Each service must separately enable its native owner integration and restricted self-recovery policy. Its native RPC base is `{issuer}/firefly-recovery/rpc`. Use distinct population-specific workload credentials and mounted secrets; do not reuse an ordinary application client.
+
+Both workload clients must be enabled and confidential, with standard authorization-code, direct-access/password, implicit, service-account/client-credentials, device, CIBA, standard token-exchange and JWT authorization grants disabled. Their credentials authenticate private RPC calls; they must not obtain ordinary OAuth tokens.
 
 The native gateway accepts responses up to 64 KiB and bounds a request to five seconds. Configure real certificate trust and service availability; redirects and trust-all transport are unsupported.
 

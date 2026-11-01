@@ -132,9 +132,15 @@ def server_findings(server):
         findings.add('SERVER_PROXY_TRUST')
     try:
         proxies = server.get('proxy-trusted-addresses', '').split(',')
+        networks = []
         for value in proxies:
             network = ipaddress.ip_network(value.strip(), strict=True)
             if network.prefixlen == 0 or network.is_unspecified or network.is_multicast:
+                raise ValueError('SERVER_PROXY_TRUST')
+            networks.append(network)
+        for version in (4, 6):
+            if any(network.prefixlen == 0 for network in ipaddress.collapse_addresses(
+                    network for network in networks if network.version == version)):
                 raise ValueError('SERVER_PROXY_TRUST')
     except ValueError:
         findings.add('SERVER_PROXY_TRUST')
@@ -203,7 +209,8 @@ def audit(server, realms, catalogue):
         selected = catalogue['profiles'][profile]['realmSettings']
         policy = realm.get('passwordPolicy', '')
         terms = policy.split(' and ') if isinstance(policy, str) else []
-        identifiers = [term.split('(', 1)[0] for term in terms]
+        # Keycloak trims policy identifiers before storing them in a last-wins map.
+        identifiers = [term.split('(', 1)[0].strip() for term in terms]
         if (not set(selected['passwordPolicy'].split(' and ')) <= set(terms)
                 or len(set(identifiers)) != len(identifiers)):
             findings.add('REALM_PASSWORD_POLICY')

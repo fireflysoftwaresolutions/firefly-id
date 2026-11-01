@@ -73,6 +73,56 @@ async function captureMobile(page, locale, surface) {
 }
 
 try {
+  const canonicalFont = await readFile(resolve('assets/brand/fonts/manrope-latin-wght-normal.woff2'));
+  for (const scenario of [
+    { browserLocale: 'en-US', expected: 'en' },
+    { browserLocale: 'es-ES', expected: 'es' },
+    { browserLocale: 'fr-FR', expected: 'en' },
+  ]) {
+    const context = await browser.newContext({ locale: scenario.browserLocale });
+    try {
+      const page = await context.newPage();
+      page.setDefaultTimeout(20000);
+      for (const width of [390, 1440]) {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
+        for (const scheme of ['light', 'dark']) {
+          phase = `welcome ${scenario.browserLocale} ${width} ${scheme}`;
+          await page.emulateMedia({ colorScheme: scheme });
+          const response = await page.goto(`${base}/`);
+          assert.equal(response.status(), 200);
+          assert.equal(page.url(), `${base}/`, 'Welcome localization must preserve the requested URL');
+          await page.waitForFunction(language => document.documentElement.lang === language, scenario.expected);
+          const spanish = scenario.expected === 'es';
+          assert.equal((await page.locator('h1').innerText()).replace(/\s+/g, ' ').trim(),
+            spanish ? 'Identidad y acceso, conectados.' : 'Identity and access, connected.');
+          assert.equal((await page.locator('main > p').innerText()).trim(), spanish
+            ? 'Tus aplicaciones te llevan al inicio de sesión adecuado. Abre tu aplicación para continuar.'
+            : 'Your applications connect you to the right sign-in experience. Open your application to continue.');
+          assert.equal((await page.locator('main > a').innerText()).trim(), spanish ? 'Abrir administración' : 'Open administration');
+          assert.equal((await page.locator('footer a').innerText()).trim(), spanish ? 'Con tecnología de Keycloak' : 'Powered by Keycloak');
+          assert.equal(await page.locator('select').count(), 0);
+          await page.evaluate(() => document.fonts.ready);
+          const measured = await page.evaluate(() => ({
+            overflow: document.documentElement.scrollWidth > innerWidth,
+            background: getComputedStyle(document.body).backgroundColor,
+            fontLoaded: [...document.fonts].some(face => face.family.replace(/["']/g, '') === 'Manrope' && face.status === 'loaded'),
+            fontUrl: performance.getEntriesByType('resource').find(entry => new URL(entry.name).pathname.endsWith('/manrope.woff2'))?.name,
+            logo: document.querySelector('picture img').currentSrc,
+          }));
+          assert.equal(measured.overflow, false);
+          assert.equal(measured.background, scheme === 'dark' ? 'rgb(16, 17, 15)' : 'rgb(243, 241, 235)');
+          assert.ok(measured.logo.endsWith(`/wordmark-${scheme}.svg`));
+          assert.ok(measured.fontLoaded && measured.fontUrl);
+          assert.equal(new URL(measured.fontUrl).origin, base);
+          const servedFont = await context.request.get(measured.fontUrl);
+          assert.equal(servedFont.status(), 200);
+          assert.deepEqual(await servedFont.body(), canonicalFont);
+          await page.screenshot({ path: `${directory}/welcome-${scenario.browserLocale}-${width}-${scheme}.png`, fullPage: true });
+        }
+      }
+      results.push(`welcome ${scenario.browserLocale}: ${scenario.expected} automatic language, responsive light/dark and exact self-hosted Manrope`);
+    } finally { await context.close(); }
+  }
   for (const scenario of [
     { browserLocale: 'fr-FR', expected: 'en', label: 'unsupported browser language defaults to English', extra: {} },
     { browserLocale: 'en-US', expected: 'es', label: 'explicit application language overrides browser', extra: { ui_locales: 'es' } },

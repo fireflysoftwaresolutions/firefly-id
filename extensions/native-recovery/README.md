@@ -1,6 +1,8 @@
-# Native recovery owner
+# Native recovery extension
 
-Unreleased product extension for Keycloak 26.8.1, Java 21. It contains no Jafly dependency. The owning distribution must explicitly select the `firefly-native-recovery` brute-force provider and deploy this JAR together with the qualified product gateway. This source is not production or regulatory approval.
+Native recovery extension for Keycloak 26.8.1 and Java 21. It contains no Jafly dependency. The distribution must explicitly select the `firefly-native-recovery` brute-force provider and deploy this JAR together with the product gateway for known-factor unlock.
+
+Start with the [build and installation procedure](../../docs/native-recovery.md#build-the-native-image), then configure the [server and deployment](../../docs/operations.md). The [recovery guide](../../docs/access-recovery.md) explains which customer or workforce journey to enable.
 
 The known-password/PIN protocol below is distinct from the separate [customer credential-loss purpose](../../docs/credential-loss-recovery.md), which enrolls replacement credentials after independent proofing. Statements about no enrollment in known-password unlock do not describe that separate purpose.
 
@@ -22,7 +24,7 @@ All keys below are realm attributes with prefix `firefly.native-recovery.`. Ther
 - `tenant-attribute`, `link-attribute`: server-managed opaque tenant and canonical population-specific UUID link; enforce administrative-only ownership in the deployed user profile.
 - `allowed-origin`: exact HTTPS origin; issuer must be that origin plus `/realms/{realmName}`.
 - `domain-audience`, `core-audience`: distinct restricted audiences, no business audience.
-- `core-workload-client-id`, `domain-workload-client-id`: distinct confidential enabled clients with standard/direct/service-account grants disabled and independently managed native secrets.
+- `core-workload-client-id`, `domain-workload-client-id`: distinct confidential enabled clients with standard authorization-code, direct-access/password, implicit, service-account/client-credentials, device, CIBA, standard token-exchange and JWT authorization grants disabled, and independently managed native secrets.
 - `ttl-seconds`: explicit positive duration, at most 300 seconds for customers and 180 for workforce.
 
 Restricted assertions contain the approved recovery-only vocabulary and exactly one population link. Internal RPC independently checks native workload Basic credentials and that signed assertion. Core workload routes are admit/issue/verify/journal/reject; Domain routes are admit/journal/audit. Domain audit accepts only the two fixed boundary events, persists anonymous refusals without trusting body targets, and acknowledges only after native commit. Post-unlock record admission is audit-only and bound to the native journal; Domain additionally supplies the exact operation ID.
@@ -31,7 +33,7 @@ The actual transport implementation is discovered through `NativeCeremonyGateway
 
 ## Native persistence
 
-Thirteen native JPA entities (eight original unlock/PIN records plus five credential-loss records) are explicitly contributed by standalone `META-INF/orm.xml` to Keycloak's default persistence unit and indexed by Jandex. `JpaEntityProvider.getEntities()` is retained only for the legacy SPI signature; production discovery does not rely on it. The owning Liquibase changelog creates independent native tables and PostgreSQL append-only audit triggers. Installation changes the identity database and needs the distribution's reviewed migration/backup process; it is not performed by this task.
+Thirteen native JPA entities (eight original unlock/PIN records plus five credential-loss records) are explicitly contributed by standalone `META-INF/orm.xml` to Keycloak's default persistence unit and indexed by Jandex. `JpaEntityProvider.getEntities()` is retained only for the legacy SPI signature; production discovery does not rely on it. The owning Liquibase changelog creates independent native tables and PostgreSQL append-only audit triggers. Installation changes the identity database and requires the deployment's reviewed migration and backup process.
 
 Credential snapshots lock and refresh native credential rows for final checks. Listener snapshots preserve pending changes. Interleaved native administrative paths can have different lock order; database deadlock/rollback must remain fail closed and be covered by real provider concurrency tests. No JVM map, cache flag or HTTP read-then-write is an unlock fence.
 
@@ -45,10 +47,8 @@ Supply `FIREFLY_SUPPORT_PIN_KEYS_DIR` as an external secret mount, `FIREFLY_SUPP
 
 `NativeSupportPinServiceImpl` is intentionally not an HTTP business API. It requires exactly one qualified `NativeSupportAuthorization.Factory` that resolves the genuine STAFF actor, customer, case/call, tenant, approval and narrow purpose. No implementation is supplied here. Until the owning support/delegation contract is qualified, BPO verification remains unavailable. A PIN reference is knowledge evidence only and cannot authorize login, unlock, payment or staff impersonation.
 
-## Current validation state
+## Configure the operating environment
 
-The [79-test source/packaging lane](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41331182922), [48-control customer/workforce known-password/PIN lane](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41331177242) and [25-control customer credential-loss lane](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41332055134) passed at the exact sources recorded in [the evidence register](../../docs/evidence.md). The integration lanes use the same native JAR hash and genuine owning Core/Domain services over HTTPS. The credential-loss success provider is test-classpath-only, excluded from production JARs.
+Use [credential-loss recovery](../../docs/credential-loss-recovery.md) for the independent proofing services, workload identities and encryption keys, and [notification operations](../../docs/notification-operations.md) for the delivery worker and monitoring. Configure a real verification adapter before offering credential replacement; no production verifier is included.
 
-Initial implementation did not run Java/database/container operations locally under the resource restriction; later hosted qualification supplies the actual receipts. Mocked tests remain distinct from actual persistence/administration proof. Qualified coverage includes actual factors, permanent lock/restart, scoped concurrent execution, current holds/links/contact, retained budgets, response-loss/expiry reconciliation, session/PIN retirement and automatic notification supervision.
-
-Real verification/bank procedures, permanent privileged recovery, workforce lost factors, BPO authority, every receiver's live-state enforcement, retained-database rollout and complete multi-node crash/HA behavior remain separate gates. Installing this JAR registers additive migrations even while recovery is disabled. No release or production acceptance is inferred.
+Installing this JAR registers additive migrations even while recovery is disabled. Follow [retained-data migration and restoration](../../docs/retained-data.md) before changing an existing database. Workforce lost factors, privileged recovery and BPO authority require their separate owning procedures. Configure [receiving-service current-state enforcement](../../docs/zero-trust.md) and rehearse the actual deployment's concurrency, failover and recovery behavior.

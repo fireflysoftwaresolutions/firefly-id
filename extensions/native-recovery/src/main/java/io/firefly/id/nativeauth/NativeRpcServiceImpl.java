@@ -1,6 +1,10 @@
 package io.firefly.id.nativeauth;
 
 import org.keycloak.models.KeycloakSession;
+import org.keycloak.models.ClientModel;
+import org.keycloak.models.OAuth2DeviceConfig;
+import org.keycloak.models.CibaConfig;
+import org.keycloak.protocol.oidc.OIDCConfigAttributes;
 import java.time.Instant;
 import java.util.Base64;
 import java.nio.charset.StandardCharsets;
@@ -129,6 +133,10 @@ final class NativeRpcServiceImpl {
         require((clientId.equals(profile.coreWorkloadClientId()) && Set.of("admit", "issue", "verify", "journal", "reject").contains(route)) || (clientId.equals(profile.domainWorkloadClientId()) && Set.of("admit", "journal", "audit").contains(route)));
         var client = session.clients().getClientByClientId(session.getContext().getRealm(), clientId);
         require(client != null && client.isEnabled() && !client.isPublicClient() && !client.isStandardFlowEnabled()
-                && !client.isDirectAccessGrantsEnabled() && !client.isServiceAccountsEnabled() && client.validateSecret(secret));
+                && !client.isDirectAccessGrantsEnabled() && !client.isImplicitFlowEnabled() && !client.isServiceAccountsEnabled()
+                && disabled(client, OAuth2DeviceConfig.OAUTH2_DEVICE_AUTHORIZATION_GRANT_ENABLED) && disabled(client, CibaConfig.OIDC_CIBA_GRANT_ENABLED)
+                && disabled(client, OIDCConfigAttributes.STANDARD_TOKEN_EXCHANGE_ENABLED) && disabled(client, OIDCConfigAttributes.JWT_AUTHORIZATION_GRANT_ENABLED)
+                && client.validateSecret(secret));
     }
+    private static boolean disabled(ClientModel client, String attribute) { String value = client.getAttribute(attribute); return value == null || "false".equals(value); }
 }

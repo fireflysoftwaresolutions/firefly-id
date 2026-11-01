@@ -81,7 +81,7 @@ The sandbox entrypoint reads its explicit mounted files and exports literal `KCR
 
 ## Optional native and platform-service settings
 
-Known-password native recovery uses explicit `firefly.native-recovery.*` realm attributes: exact issuer/HTTPS origin, population (`HUMAN`/`STAFF`), client, server-owned tenant/link attributes, distinct Domain/Core audiences and grant-disabled workloads. Its lifetime is at most 300 seconds for customers or 180 for workforce. The gateway additionally needs the actual trusted Domain URL. See the [native owner reference](../extensions/native-recovery/README.md) and [installation/flow guide](native-recovery.md); there are no trusted guessed defaults.
+Known-password native recovery uses explicit `firefly.native-recovery.*` realm attributes: exact issuer/HTTPS origin, population (`HUMAN`/`STAFF`), client, server-owned tenant/link attributes, distinct Domain/Core audiences and grant-disabled workloads. Its lifetime is at most 300 seconds for customers or 180 for workforce. The gateway additionally needs the actual trusted Domain URL. See the [native provider reference](../extensions/native-recovery/README.md) and [installation/flow guide](native-recovery.md); there are no trusted guessed defaults.
 
 Customer support PIN protection uses `FIREFLY_SUPPORT_PIN_KEYS_DIR`, `FIREFLY_SUPPORT_PIN_ACTIVE_KEY` and explicit `FIREFLY_SUPPORT_PIN_VERIFY_UNTIL_<version>` deadlines for old verification keys. Accepted key material is 32–4096 bytes, private nonsymlink files. The eight-digit PIN is not retrievable as plaintext; rotation requires fresh native factors. BPO verification requires a staff/customer/case/delegation authorization provider, which is not supplied. [Support PIN](support-pin.md) gives lifecycle details.
 

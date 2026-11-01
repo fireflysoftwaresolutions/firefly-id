@@ -333,7 +333,7 @@ try {
   }
   assert.ok(message, 'Synthetic recovery email was not delivered to Mailpit');
   const mail = await (await fetch(`http://localhost:8025/api/v1/message/${message.ID}`)).json();
-  assert.ok(mail.HTML.includes('firefly'));
+  assert.match(mail.HTML, /firefly\s*<span\b[^>]*>identity<\/span>/, 'Recovery email must use the current product name');
   const recoveryLink = mail.HTML.match(/href="([^"\s]*\/login-actions\/action-token[^"\s]*)"/);
   assert.ok(recoveryLink, 'Missing server-generated recovery link');
   await page.goto(recoveryLink[1].replaceAll('&amp;', '&'));

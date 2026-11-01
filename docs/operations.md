@@ -17,9 +17,14 @@ Build and check the theme from the repository root:
 ```sh
 make check
 python3 tooling/build_theme.py
+docker build --file deploy/Containerfile --tag firefly-id:local .
 ```
 
+Use Python 3.11+, Node.js 22 and a container engine on the build host. The image build retrieves the pinned upstream image and runs Keycloak's optimized build inside the container; the ordinary theme build does not require a host JDK. Replace the local tag with your deployment's unique image tag and retain the resulting digest.
+
 [Containerfile](../deploy/Containerfile) consumes `dist/firefly-id-theme.jar` and the password blocklist, enables PostgreSQL/health/metrics at build time, and starts with `start --optimized`. [Containerfile.native](../deploy/Containerfile.native) also consumes the packaged native providers. Follow [native installation](native-recovery.md) before using it: the JARs add database mappings, and the selected recovery journey needs its own service configuration.
+
+In the deployment workload, mount the rendered server configuration read-only at `/opt/keycloak/conf/keycloak.conf`, mount the certificate/key/database CA at the paths it declares, and supply the database secret through the supported secret mechanism below. Keep the image's default startup command, including its native provider selection when applicable. Configure the dedicated database and private/public ingress before starting the workload; building the image alone does not start or configure those services.
 
 Prepare production realm/client registrations through the Admin Console or authorized Admin API and render the server configuration through your deployment process; do not copy synthetic users or generated sandbox state.
 

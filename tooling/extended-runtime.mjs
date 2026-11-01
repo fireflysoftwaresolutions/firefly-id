@@ -697,6 +697,10 @@ async function main() {
       try {
         phase = 'workforce fresh OTP challenge field';
         await challenge.page.locator('#otp').waitFor();
+        const attemptedIdentity = challenge.page.getByRole('textbox', { name: 'Username or email', exact: true });
+        assert.equal(await attemptedIdentity.getAttribute('id'), 'kc-attempted-username');
+        assert.equal(await attemptedIdentity.inputValue(), credentials.workforce.username);
+        assert.equal(await attemptedIdentity.getAttribute('readonly'), '');
         const now = Date.now() / 1000;
         const validWindow = new Set([-30, 0, 30].map(offset => totpCode(factor.secret, now + offset)));
         let wrong = 0;
