@@ -20,11 +20,14 @@ const pending = new Map();
 const results = [];
 const failedGates = [];
 const accountEvidence = {};
+const expiryEvidence = [];
 const sessionEvidence = {};
 const factors = new Map();
 const privateProofs = new Map();
 const accountAssertions = new Map();
 const transportFaults = process.env.FIREFLY_NATIVE_TRANSPORT_FAULTS === 'true';
+const authorityExpiry = process.env.FIREFLY_NATIVE_AUTHORITY_EXPIRY === 'true';
+assert.ok(!authorityExpiry || transportFaults, 'Authority expiry requires the owned real transport relay');
 const fontEvidence = [];
 let phase = 'owned-native-runtime-ready';
 let currentStage = 'initialization';
@@ -385,6 +388,79 @@ async function expiredServerCeremony(profile) {
   }
   passed(`${profile.kind}-natural-server-ceremony-expiry-rejects-forced-old-cookie-and-restarts-password`);
 }
+async function expiredNativeAuthority(originalProfile) {
+  for (const role of ['expiry_actor', 'expiry_receipt']) {
+    const profile = { ...originalProfile, person: originalProfile[role] };
+    assert.ok(profile.person?.id, 'Separate generated expiry identity required');
+    const observed = () => JSON.parse(nativeTool('expiry_snapshot', profile.kind, { role }));
+    const enrollment = await browser.newContext();
+    await authenticate(profile, enrollment, false, true); await enrollment.close();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const context = await browser.newContext(); await authenticate(profile, context, true); await context.close();
+    }
+    assert.equal((await user(profile)).enabled, false);
+    const locked = observed(); assert.equal(locked.native.locked, true); assert.equal(locked.native.executions, 0);
+    const original = await admin(profile, ''); assert.equal(original.status, 200);
+    const attributes = (await original.json()).attributes;
+    const context = await browser.newContext({ locale: 'es-ES' });
+    try {
+      if (role === 'expiry_actor') {
+        const updated = await admin(profile, '', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ attributes: { ...attributes, 'firefly.native-recovery.ttl-seconds': '20' } }) });
+        assert.equal(updated.status, 204);
+      }
+      stage(`${profile.kind}-${role}-genuine-password-admission`);
+      const page = await context.newPage(); lastPage = page;
+      await page.goto(`${profile.issuer}/firefly-recovery?kc_locale=es`);
+      await page.locator('#username').fill(profile.person.username); await page.locator('#password').fill(profile.person.password);
+      await submitNativeForm(page, profile, '#ffid-recovery-continue'); await page.locator('#otp').waitFor();
+      const admitted = observed(); assert.equal(admitted.core.length, 1);
+      assert.equal(admitted.core[0].attempts, 1); assert.equal(admitted.core[0].verifiedKnowledge, 1);
+      assert.equal(admitted.native.attestations, 1); assert.equal(admitted.native.executions, 0);
+      const proof = JSON.parse(nativeTool('expiry_proof', profile.kind, { role }));
+      const claims = JSON.parse(Buffer.from(proof.actorAssertion.split('.')[1], 'base64url').toString());
+      if (role === 'expiry_actor') {
+        const secret = (await readFile(profile.core_secret_file, 'utf8')).trim();
+        const verify = () => request(`${profile.issuer}/firefly-recovery/rpc/verify`, { method: 'POST',
+          headers: { Authorization: `Basic ${Buffer.from(`native-core-owner:${secret}`).toString('base64')}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(proof) });
+        const positive = await verify(); assert.equal(positive.status, 200);
+        assert.equal((await positive.json()).accepted, true, 'The same genuine actor/proof must work before expiry');
+        const remaining = claims.exp * 1000 - Date.now();
+        assert.ok(remaining > 0 && remaining <= 20000, 'Bounded genuine actor lifetime required');
+        stage(`${profile.kind}-admitted-actor-natural-expiry`); await delay(remaining + 150);
+        assert.equal((await verify()).status, 403, 'Expired genuine actor must refuse with the unchanged workload and proof');
+        assert.equal((await verify()).status, 403);
+        assert.deepEqual(observed(), admitted, 'Expired-actor retries must preserve lock, proof, attempts and execution state');
+        assert.equal((await user(profile)).enabled, false);
+        expiryEvidence.push({ population: profile.kind, scenario: role, acceptedBeforeExpiry: true, refusedAfterExpiry: true, unchangedState: true });
+        passed(`${profile.kind}-genuine-admitted-actor-expiry-refuses-without-renewal-or-budget-change`);
+      } else {
+        nativeTool('arm_verify_expiry', profile.kind);
+        stage(`${profile.kind}-consumed-receipt-expires-after-real-online-verification`);
+        await page.locator('#otp').fill(await nextCode(profile)); await submitNativeForm(page, profile, '#ffid-recovery-continue');
+        await page.locator('[role="alert"]').waitFor();
+        assert.equal(faultStatus(profile.kind).verifyExpirySpent, true, 'Real successful verification must precede expiry injection');
+        const expired = observed();
+        assert.equal(expired.native.locked, true); assert.equal(expired.native.executions, 0); assert.equal(expired.native.unlockAudits, 0);
+        assert.equal(expired.core.length, 1); assert.equal(expired.core[0].state, 'CONSUMED');
+        assert.equal(expired.core[0].attempts, 2); assert.equal(expired.core[0].verifiedKnowledge, 1); assert.equal(expired.core[0].verifiedPossession, 1);
+        assert.equal(expired.core[0].successAudits, 0); assert.equal(expired.core[0].outcome, null);
+        assert.ok(claims.exp * 1000 > Date.now(), 'Actor must remain live to isolate receipt expiry');
+        assert.equal((await user(profile)).enabled, false);
+        await page.locator('#otp').fill(await nextCode(profile)); await submitNativeForm(page, profile, '#ffid-recovery-continue');
+        await page.locator('[role="alert"]').waitFor();
+        assert.deepEqual(observed(), expired, 'Retry must not renew a consumed receipt, repeat factor checks or reset budgets');
+        expiryEvidence.push({ population: profile.kind, scenario: role, genuineOnlineVerification: true, actorStillLive: true, locked: true, executions: 0, consumed: true, retryUnchanged: true });
+        passed(`${profile.kind}-genuine-consumed-receipt-expiry-keeps-lock-and-original-consumption`);
+      }
+    } finally {
+      const restored = await admin(profile, '', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ attributes }) });
+      assert.equal(restored.status, 204); await context.close();
+    }
+  }
+}
+
 async function assertNativeFont(page, label) {
   await page.evaluate(() => document.fonts.ready);
   const measured = await page.evaluate(() => ({
@@ -652,6 +728,7 @@ try {
   browser = await chromium.launch();
   for (const profile of credentials.profiles) {
     activePopulation = profile.kind;
+    if (authorityExpiry) { await expiredNativeAuthority(profile); continue; }
     const previousSession = await browser.newContext();
     const tokens = await authenticate(profile, previousSession, false, true);
     assert.ok(tokens.refresh_token, 'Real online refresh session required for retirement check');
@@ -836,11 +913,12 @@ try {
     passed(`${profile.kind}-explicit-fixture-user-deletion-preserves-native-tombstone-and-core-evidence`);
   }
   await writeFile(`${output}/summary.json`, JSON.stringify({ status: failedGates.length ? 'FAILED' : 'PASSED', passed: results,
-    failures: failedGates, accountInventory: accountEvidence, sessionEvidence, pinProtection: lastPinProtection,
+    failures: failedGates, expiryEvidence, accountInventory: accountEvidence, sessionEvidence, pinProtection: lastPinProtection,
     ...(failedGates.length ? { pinGuards: pinDiagnostics() } : {}),
     pending: [...(transportFaults ? [] : ['true simultaneous native execution requests', 'post-commit network response-loss injection', 'natural server ceremony expiry and swapped private attestation references']),
-      'admitted actor JWT and consumed authorization receipt expiry in native runtime',
       'support PIN BPO/case/delegation owner acceptance', 'production/regulatory approval'],
+    coverage: authorityExpiry ? 'authority-expiry-only' : 'native-lifecycle',
+    notCoveredByThisRun: authorityExpiry ? ['ordinary native lifecycle and PIN (separate execution)'] : ['authority expiry (separate opt-in execution)'],
     scope: 'Owned synthetic HTTPS native Keycloak/Core PostgreSQL/actual generated-SDK Domain acceptance only.' }, null, 2));
   if (failedGates.length) process.exitCode = 1;
 } catch (error) {

@@ -115,4 +115,17 @@ Before reserving a native factor attempt, Identity checks that the ceremony stil
 
 After the native unlock commits, a lost recording response can leave execution reporting pending. The completion action retries the same record within its original authority; it does not verify factors, consume again or unlock again. If that authority expires, preserve the journal and use the approved operational reconciliation procedure. Do not clear native tables, generations or counters.
 
+## Expiry and interrupted authorization
+
+A recovery operation has several independent deadlines. The restricted actor JWT identifies an admitted ceremony; a consumed authorization permits one specific native transition. Neither is an ordinary login token. Successful verification at an earlier instant does not make an expired authorization usable later.
+
+| Point of interruption | Required behavior | Operator response |
+| --- | --- | --- |
+| Actor JWT or ceremony expires before execution | Refuse the request and preserve the lock, original attempts and existing evidence | Inspect the original operation through the authorized support process; do not extend the JWT or alter stored expiry |
+| Core consumes the authorization, but its response arrives after authorization expiry | Keep the account locked and retain the original consumed authorization; do not create a native execution | Check the authoritative Core state and native journal together; consumption alone does not prove that an unlock committed |
+| The browser retries an expired consumed authorization | Refuse without renewing the receipt, resetting attempts or repeating completed factor verification | Escalate the same operation under the institution's recovery procedure |
+| Native execution committed before a recording response was lost | Retain the committed journal and reconcile that exact execution within the remaining original authority | Use the completion retry while permitted; after expiry, preserve the journal for approved operational reconciliation |
+
+Keep clocks synchronized across Identity and recovery services. Receiving a delayed response must not extend its lifetime. Do not increase production lifetimes to work around a transport failure or clear a permanent block through generic administration. The institution must define who handles expired or exhausted recovery and how that process preserves holds, identity ownership and audit evidence. See [production decisions](production-decisions.md) and [incident handling](observability-incidents.md#handle-interrupted-recovery).
+
 For password or authenticator loss, this page is not the correct route. Use [credential-loss recovery](credential-loss-recovery.md). Notifications for that separate replacement flow are described in [notification operations](notification-operations.md).

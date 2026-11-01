@@ -22,6 +22,11 @@ on:
         required: true
         default: false
         type: boolean
+      authority_expiry:
+        description: Qualify actual actor and consumed authorization expiry on separate synthetic identities
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -43,6 +48,7 @@ jobs:
     timeout-minutes: 55
     env:
       FIREFLY_NATIVE_TRANSPORT_FAULTS: ${{ inputs.transport_faults && 'true' || 'false' }}
+      FIREFLY_NATIVE_AUTHORITY_EXPIRY: ${{ inputs.authority_expiry && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Owned hosted-only HTTPS/native/Core/Domain fixture. No existing database or remote Docker is admitted."""
 import argparse
+import base64
+from datetime import datetime
 import hashlib
 import json
 import http.server
@@ -28,6 +30,28 @@ PROCESS_FAILURE = {}
 
 def faults_enabled():
     return os.environ.get('FIREFLY_NATIVE_TRANSPORT_FAULTS') == 'true'
+
+
+def receipt_expiry_delay(payload, now, actor_expiry):
+    try:
+        value = json.loads(payload)['expiresAt']
+        expiry = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        if expiry.tzinfo is None:
+            raise ValueError()
+        remaining = expiry.timestamp() - now
+        if not 0 < remaining <= 3 or actor_expiry <= expiry.timestamp() + 5:
+            raise ValueError()
+        return remaining + 0.1
+    except (ValueError, TypeError, KeyError, AttributeError):
+        raise RuntimeError('Invalid owned expiry receipt') from None
+
+
+def fixture_subject(profile, role):
+    if role == 'person':
+        return profile['person']['id']
+    if os.environ.get('FIREFLY_NATIVE_AUTHORITY_EXPIRY') != 'true' or role not in ('expiry_actor', 'expiry_receipt'):
+        raise RuntimeError('Unsupported owned expiry subject')
+    return profile[role]['id']
 
 
 def require_hosted():
@@ -218,6 +242,9 @@ def start():
             'firefly.sca.recovery.native-self-policy.enabled': True, 'firefly.sca.recovery.native-self-policy.realm': profile['realm'],
             'firefly.sca.recovery.native-self-policy.actor-audiences': 'firefly-recovery-core,firefly-recovery-domain'}
         domain_settings = {**common, 'server.port': profile['domain_backend_port'] if faults_enabled() else profile['domain_port']}
+        if os.environ.get('FIREFLY_NATIVE_AUTHORITY_EXPIRY') == 'true':
+            if not faults_enabled(): raise RuntimeError('Expiry qualification requires the owned relay')
+            core_settings['firefly.sca.recovery.receipt-ttl'] = 'PT2S'
         env = dict(os.environ, SCA_RECOVERY_ENABLED='true', SCA_RECOVERY_TRUSTED_ISSUER=issuer, SCA_RECOVERY_TRUSTED_JWKS_URI=issuer + '/protocol/openid-connect/certs',
                    SCA_RECOVERY_REALM=profile['realm'], SCA_RECOVERY_POPULATION=profile['population'], SCA_RECOVERY_AUDIENCES='firefly-recovery-domain,firefly-recovery-core',
                    SCA_RECOVERY_ALLOWED_CLIENTS='native-ceremony', SCA_RECOVERY_AUDIENCE='firefly-recovery-core', SCA_RECOVERY_ALLOWED_POPULATIONS=profile['population'],
@@ -267,8 +294,10 @@ def backend_origin(profile):
 def arm_fault(kind, fault):
     if not faults_enabled(): raise RuntimeError('Owned transport faults require explicit hosted opt-in')
     directory, owner = state()
-    if kind not in ('customers', 'workforce') or fault not in ('record-response-loss', 'verify-race'):
+    if kind not in ('customers', 'workforce') or fault not in ('record-response-loss', 'verify-race', 'verify-expiry'):
         raise RuntimeError('Unsupported owned transport fault')
+    if fault == 'verify-expiry' and os.environ.get('FIREFLY_NATIVE_AUTHORITY_EXPIRY') != 'true':
+        raise RuntimeError('Owned expiry mode required')
     path = directory / (fault + '-' + kind)
     if path.exists() or path.with_suffix('.spent').exists():
         raise RuntimeError('Refusing to overwrite a retained fault marker')
@@ -282,20 +311,22 @@ def fault_status(kind):
     directory, owner = state()
     arrivals = directory / ('verify-race-' + kind + '.arrivals')
     print(json.dumps({'recordLossSpent': (directory / ('record-response-loss-' + kind + '.spent')).is_file(),
+                      'verifyExpirySpent': (directory / ('verify-expiry-' + kind + '.spent')).is_file(),
                       'verifyRaceSpent': (directory / ('verify-race-' + kind + '.spent')).is_file(),
                       'verifyRaceArrivals': int(arrivals.read_text()) if arrivals.is_file() else 0}))
 
 
-def private_proof(kind):
+def private_proof(kind, role='person'):
     if not faults_enabled() or kind not in ('customers', 'workforce'):
         raise RuntimeError('Private proof fixture requires explicit hosted opt-in')
     directory, owner = state()
     profile = next(value for value in json.loads((directory / 'credentials.json').read_text())['profiles'] if value['kind'] == kind)
-    subject = profile['person']['id']
+    subject = fixture_subject(profile, role)
     if not re.fullmatch(r'[0-9a-f-]{36}', subject): raise RuntimeError('Noncanonical fixture subject')
     proof = psql(directory, owner, f"SELECT json_build_object('binding',c.binding_json::json,'operationId',p.operation_id,'challengeId',p.challenge_id,'reservationId',p.reservation_id,'providerChallengeId',p.provider_challenge_id,'category',p.category,'attestation',p.id,'action','COMPLETE_VERIFICATION') FROM ff_native_attestation p JOIN ff_native_ceremony c ON c.id=p.ceremony_id JOIN ff_native_state s ON s.subject=p.subject WHERE p.subject='{subject}' AND p.category='KNOWLEDGE' AND p.completed AND p.verified AND s.locked AND NOT s.hold AND p.expires_at > extract(epoch FROM clock_timestamp())*1000 AND NOT EXISTS (SELECT 1 FROM ff_native_execution e WHERE e.subject=p.subject);", 'native_kc')
     value = json.loads(proof)
-    value['actorAssertion'] = (directory / 'secrets' / ('actor-' + kind)).read_text()
+    suffix = '' if role == 'person' else '-' + role
+    value['actorAssertion'] = (directory / 'secrets' / ('actor-' + kind + suffix)).read_text()
     print(json.dumps(value))
 
 
@@ -377,13 +408,29 @@ def serve_proxy(kind):
                     if len(payload) > 65536: raise RuntimeError('Bounded proxy output required')
                     status = response.status; content_type = response.headers.get('Content-Type', 'application/json')
                 if status == 201 and path.path == '/api/v1/sca/recovery-operations':
+                    claims = json.loads(base64.urlsafe_b64decode(actor[7:].split('.')[1] + '==='))
+                    roles = ['person'] + (['expiry_actor', 'expiry_receipt'] if os.environ.get('FIREFLY_NATIVE_AUTHORITY_EXPIRY') == 'true' else [])
+                    role = next(role for role in roles if fixture_subject(profile, role) == claims.get('sub'))
+                    suffix = '' if role == 'person' else '-' + role
                     with lock:
-                        actor_path = directory / 'secrets' / ('actor-' + kind)
+                        actor_path = directory / 'secrets' / ('actor-' + kind + suffix)
                         if not actor_path.exists():
                             with os.fdopen(os.open(actor_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as captured:
                                 captured.write(actor[7:])
                 # Delay two REAL online verifications, each already accepted by real Domain/Core.
                 if path.path.endswith('/authorizations/verify') and status == 200:
+                    expiry_marker = directory / ('verify-expiry-' + kind)
+                    with lock:
+                        delay_expiry = expiry_marker.exists()
+                        if delay_expiry:
+                            if os.environ.get('FIREFLY_NATIVE_AUTHORITY_EXPIRY') != 'true':
+                                raise RuntimeError('Owned expiry mode required')
+                            claims = json.loads(base64.urlsafe_b64decode(actor[7:].split('.')[1] + '==='))
+                            expiry_delay = receipt_expiry_delay(payload, time.time(), claims['exp'])
+                            expiry_marker.rename(expiry_marker.with_suffix('.spent'))
+                    if delay_expiry:
+                        # Deliver the exact accepted response after its real expiry; never rewrite authority.
+                        time.sleep(expiry_delay)
                     marker = directory / ('verify-race-' + kind)
                     with lock:
                         participating = marker.exists()
@@ -420,9 +467,9 @@ def serve_proxy(kind):
     server.serve_forever()
 
 
-def snapshot(kind):
+def snapshot(kind, role='person'):
     directory, owner = state(); credentials = json.loads((directory / 'credentials.json').read_text())
-    profile = next(p for p in credentials['profiles'] if p['kind'] == kind); subject = profile['person']['id']
+    profile = next(p for p in credentials['profiles'] if p['kind'] == kind); subject = fixture_subject(profile, role)
     if not re.fullmatch(r'[0-9a-f-]{36}', subject): raise RuntimeError('Noncanonical fixture subject')
     native = psql(directory, owner, f"SELECT coalesce((SELECT json_build_object('locked',locked,'hold',hold,'generation',generation,'bootstrap',bootstrap_attempts,'knowledge',knowledge_attempts,'possession',possession_attempts,'pinActive',(pin_credential_id IS NOT NULL AND pin_revoked_at=0)) FROM ff_native_state WHERE subject='{subject}'),'{{}}'::json)::jsonb || jsonb_build_object('executions',(SELECT count(*) FROM ff_native_execution WHERE subject='{subject}'),'executionId',(SELECT id FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'recorded',(SELECT recorded FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'recordAttempts',(SELECT record_attempts FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'unlockAudits',(SELECT count(*) FROM ff_native_audit WHERE subject='{subject}' AND event_type='NATIVE_UNLOCK_COMMITTED'),'recordAudits',(SELECT count(*) FROM ff_native_audit WHERE subject='{subject}' AND event_type='NATIVE_EXECUTION_RECORDED'),'attestations',(SELECT count(*) FROM ff_native_attestation WHERE subject='{subject}'),'maximumChecksPerReservation',(SELECT coalesce(max(total),0) FROM (SELECT count(*) total FROM ff_native_attestation WHERE subject='{subject}' GROUP BY reservation_id) q));", 'native_kc')
     core = psql(directory, owner, f"SELECT coalesce(json_agg(json_build_object('generation',lock_generation,'state',state,'attempts',attempt_count,'challenges',challenge_count,'outcome',execution_outcome,'executionId',execution_id,'verifiedKnowledge',(SELECT count(*) FROM sca_recovery_challenge ch WHERE ch.operation_id=sca_recovery_operation.id AND ch.category='KNOWLEDGE' AND ch.verified),'verifiedPossession',(SELECT count(*) FROM sca_recovery_challenge ch WHERE ch.operation_id=sca_recovery_operation.id AND ch.category='POSSESSION' AND ch.verified),'pendingReservations',(SELECT count(*) FROM sca_recovery_challenge ch WHERE ch.operation_id=sca_recovery_operation.id AND ch.verification_reservation_id IS NOT NULL),'successAudits',(SELECT count(*) FROM sca_recovery_audit a WHERE a.operation_id=sca_recovery_operation.id AND a.event_type='EXECUTION_SUCCEEDED')) ORDER BY created_at),'[]'::json) FROM sca_recovery_operation WHERE target_subject='{subject}';", 'sca_native')
@@ -454,13 +501,16 @@ def stop():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['prepare', 'start', 'stop', 'restart', 'snapshot', 'serve_proxy', 'arm_record_loss', 'arm_verify_race', 'fault_status', 'private_proof', 'ceremony_state', 'private_pin', 'private_credential_exists', 'pin_diagnostics'])
+    parser.add_argument('action', choices=['prepare', 'start', 'stop', 'restart', 'snapshot', 'expiry_snapshot', 'expiry_proof', 'serve_proxy', 'arm_record_loss', 'arm_verify_race', 'arm_verify_expiry', 'fault_status', 'private_proof', 'ceremony_state', 'private_pin', 'private_credential_exists', 'pin_diagnostics'])
     parser.add_argument('--population', choices=['customers', 'workforce'])
     args = parser.parse_args(); require_hosted()
     if args.action == 'snapshot': snapshot(args.population)
+    elif args.action == 'expiry_snapshot': snapshot(args.population, json.load(sys.stdin)['role'])
+    elif args.action == 'expiry_proof': private_proof(args.population, json.load(sys.stdin)['role'])
     elif args.action == 'serve_proxy': serve_proxy(args.population)
     elif args.action == 'arm_record_loss': arm_fault(args.population, 'record-response-loss')
     elif args.action == 'arm_verify_race': arm_fault(args.population, 'verify-race')
+    elif args.action == 'arm_verify_expiry': arm_fault(args.population, 'verify-expiry')
     elif args.action == 'fault_status': fault_status(args.population)
     elif args.action == 'private_proof': private_proof(args.population)
     elif args.action == 'ceremony_state': ceremony_state(args.population)
