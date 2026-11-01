@@ -8,7 +8,7 @@ The handbook lives with the implementation. Markdown is the authored source; MkD
 | --- | --- |
 | `mkdocs.yml` | Public navigation, theme/search, strict validation and generated reference entries |
 | `requirements-docs.txt` | Pinned direct documentation dependencies: MkDocs 1.6.1 and Material 9.8.0 |
-| `docs/*.md` | Public maintained guides, control mappings and evidence |
+| `docs/*.md` | Public product guides and control mappings |
 | `docs/stylesheets/extra.css` | Read-surface styles using canonical Firefly tokens and self-hosted Manrope |
 | `docs/overrides/partials/copyright.html` | Foundation copyright, Keycloak recognition and documentation-tool credit |
 | `docs/overrides/partials/source.html` | Plain repository link without automatic third-party repository-statistics requests |
@@ -18,7 +18,7 @@ The handbook lives with the implementation. Markdown is the authored source; MkD
 | `.github/workflows/documentation.yml` | Hosted strict build/output/browser qualification |
 | `.work/documentation/` | Ignored generated output, safe evidence and source-matching publication bundle |
 
-Internal `docs/superpowers` planning and theme override templates are excluded from the published handbook. A public guide may link an internal design as a versioned repository source reference; that does not copy the internal tree into the site. `.state`, credentials, owner manifests, raw logs, private-source index examples and generated dependency/runtime directories must never enter the public static bundle.
+Internal `docs/superpowers` planning, maintainer records and theme override templates are excluded from the published handbook. A public guide may link an internal design as a versioned repository source reference; that does not copy the internal tree into the site. `.state`, credentials, owner manifests, raw logs, private-source index examples and generated dependency/runtime directories must never enter the public static bundle.
 
 ## Build in an approved environment
 
@@ -27,6 +27,10 @@ The following commands are for a development/CI environment with permission and 
 ```sh
 python3 -m venv .work/docs-venv
 .work/docs-venv/bin/python -m pip install -r requirements-docs.txt
+npm ci --prefix tooling --ignore-scripts
+(cd tooling && npx playwright install --with-deps chromium)
+npm install --prefix .work/docs-diagrams --no-save --package-lock=false --ignore-scripts --no-audit --no-fund mermaid@12.2.0
+node tooling/documentation-diagrams.mjs
 .work/docs-venv/bin/python -m mkdocs build --strict
 ```
 
@@ -68,7 +72,7 @@ Record source revisions, executed build artifact hashes, actual test counts and 
 
 ## Regulatory maintenance
 
-The [EU/US matrix](controls-matrix.md) is a dated applicability aid, not a legal certificate. Verify primary legal/regulator sources and effective/application dates before changing it. Preserve the distinctions between banks and FTC-covered nonbanks, federal and state scope, statutory requirements, supervisory guidance and technical standards.
+The [EU/US matrix](../../controls-matrix.md) is a dated applicability aid, not a legal certificate. Verify primary legal/regulator sources and effective/application dates before changing it. Preserve the distinctions between banks and FTC-covered nonbanks, federal and state scope, statutory requirements, supervisory guidance and technical standards.
 
 Adding a legal requirement to prose does not implement it. Where the source lacks an owner, factor, trust resolver, incident procedure or real acceptance, identify that gap explicitly and link its decision gate. Do not convert a vendor assurance label, KYC flag, TOTP success or compliance-framework name into a blanket product promise.
 
@@ -84,7 +88,7 @@ Changing the publishing ref, Pages environment rules or repository visibility is
 
 Preserve exact source, workflow run, bounded build/browser summaries, artifact hashes and actual Pages deployment receipt. Check the public homepage, a nested guide, search assets, canonical project URLs and provenance after deployment. An uploaded artifact or successful strict build alone is not a published Pages site. See GitHub's [custom Pages workflow documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
 
-Footer recognition of Keycloak and the documentation tools is a deliberate open-source acknowledgement. Preserve the actual applicable LICENSE/NOTICE and font OFL files independently; a “Powered by” line is not a substitute for those notices and is not described as a universal license obligation. Trademark permissions remain separate. See [brand](brand.md) and [themes](themes.md).
+Footer recognition of Keycloak and the documentation tools is a deliberate open-source acknowledgement. Preserve the actual applicable LICENSE/NOTICE and font OFL files independently; a “Powered by” line is not a substitute for those notices and is not described as a universal license obligation. Trademark permissions remain separate. See [brand](../../brand.md) and [themes](../../themes.md).
 
 ## Static product diagrams
 
