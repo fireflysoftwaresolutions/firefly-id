@@ -14,6 +14,9 @@ def build(output: Path) -> Path:
     for source in sorted((ROOT / "themes/firefly-id").rglob("*")):
         if source.is_file():
             entries["theme/firefly-id/" + source.relative_to(ROOT / "themes/firefly-id").as_posix()] = source.read_bytes()
+    for source in sorted((ROOT / "themes/firefly-id-native").rglob("*")):
+        if source.is_file():
+            entries["theme/firefly-id-native/" + source.relative_to(ROOT / "themes/firefly-id-native").as_posix()] = source.read_bytes()
     for kind in ("login", "account", "admin", "welcome"):
         prefix = f"theme/firefly-id/{kind}/resources/"
         entries[prefix + "css/firefly-tokens.css"] = (ROOT / "themes/tokens.css").read_bytes()
@@ -30,7 +33,9 @@ def build(output: Path) -> Path:
         entries[prefix + "img/favicon.svg"] = (ROOT / "assets/brand/favicon.svg").read_bytes()
         entries[prefix + "fonts/manrope.woff2"] = (ROOT / "assets/brand/fonts/manrope-latin-wght-normal.woff2").read_bytes()
         entries[prefix + "fonts/OFL.txt"] = (ROOT / "assets/brand/fonts/OFL.txt").read_bytes()
-    entries["META-INF/keycloak-themes.json"] = (json.dumps({"themes": [{"name": "firefly-id", "types": list(KINDS)}]}, indent=2) + "\n").encode()
+    entries["META-INF/keycloak-themes.json"] = (json.dumps({"themes": [
+        {"name": "firefly-id", "types": list(KINDS)},
+        {"name": "firefly-id-native", "types": ["login", "account"]}]}, indent=2) + "\n").encode()
     entries["META-INF/LICENSE"] = (ROOT / "LICENSE").read_bytes()
     entries["META-INF/NOTICE"] = (ROOT / "NOTICE").read_bytes()
     entries["theme/firefly-id/LICENSE"] = (ROOT / "LICENSE").read_bytes()

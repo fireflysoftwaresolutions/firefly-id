@@ -104,7 +104,7 @@ jobs:
             .work/native-integration/summary.json
             .work/native-integration/manifest.json
             .work/native-integration/boot-summary.json
-            .work/native-integration/*-complete.png
+            .work/native-integration/*-complete*.png
             .work/native-integration/customers-pin-*.png
             .qualification/native-build-summary.json
             .qualification/domain/.qualification/sdk-domain-summary.json

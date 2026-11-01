@@ -5,6 +5,8 @@ body[data-page-id] > #app { flex: 1; min-height: 0; height: auto; }
 #app .pf-v5-c-page { min-height: 0; height: 100%; }
 body[data-page-id] > #app, #app .pf-v5-c-page__main { min-width: 0; }
 #ffid-copyright { flex: none; padding: 8px 16px; background: var(--pf-v5-global--BackgroundColor--200); color: var(--pf-v5-global--Color--200); font: 12px/1.5 Manrope, sans-serif; text-align: center; }
+.ffid-native-account-link { display: block; margin-top: 4px; }
+.ffid-native-account-link a { display: inline-flex; align-items: center; min-height: 44px; }
 button[data-password-toggle], button[aria-label='Show password'], button[aria-label='Hide password'], button[aria-label='showPassword'], button[aria-label='hidePassword'], button[aria-label='Mostrar contraseña'], button[aria-label='Ocultar contraseña'], button[aria-label='Mostrar campo de contraseña en texto claro'], button[aria-label='Ocultar campo de contraseña en texto claro'] { display: none; }
 button[aria-label='Show password field in clear text'], button[aria-label='Hide password field in clear text'] { display: none; }
 ::selection { color: var(--ffid-color-charcoal); background: var(--ffid-color-amber); }

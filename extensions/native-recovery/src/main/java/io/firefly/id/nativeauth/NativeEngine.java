@@ -68,7 +68,9 @@ final class NativeEngine {
         String subject = NativePhases.run(request, session -> {
             NativeStore store = new NativeStore(session); NativeCeremony ceremony = store.ceremony(id);
             try {
-            UserModel found = session.users().getUserByUsername(session.getContext().getRealm(), username);
+            UserModel found;
+            try { found = KeycloakModelUtils.findUserByNameOrEmail(session, session.getContext().getRealm(), username.trim()); }
+            catch (ModelDuplicateException ambiguous) { store.audit(null, "BOOTSTRAP_REJECTED", ceremony.id); return null; }
             if (found == null) { store.audit(null, "BOOTSTRAP_REJECTED", ceremony.id); return null; }
             UserModel user = store.local(found.getId(), true); NativeState state = store.state(user.getId(), false); store.eligible(state, user);
             require(state.bootstrapAttempts < 3); state.bootstrapAttempts++; store.audit(user.getId(), "BOOTSTRAP_RESERVED", ceremony.id);

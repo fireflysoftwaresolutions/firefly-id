@@ -124,6 +124,7 @@ input::placeholder { color: var(--ffid-muted); opacity: 1; }
 .pf-v5-c-login__main-footer-band { background: var(--ffid-paper); border-radius: 0 0 16px 16px; }
 .ffid-footer { display: flex; flex-direction: column; gap: 3px; padding: 24px 20px; text-align: center; color: var(--ffid-muted); font-size: 12px; }
 .ffid-footer span:first-child { color: var(--ffid-ink); font-weight: 700; }
+.ffid-recovery-entry { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; font-size: 13px; }
 #login-select-toggle.ffid-locale-selector {
   align-self: center;
   width: auto;

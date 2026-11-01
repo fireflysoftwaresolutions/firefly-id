@@ -9,6 +9,9 @@ check:
 	node --check tooling/localization-runtime.mjs
 	node --check tooling/receiver-audience-runtime.mjs
 	node --check tooling/configuration-lookup-runtime.mjs
+	node --check tooling/native-runtime.mjs
+	node --check themes/firefly-id-native/account/resources/js/native-account-links.js
+	node --check themes/firefly-id/login/resources/js/native-ui.js
 	node --input-type=module --check < themes/console-policy.js
 	node --test tests/*.test.mjs
 	git diff --check

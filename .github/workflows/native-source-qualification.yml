@@ -27,6 +27,12 @@ jobs:
           native_maven_status=0
           mvn -B -ntp -f extensions/pom.xml -Dmaven.repo.local="$RUNNER_TEMP/firefly-native-m2" verify > .qualification/native-maven.log 2>&1 || native_maven_status=$?
           python3 tooling/summarize_native_build.py "$native_maven_status"
+      - name: Package exact native installation candidates
+        run: |
+          python3 tooling/package_native.py \
+            --native-jar extensions/native-recovery/target/firefly-id-native-recovery-26.10.1-SNAPSHOT.jar \
+            --gateway-jar extensions/native-domain-gateway/target/firefly-id-native-domain-gateway-26.10.1-SNAPSHOT.jar \
+            --output .qualification/native-installation
       - name: Preserve bounded native evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -42,5 +48,6 @@ jobs:
           path: |
             extensions/native-recovery/target/firefly-id-native-recovery-26.10.1-SNAPSHOT.jar
             extensions/native-domain-gateway/target/firefly-id-native-domain-gateway-26.10.1-SNAPSHOT.jar
+            .qualification/native-installation/
           if-no-files-found: error
           retention-days: 14

@@ -175,7 +175,7 @@ def start():
                '--env', 'JAVA_OPTS_KC_HEAP=-Xms128m -Xmx768m', '--env', 'FIREFLY_SUPPORT_PIN_KEYS_DIR=/run/pepper', '--env', 'FIREFLY_SUPPORT_PIN_ACTIVE_KEY=v1',
                '--env', f'JAVA_OPTS_APPEND=-Djavax.net.ssl.trustStore=/run/native/trust.p12 -Djavax.net.ssl.trustStorePassword={credentials["store"]}',
                '--volume', str(directory / 'providers') + ':/opt/keycloak/providers:ro', '--volume', str(directory / 'realms') + ':/opt/keycloak/data/import:ro',
-               '--volume', str(ROOT / 'dist/themes/firefly-id') + ':/opt/keycloak/themes/firefly-id:ro', '--volume', str(directory / 'tls') + ':/run/native:ro',
+               '--volume', str(ROOT / 'dist/themes') + ':/opt/keycloak/themes:ro', '--volume', str(directory / 'tls') + ':/run/native:ro',
                '--volume', str(directory / 'pepper') + ':/run/pepper:ro', '--volume', str(ROOT / 'config/password-blacklist.txt') + ':/opt/keycloak/data/password-blacklists/firefly-baseline.txt:ro']
     for name in ['id.firefly.test'] + [f'{service}-{profile["kind"]}.firefly.test' for profile in credentials['profiles'] for service in ('core', 'domain')]: command += ['--add-host', name + ':127.0.0.1']
     command += [images['keycloak']['image'], 'start', '--import-realm', '--spi-brute-force-protector--provider=firefly-native-recovery']

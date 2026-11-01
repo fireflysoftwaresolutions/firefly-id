@@ -58,6 +58,7 @@ async function authenticate(profile, context, wrong = false, enroll = false) {
   let fulfill;
   const returned = new Promise(ok => { fulfill = ok; pending.set(state, ok); });
   await page.goto(url.href);
+  assert.equal(await page.locator(`a[href="${profile.issuer}/firefly-recovery"]`).count(), 1, 'Opted-in native login must expose recovery');
   await page.locator('#username').fill(profile.person.username);
   await page.locator('#password').fill(wrong ? 'synthetic-invalid-password-2468!' : profile.person.password);
   await page.locator('#kc-login').click();
@@ -92,7 +93,7 @@ async function recovery(profile, context, username, password) {
   await page.locator('#username').fill(username); await page.locator('#password').fill(password);
   await page.locator('#ffid-recovery-continue').click();
   await page.locator('#otp').waitFor();
-  if (username === profile.person.username) {
+  if ([profile.person.username, profile.person.email].includes(username)) {
     const reserved = snapshot(profile.kind);
     await page.reload(); await page.locator('#otp').waitFor();
     assert.equal(await page.locator('#username').count(), 0, 'Reload must preserve the completed password stage');
@@ -110,6 +111,21 @@ async function expectCsrfRefusal(profile) {
   assert.equal(response.status(), 400);
   await context.close(); passed(`${profile.kind}-native-csrf-refused`);
 }
+async function captureSafeJourney(page, name) {
+  assert.equal(await page.locator('input[type="password"], #kc-totp-secret-key').count(), 0, 'Credential-bearing surfaces must not be captured');
+  await page.evaluate(() => document.fonts.ready);
+  assert.ok(await page.evaluate(() => document.fonts.check('16px Manrope')), 'Self-hosted Manrope is unavailable');
+  for (const [width, height] of [[1440, 1000], [390, 844]]) {
+    await page.setViewportSize({ width, height });
+    for (const mode of ['light', 'dark']) {
+      await page.emulateMedia({ colorScheme: mode });
+      await page.waitForFunction(dark => document.documentElement.classList.contains('pf-v5-theme-dark') === dark, mode === 'dark');
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'Native journey has horizontal clipping');
+      await page.screenshot({ path: `${output}/${name}-${width}-${mode}.png`, fullPage: true });
+    }
+  }
+}
+
 async function supportPin(profile, context) {
   for (const [suffix, pin, expected] of [['set', '70934628', true], ['set', '84173059', true], ['revoke', null, false]]) {
     const page = await context.newPage(); await page.goto(`${profile.issuer}/firefly-recovery/support-pin/${suffix}`);
@@ -119,7 +135,7 @@ async function supportPin(profile, context) {
     await page.locator('#ffid-support-pin').waitFor({ state: 'detached' });
     assert.equal(snapshot(profile.kind).native.pinActive, expected, 'Actual native PIN lifecycle state differs');
     assert.equal(await page.locator('input[type="password"]').count(), 0, 'Credential field must not enter status capture');
-    await page.screenshot({ path: `${output}/customers-pin-${suffix}-${results.length}.png`, fullPage: true });
+    await captureSafeJourney(page, `customers-pin-${suffix}-${results.length}`);
     await page.close(); passed(`customers-pin-${pin ? 'set-or-rotate' : 'revoke'}-${results.length}`);
   }
 }
@@ -137,9 +153,14 @@ try {
     assert.ok(tokens.refresh_token, 'Real refresh/offline session required for retirement check');
     passed(`${profile.kind}-pre-existing-password-and-native-totp-enrolled`);
     for (const endpoint of [profile.core, profile.domain]) {
+      const body = endpoint === profile.core ? JSON.stringify({ binding: { issuer: profile.issuer,
+        tenant: 'synthetic-tenant', clientId: 'native-browser', delegatingClientId: null, actorSubject: profile.person.id,
+        targetIssuer: profile.issuer, targetRealm: profile.realm, targetSubject: profile.person.id, population: profile.population,
+        purpose: 'PERMANENT_AUTHENTICATION_UNLOCK', lockGeneration: 'not-authorized-synthetic-generation' },
+        idempotencyKey: 'ordinary-token-negative' }) : undefined;
       const response = await request(`${endpoint}/api/v1/sca/recovery-operations`, { method: 'POST',
-        headers: { Authorization: `Bearer ${tokens.access_token}`, 'Content-Type': 'application/json' }, body: '{}' });
-      assert.ok([400, 401, 403].includes(response.status), 'Ordinary authentication must not admit recovery');
+        headers: { Authorization: `Bearer ${tokens.access_token}`, 'Content-Type': 'application/json' }, body });
+      assert.ok([401, 403].includes(response.status), 'Valid request shape with ordinary authentication must not admit recovery');
     }
     passed(`${profile.kind}-ordinary-token-not-recovery-authority`);
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -162,7 +183,7 @@ try {
     await heldPage.locator('#otp').fill('000000'); await heldPage.locator('#ffid-recovery-continue').click();
     assert.equal((await user(profile, true)).enabled, false); await manual.close();
     passed(`${profile.kind}-unknown-and-manual-hold-generic-unavailable`);
-    const context = await browser.newContext({ locale: 'es-ES' }); const page = await recovery(profile, context, profile.person.username, profile.person.password);
+    const context = await browser.newContext({ locale: 'es-ES' }); const page = await recovery(profile, context, profile.population === 'HUMAN' ? profile.person.email : profile.person.username, profile.person.password);
     assert.equal(await page.locator('.ffid-native-journey').innerText(), unknownText, 'Known recovery reveals existence');
     before = snapshot(profile.kind); assert.equal(before.core.length, 1); assert.equal(before.core[0].attempts, 1);
     const permitted = new Set([-30, 0, 30].map(offset => totpCode(factors.get(profile.kind).secret, Date.now() / 1000 + offset)));
@@ -179,7 +200,7 @@ try {
     const after = snapshot(profile.kind); assert.equal(after.native.executions, 1); assert.equal(after.native.maximumChecksPerReservation, 1);
     assert.equal(after.core[0].attempts, 3); assert.equal(after.core[0].state, 'CONSUMED'); assert.equal(after.core[0].outcome, 'SUCCEEDED');
     assert.equal(await page.locator('input[type="password"]').count(), 0);
-    await page.screenshot({ path: `${output}/${profile.kind}-complete.png`, fullPage: true });
+    await captureSafeJourney(page, `${profile.kind}-complete`);
     passed(`${profile.kind}-real-native-two-factor-unlock-and-owning-execution-journal`);
     const replay = await context.request.post(`${profile.issuer}/firefly-recovery`, { headers: { Origin: origin }, form: { csrf, otp: '000000' } });
     assert.equal(replay.status(), 400); assert.equal(snapshot(profile.kind).native.executions, 1);
@@ -190,7 +211,20 @@ try {
     assert.equal((await sessions.json()).length, 0); passed(`${profile.kind}-old-refresh-and-online-sessions-retired`);
     const fresh = await browser.newContext(); await authenticate(profile, fresh);
     passed(`${profile.kind}-fresh-password-and-pre-enrolled-mfa-required-after-unlock`);
-    if (profile.population === 'HUMAN') await supportPin(profile, fresh);
+    const account = await fresh.newPage(); await account.goto(`${profile.issuer}/account/`);
+    await account.locator('main').waitFor();
+    const pinLink = account.locator(`a[href="${profile.issuer}/firefly-recovery/support-pin"]`);
+    if (profile.population === 'HUMAN') {
+      await pinLink.waitFor({ state: 'visible' }); await pinLink.click();
+      assert.equal(await account.locator('input[type="password"]').count(), 0, 'PIN status entry must not request a secret');
+      passed('customers-native-account-exposes-support-pin-status');
+      await supportPin(profile, fresh);
+    } else {
+      assert.equal(await pinLink.count(), 0, 'Workforce account must not offer the customer support PIN');
+      const refusedPin = await fresh.request.get(`${profile.issuer}/firefly-recovery/support-pin`);
+      assert.equal(refusedPin.status(), 403); passed('workforce-customer-pin-surface-refused');
+    }
+    await account.close();
     await fresh.close(); await context.close(); await previousSession.close();
     const serviceClient = 'untracked-fixture-service-' + profile.kind;
     const clientCreated = await admin(profile, 'clients', { method: 'POST', headers: { 'Content-Type': 'application/json' },

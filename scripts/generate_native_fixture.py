@@ -42,10 +42,11 @@ def main():
     profiles = []
     for kind, population, core_port, domain_port in [('customers', 'HUMAN', 8444, 8445), ('workforce', 'STAFF', 8446, 8447)]:
         realm_name = 'native-' + kind
-        person = {'id': str(uuid.uuid4()), 'username': 'synthetic-' + kind, 'password': secrets.token_urlsafe(32)}
+        person = {'id': str(uuid.uuid4()), 'username': 'synthetic-' + kind, 'email': kind + '@example.invalid', 'password': secrets.token_urlsafe(32)}
         core_secret, domain_secret = secrets.token_urlsafe(36), secrets.token_urlsafe(36)
         realm = base.realm(kind, person['password'], secrets.token_urlsafe(36))
         realm.update(realm=realm_name, sslRequired='all', verifyEmail=False, resetPasswordAllowed=False,
+                     loginTheme='firefly-id-native', accountTheme='firefly-id-native' if population == 'HUMAN' else 'firefly-id',
                      otpPolicyType='totp', otpPolicyAlgorithm='HmacSHA1', otpPolicyDigits=6, otpPolicyPeriod=30,
                      otpPolicyLookAheadWindow=1, otpPolicyCodeReusable=False)
         issuer = ORIGIN + '/realms/' + realm_name
@@ -68,8 +69,13 @@ def main():
         for client_id, secret in [('native-core-owner', core_secret), ('native-domain-owner', domain_secret)]:
             client = base.receiver_client(secret); client['clientId'] = client_id
             realm['clients'].append(client)
-        held = json.loads(json.dumps(user)); held.update(id=str(uuid.uuid4()), username='manual-' + kind, enabled=False, requiredActions=[])
+        held = json.loads(json.dumps(user)); held.update(id=str(uuid.uuid4()), username='manual-' + kind, email='manual-' + kind + '@example.invalid', enabled=False, requiredActions=[])
+        held['attributes']['party_id' if population == 'HUMAN' else 'staff_actor_id'] = [str(uuid.uuid4())]
         realm['users'].append(held)
+        for field in ('id', 'username', 'email'):
+            values_for_field = [entry[field].casefold() for entry in realm['users']]
+            if len(values_for_field) != len(set(values_for_field)):
+                raise RuntimeError('Synthetic native user identity fields must be unique before import')
         protected(output / 'realms' / (realm_name + '.json'), realm)
         protected(output / 'secrets' / ('core-' + kind), core_secret)
         protected(output / 'secrets' / ('domain-' + kind), domain_secret)

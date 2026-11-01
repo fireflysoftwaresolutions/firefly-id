@@ -55,7 +55,7 @@ The selected default permanently blocks ordinary authentication after three reco
 
 Secure unlock requires a separate recovery transaction bound to the actual current lock, previously enrolled independent knowledge and possession factors, one-time authorization and an atomic native state transition. It finishes with fresh sign-in rather than restoring old sessions. Accounts with a lost factor, an administrative/fraud/employment hold or an unqualified external credential store require their separately approved assisted process. [Permanent recovery](docs/permanent-recovery.md) explains ownership, native behavior and the implementation/qualification boundary.
 
-The planned telephone/customer-support PIN is a separate CIAM knowledge credential with strong-authenticated lifecycle management. A support verification does not become possession proof, a payment permission, an account unlock or workforce delegation. Business case/call ownership and BPO authority stay with their actual platform owners; the [native design](docs/superpowers/specs/2026-10-31-native-recovery-design.md#support-pin) records that contract and its current implementation scope.
+The optional native telephone/customer-support PIN is a separate CIAM knowledge credential with strong-authenticated status, creation, replacement and revocation. A support verification does not become possession proof, a payment permission, an account unlock or workforce delegation. Verification remains closed until a genuine support case/call authorization owner exists. The [support PIN guide](docs/support-pin.md) explains customer UX, storage, key rotation and the BPO integration boundary.
 
 ## Fit with OpenPlatform
 
@@ -90,6 +90,9 @@ The [integration matrix](docs/integration-contract.md) records actual public sou
 | [Themes](docs/themes.md) | Flow coverage, packaging, accessibility, customization |
 | [Security](docs/security.md) | Identity proof, protected claims, grants, proxy and secrets |
 | [Authentication policies](docs/authentication-policies.md) | Separate customer/employee requirements, three-failure lock, passwords and EU applicability |
+| [Native recovery](docs/native-recovery.md) | Optional provider installation, exact owner protocol, durable retry and acceptance gates |
+| [Support PIN](docs/support-pin.md) | Customer lifecycle, pepper rotation and fail-closed telephone/BPO verification boundary |
+| [Zero trust](docs/zero-trust.md) | Per-service authentication/authorization, framework independence and workforce delegation |
 | [Provider claims](docs/provider-claim-profile.md) | Actual issued claim types and qualified receiver expectations |
 | [Operations](docs/operations.md) | Deployment, health, key/client lifecycle, backup and upgrades |
 | [Troubleshooting](docs/troubleshooting.md) | Import, discovery, callbacks, mail, and theme failures |

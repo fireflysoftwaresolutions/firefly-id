@@ -1,5 +1,21 @@
 # Implementation evidence
 
+## Current native integration checkpoint — October 31, 2026
+
+The repository description and 18 topics now explain customer/workforce identity, OpenPlatform integration, independent Jafly, authentication and authorization. The README provides distinct evaluation, integration and operations reading paths. Native installation, retry handling, support PIN lifecycle/key rotation and per-service zero trust have dedicated guides.
+
+The optional native extension and HTTPS Domain gateway are implemented in source. [Native run 41253471044](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41253471044), at `40473ffc1b2e59bdf922bf96a17be7fa7133d608`, passed **32 tests, zero failures/errors/skips** and verified both JARs' LICENSE/NOTICE. Native candidate hashes: `92d0344709c8769963295aad10ddac03907b12cdd4663ef5b5e5e83e67eea2b9` and gateway `aa3128180c6ee60439283050566a7562ef17d7660dd1261736eb1fca1f64b9dc`. Source qualification and installation packaging do not establish actual native provider acceptance.
+
+The owning [Core draft](https://github.com/fireflysoftwaresolutions/core-common-sca-mgmt/pull/2) has 84 passing source tests at `c91880ac092eec11ec4640a65a599a8a1d9d5c2a` in hosted run `41251638357`. The actual [Domain draft](https://github.com/fireflysoftwaresolutions/domain-common-sca/pull/1), including its genuine generated Core SDK, passed its full reactor and 23 required tests with zero skips at `d32ecca07e3dfd3a2330c201e555e95b89476c89` in [run 41252856215](https://github.com/fireflysoftwaresolutions/domain-common-sca/actions/runs/41252856215). These are source candidates, not released or adopted production contracts.
+
+The complete ordinary distribution qualified in [run 41252391773](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41252391773) at `63ca5956bfb1478b5b9fbaf5bed59cc698f89aaa`: 25 Python and 11 Node source tests; real provider/browser, separate policies/locales and audience lanes; eight genuine Jafly receiver cases plus four isolated optional Configuration workload cases. That workload evidence records only its stopped synthetic issuer/subject; it is not a live Configuration/PDP grant.
+
+Actual native/Core/Domain integration is **not yet qualified**. [Run 41254433096](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41254433096) built the native modules, real Core producer SDK and Domain executable, then failed during native realm import because two synthetic users shared a unique email. Its bounded diagnostic identified the database uniqueness refusal. The fixture successor gives every user a distinct email/link and validates uniqueness before import; another actual run is required. No real browser recovery assertion ran in that failed attempt.
+
+The native-only theme variant, username/email recovery lookup and new packaging guide are successors to those exact passing source heads and require their own checks. Telephone/BPO verification stays closed pending the genuine support case/delegation owner. Long-outage journal reconciliation, every-receiver live-state enforcement, approved banking notifications, retained-database migration, full HA/concurrency acceptance and production rollout remain separate gates.
+
+## Earlier evidence
+
 2026-10-31: Authoritative repository lookup returned 404; explicitly authorized public repository created. New isolated checkout initialized; parent handoff remains read-only. Canonical brand repository located and current Keycloak 26.8.1 release verified through official GitHub metadata. Independent source-contract, brand and deployment workstreams started.
 
 Initial disk preflight is below 12 GiB. Container downloads and runtime tests have not been admitted. No cleanup performed. Source implementation and public delivery proceed without implying runtime or production acceptance.
