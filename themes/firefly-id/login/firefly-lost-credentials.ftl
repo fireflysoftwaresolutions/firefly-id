@@ -46,7 +46,7 @@
             <span class="${properties.kcInputClass!}"><input id="otp" name="otp" type="password" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" maxlength="8" aria-describedby="ffid-lost-otp-help" required /></span>
           </div>
         </#if>
-        <button id="ffid-lost-continue" class="${properties.kcButtonClass!} <#if stage == 'COMPLETE'>${properties.kcButtonSecondaryClass!}<#else>${properties.kcButtonPrimaryClass!}</#if> ${properties.kcButtonBlockClass!}" type="submit"><#if stage == "VERIFY">${msg("ffidLostVerifyContinue")}<#elseif stage == "ENROLL">${msg("ffidLostReplace")}<#else>${msg("doContinue")}</#if></button>
+        <button id="ffid-lost-continue" class="${properties.kcButtonClass!} <#if stage == 'COMPLETE'>${properties.kcButtonSecondaryClass!}<#else>${properties.kcButtonPrimaryClass!}</#if> ${properties.kcButtonBlockClass!}" type="submit"><#if stage == "VERIFY">${msg("ffidLostVerifyContinue")}<#elseif stage == "ENROLL">${msg("ffidLostReplace")}<#elseif stage == "COMPLETE">${msg("ffidLostFinishRequest")}<#else>${msg("doContinue")}</#if></button>
       </form>
       </#if>
       <#if stage != "COMPLETE"><a class="ffid-journey-return" href="${signInUrl}">${msg("ffidRecoveryBackToSignIn")}</a></#if>
