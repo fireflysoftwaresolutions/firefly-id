@@ -1,0 +1,333 @@
+#!/usr/bin/env python3
+"""Hosted-only credential-loss qualification with actual native/Core/KYC owners.
+
+Successful identity proofing belongs exclusively to the Domain test classpath.
+No command accepts an existing database, remote Docker, arbitrary process or path.
+"""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import secrets
+import socket
+import subprocess
+import sys
+import time
+import uuid
+
+import native_integration_fixture as owned
+
+ROOT = Path(__file__).resolve().parents[1]
+OUTPUT = ROOT / '.work/reproofing-integration'
+CORE_RELATIVE = 'core-common-kycb-mgmt-web/target/core-common-kycb-mgmt.jar'
+FIXTURE_MAIN = 'io.fireflysoftware.domain.kyc.kyb.web.reproofing.ReproofingFixtureApplication'
+
+
+def protected(path, value):
+    if path.exists():
+        raise RuntimeError('Refusing to replace owned fixture material')
+    path.write_bytes(value if isinstance(value, bytes) else value.encode())
+    path.chmod(0o600)
+
+
+def state():
+    directory, owner = owned.state()
+    if owner.get('suite') != 'credential-loss-v1':
+        raise RuntimeError('Credential-loss suite ownership mismatch')
+    return directory, owner
+
+
+def output_json(name, value):
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    (OUTPUT / name).write_text(json.dumps(value, indent=2) + '\n')
+
+
+def prepare():
+    owned.resource_floor(ROOT, 12)
+    run = os.environ['GITHUB_RUN_ID'] + '-' + os.environ['GITHUB_RUN_ATTEMPT']
+    directory = ROOT / '.state' / ('native-' + run)
+    subprocess.run([sys.executable, str(ROOT / 'scripts/generate_native_fixture.py'), '--output', str(directory)], check=True)
+    directory, owner = owned.state()
+    owner['suite'] = 'credential-loss-v1'
+    owned.save_owner(directory, owner)
+    credentials = json.loads((directory / 'credentials.json').read_text())
+    values = {key: secrets.token_urlsafe(36) for key in ('native-domain', 'domain-core', 'core-verifier',
+                                                        'fixture-control', 'core-native', 'domain-native')}
+    values['native_client'] = 'reproofing-native-caller'
+    values['domain_client'] = 'reproofing-domain-caller'
+    values['verifier_client'] = 'reproofing-core-verifier'
+    values['fixture_client'] = 'reproofing-fixture-controller'
+    for name, value in values.items():
+        if not name.endswith('_client'):
+            protected(directory / 'secrets' / (name + '.secret'), value)
+    protected(directory / 'secrets/enrollment.key', secrets.token_bytes(32))
+    credentials['reproofing'] = values
+    profile = credentials['profiles'][0]
+    realm_file = directory / 'realms' / (profile['realm'] + '.json')
+    realm = json.loads(realm_file.read_text())
+    person = realm['users'][0]
+    profile['tenant'] = person['attributes']['tenant_id'][0]
+    profile['party'] = person['attributes']['party_id'][0]
+    person['emailVerified'] = True
+    for label in ('locked', 'changed', 'held-after-proof'):
+        additional = json.loads(json.dumps(person))
+        additional.update(id=str(uuid.uuid4()), username=label + '-customer',
+                          email=label + '@example.invalid')
+        additional['attributes']['party_id'] = [str(uuid.uuid4())]
+        realm['users'].append(additional)
+        profile[label] = {'id': additional['id'], 'username': additional['username'],
+                          'email': additional['email'], 'password': profile['person']['password']}
+    attrs = {'enabled': 'true', 'issuer': profile['issuer'], 'tenant': profile['tenant'], 'population': 'HUMAN',
+             'tenant-attribute': 'tenant_id', 'link-attribute': 'party_id', 'allowed-origin': 'https://id.firefly.test:8443',
+             'ttl-seconds': '600', 'core-workload-client-id': 'reproofing-core-owner',
+             'domain-workload-client-id': 'reproofing-domain-owner', 'domain-origin': profile['domain'],
+             'domain-client-id': values['native_client'], 'provider-origin': profile['domain']}
+    realm['attributes'].update({'firefly.reproofing.' + name: value for name, value in attrs.items()})
+    for client_id, secret in [('reproofing-core-owner', values['core-native']),
+                              ('reproofing-domain-owner', values['domain-native'])]:
+        realm['clients'].append({'clientId': client_id, 'enabled': True, 'publicClient': False, 'secret': secret,
+                                 'standardFlowEnabled': False, 'directAccessGrantsEnabled': False,
+                                 'serviceAccountsEnabled': False, 'implicitFlowEnabled': False,
+                                 'protocol': 'openid-connect', 'fullScopeAllowed': False})
+    realm['smtpServer'] = {'host': '127.0.0.1', 'port': '1025', 'from': 'identity@example.invalid',
+                           'fromDisplayName': 'Firefly Identity', 'ssl': 'false', 'starttls': 'false', 'auth': 'false'}
+    realm_file.write_text(json.dumps(realm, indent=2) + '\n')
+    (directory / 'credentials.json').write_text(json.dumps(credentials, indent=2) + '\n')
+    for port in (5432, 8443, 8444, 8445, 8448, 1025, 8025):
+        with socket.socket() as probe:
+            try:
+                probe.bind(('127.0.0.1', port))
+            except OSError as error:
+                raise RuntimeError('Refusing an occupied owned fixture port') from error
+    owned.tls(directory, credentials)
+    # Native image UID reads only these attempt-owned private files; host services
+    # use different files, so neither service receives the other's credentials.
+    for name in ('native-domain.secret', 'enrollment.key'):
+        owned.run(['sudo', 'chown', '1000:0', str(directory / 'secrets' / name)], directory, 'replacement-secret-owner')
+    owned.run(['sudo', 'chmod', '755', str(directory / 'secrets')], directory, 'replacement-secret-directory')
+    print('Prepared new credential-loss fixture; credentials and synthetic references remain private.')
+
+
+def container(directory, owner, suffix, arguments):
+    name = owner['project'] + '-' + suffix
+    owner['containers'].append(name)
+    owned.save_owner(directory, owner)
+    owned.run(['docker', 'run', '--detach', '--name', name, '--label', owned.LABEL + '=' + owner['run'],
+               *arguments], directory, suffix + '-start')
+    return name
+
+
+def start_native(directory, owner, credentials, images):
+    for module in ('native-recovery', 'native-domain-gateway'):
+        artifact = ROOT / 'extensions' / module / 'target' / ('firefly-id-' + module + '-26.10.1-SNAPSHOT.jar')
+        if not artifact.is_file():
+            raise RuntimeError('Actual native candidate artifact missing')
+        target = directory / 'providers' / artifact.name
+        if target.exists():
+            raise RuntimeError('Native provider destination already exists')
+        target.write_bytes(artifact.read_bytes())
+        target.chmod(0o644)
+    arguments = ['--network', 'host', '--env-file', str(directory / 'keycloak.env'),
+                 '--env', 'KC_DB=postgres', '--env', 'KC_DB_URL=jdbc:postgresql://127.0.0.1:5432/native_kc',
+                 '--env', 'KC_DB_USERNAME=native_kc', '--env', 'KC_BOOTSTRAP_ADMIN_USERNAME=native-bootstrap',
+                 '--env', 'KC_HTTP_ENABLED=false', '--env', 'KC_HTTP_HOST=127.0.0.1', '--env', 'KC_HTTPS_PORT=8443',
+                 '--env', 'KC_HOSTNAME=https://id.firefly.test:8443', '--env', 'KC_HOSTNAME_STRICT=true',
+                 '--env', 'KC_HTTPS_CERTIFICATE_FILE=/run/native/server.crt', '--env', 'KC_HTTPS_CERTIFICATE_KEY_FILE=/run/native/server.key',
+                 '--env', 'KC_LOG_LEVEL=warn', '--env', 'JAVA_OPTS_KC_HEAP=-Xms128m -Xmx768m',
+                 '--env', 'FIREFLY_SUPPORT_PIN_KEYS_DIR=/run/pepper', '--env', 'FIREFLY_SUPPORT_PIN_ACTIVE_KEY=v1',
+                 '--env', 'FIREFLY_REPROOFING_DOMAIN_SECRET_FILE=/run/reproofing/native-domain.secret',
+                 '--env', 'FIREFLY_REPROOFING_ENROLLMENT_KEY_FILE=/run/reproofing/enrollment.key',
+                 '--env', 'JAVA_OPTS_APPEND=-Djavax.net.ssl.trustStore=/run/native/trust.p12 -Djavax.net.ssl.trustStorePassword=' + credentials['store'],
+                 '--volume', str(directory / 'providers') + ':/opt/keycloak/providers:ro',
+                 '--volume', str(directory / 'realms') + ':/opt/keycloak/data/import:ro',
+                 '--volume', str(ROOT / 'dist/themes') + ':/opt/keycloak/themes:ro',
+                 '--volume', str(directory / 'tls') + ':/run/native:ro', '--volume', str(directory / 'pepper') + ':/run/pepper:ro',
+                 '--volume', str(directory / 'secrets') + ':/run/reproofing:ro',
+                 '--volume', str(ROOT / 'config/password-blacklist.txt') + ':/opt/keycloak/data/password-blacklists/firefly-baseline.txt:ro']
+    for name in ('id.firefly.test', 'domain-customers.firefly.test', 'core-customers.firefly.test'):
+        arguments += ['--add-host', name + ':127.0.0.1']
+    arguments += [images['keycloak']['image'], 'start', '--import-realm',
+                  '--spi-brute-force-protector--provider=firefly-native-recovery']
+    container(directory, owner, 'keycloak', arguments)
+    owned.wait_https(credentials['profiles'][0]['issuer'] + '/.well-known/openid-configuration', directory)
+
+
+def service(directory, owner, credentials, name, settings, command):
+    source = ROOT / '.qualification/reproofing-domain'
+    if name == 'core':
+        source = source / '.qualification/core'
+    configuration = directory / (name + '-reproofing.json')
+    protected(configuration, json.dumps(settings))
+    environment = dict(os.environ, SPRING_APPLICATION_JSON=json.dumps(settings),
+                       DB_HOST='127.0.0.1', DB_PORT='5432', DB_NAME='kycb_reproofing',
+                       DB_USERNAME='reproofing_runtime', DB_PASSWORD=credentials['core-db'], DB_SSL_MODE='disable')
+    java = ['java', '-Xms64m', '-Xmx512m', '-Djavax.net.ssl.trustStore=' + str(directory / 'tls/trust.p12'),
+            '-Djavax.net.ssl.trustStorePassword=' + credentials['store']]
+    with (directory / 'logs' / (name + '-reproofing.log')).open('ab') as output:
+        process = subprocess.Popen(java + command, cwd=source, env=environment, stdout=output, stderr=subprocess.STDOUT)
+    owner['processes'].append({'pid': process.pid, 'jar': command[-1], 'kind': name + '-reproofing'})
+    owned.save_owner(directory, owner)
+    return process
+
+
+def start():
+    directory, owner = state()
+    owned.resource_floor(directory, 12)
+    credentials = json.loads((directory / 'credentials.json').read_text())
+    values = credentials['reproofing']
+    profile = credentials['profiles'][0]
+    images = json.loads((ROOT / 'deploy/images.lock.json').read_text())
+    postgres = container(directory, owner, 'postgres', ['--publish', '127.0.0.1:5432:5432',
+                          '--env-file', str(directory / 'postgres.env'), images['postgres']['image']])
+    for _ in range(90):
+        if subprocess.run(['docker', 'exec', postgres, 'pg_isready', '-U', 'postgres'],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+            break
+        time.sleep(1)
+    else:
+        raise RuntimeError('Owned PostgreSQL readiness timed out')
+    owned.psql(directory, owner, "CREATE ROLE native_kc LOGIN PASSWORD '" + credentials['keycloak-db']
+               + "'; CREATE DATABASE native_kc OWNER native_kc; CREATE ROLE reproofing_owner NOLOGIN; "
+               + "CREATE ROLE reproofing_runtime LOGIN PASSWORD '" + credentials['core-db']
+               + "'; CREATE DATABASE kycb_reproofing;")
+    owned.psql(directory, owner, 'REVOKE CREATE ON SCHEMA public FROM PUBLIC; GRANT USAGE,CREATE ON SCHEMA public TO reproofing_owner;', 'kycb_reproofing')
+    core = ROOT / '.qualification/reproofing-domain/.qualification/core'
+    installer = (core / 'ops/reproofing-installer/install.sql').read_text()
+    installer = installer.replace(":'reproofing_owner'", "'reproofing_owner'").replace(":'reproofing_runtime'", "'reproofing_runtime'")
+    installer = installer.replace(':"reproofing_owner"', 'reproofing_owner').replace(':"reproofing_runtime"', 'reproofing_runtime')
+    owned.psql(directory, owner, installer, 'kycb_reproofing')
+    container(directory, owner, 'mailpit', ['--network', 'host', images['mailpit']['image']])
+    start_native(directory, owner, credentials, images)
+    common = {'server.address': '127.0.0.1', 'server.ssl.enabled': True,
+              'server.ssl.key-store': 'file:' + str(directory / 'tls/server.p12'),
+              'server.ssl.key-store-password': credentials['store'], 'server.ssl.key-store-type': 'PKCS12',
+              'spring.flyway.enabled': False, 'spring.r2dbc.url': 'r2dbc:postgresql://127.0.0.1:5432/kycb_reproofing',
+              'spring.r2dbc.username': 'reproofing_runtime', 'spring.r2dbc.password': credentials['core-db'],
+              'firefly.cache.enabled': False, 'firefly.web.idempotency.enabled': False,
+              'firefly.cqrs.query.caching-enabled': False, 'firefly.eda.enabled': False, 'firefly.stepevents.enabled': False,
+              'springdoc.api-docs.enabled': False, 'springdoc.swagger-ui.enabled': False, 'logging.level.root': 'WARN',
+              'firefly.reproofing.enabled': True, 'firefly.reproofing.issuer': profile['issuer'],
+              'firefly.reproofing.realm': profile['realm'], 'firefly.reproofing.tenant': profile['tenant'],
+              'firefly.reproofing.provider-id': 'fixture-proofing-v1', 'firefly.reproofing.policy-id': 'fixture-policy-v1'}
+    secret = lambda name: str(directory / 'secrets' / (name + '.secret'))
+    core_settings = {**common, 'server.port': profile['core_port'],
+                     'firefly.reproofing.receiver.client-id': values['domain_client'],
+                     'firefly.reproofing.receiver.secret-file': secret('domain-core'),
+                     'firefly.reproofing.native.base-url': profile['issuer'] + '/firefly-recovery/lost-credentials/rpc',
+                     'firefly.reproofing.native.client-id': 'reproofing-core-owner',
+                     'firefly.reproofing.native.secret-file': secret('core-native'),
+                     'firefly.reproofing.evidence.base-url': profile['domain'] + '/internal/identity-recovery/evidence',
+                     'firefly.reproofing.evidence.client-id': values['verifier_client'],
+                     'firefly.reproofing.evidence.secret-file': secret('core-verifier')}
+    core_process = service(directory, owner, credentials, 'core', core_settings, ['-jar', str(core / CORE_RELATIVE)])
+    owned.wait_https(profile['core'] + '/api/v1/identity-recovery/cases', directory, core_process)
+    start_domain(directory, owner, credentials, common)
+    summary = json.loads((ROOT / '.qualification/reproofing-domain/.qualification/reproofing-sdk-summary.json').read_text())
+    manifest = {'scope': 'Actual Keycloak and customer KYC owners with test-classpath-only proofing; not real provider or production acceptance',
+                'identity_source': subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip(),
+                'producer': summary, 'native_image': images['keycloak']['image'], 'postgres_image': images['postgres']['image'],
+                'mailpit_image': images['mailpit']['image']}
+    for artifact in list((directory / 'providers').glob('*.jar')) + [core / CORE_RELATIVE]:
+        manifest[artifact.name] = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    output_json('manifest.json', manifest)
+    print('Actual native, durable Core and independent customer Domain fixture ready.')
+
+
+def start_domain(directory, owner, credentials, common):
+    # Filled with the exact genuine-SDK consumer's declared fixture properties;
+    # absence is an integration failure, never an alternate fake Domain.
+    source = ROOT / '.qualification/reproofing-domain'
+    descriptor = source / '.qualification/reproofing-runtime.json'
+    if not descriptor.is_file():
+        raise RuntimeError('Actual Domain fixture runtime descriptor missing')
+    descriptor_value = json.loads(descriptor.read_text())
+    if descriptor_value.get('mainClass') != FIXTURE_MAIN:
+        raise RuntimeError('Unexpected Domain fixture application')
+    classpath_file = source / '.qualification/reproofing-domain-classpath.txt'
+    classpath = classpath_file.read_text().strip()
+    if not classpath or '\n' in classpath:
+        raise RuntimeError('Invalid actual Domain classpath')
+    settings = {**common, **descriptor_value['properties'],
+                'server.port': credentials['profiles'][0]['domain_port']}
+    # All templated values are private runner-local paths/credentials; the file
+    # never becomes evidence and no response content is logged.
+    substitutions = {'STATE': str(directory), 'CORE': credentials['profiles'][0]['core'],
+                     'DOMAIN': credentials['profiles'][0]['domain'], 'ISSUER': credentials['profiles'][0]['issuer'],
+                     'NATIVE_CLIENT': credentials['reproofing']['native_client'],
+                     'DOMAIN_CLIENT': credentials['reproofing']['domain_client'],
+                     'VERIFIER_CLIENT': credentials['reproofing']['verifier_client'],
+                     'FIXTURE_CLIENT': credentials['reproofing']['fixture_client']}
+    for name, value in list(settings.items()):
+        if isinstance(value, str):
+            for token, replacement in substitutions.items():
+                value = value.replace('${' + token + '}', replacement)
+            if '${' in value:
+                raise RuntimeError('Unresolved actual Domain runtime setting')
+            settings[name] = value
+    process = service(directory, owner, credentials, 'domain', settings, ['-cp', classpath, FIXTURE_MAIN])
+    owned.wait_https(credentials['profiles'][0]['domain'] + '/api/v1/identity-recovery/cases', directory, process)
+
+
+def snapshot():
+    directory, owner = state()
+    native = owned.psql(directory, owner, """SELECT json_build_object(
+      'executions',(SELECT count(*) FROM ff_reproofing_execution),
+      'notifications',(SELECT coalesce(json_agg(json_build_object('status',status,'attempts',attempts)),'[]'::json) FROM ff_reproofing_notification),
+      'epochs',(SELECT coalesce(json_agg(json_build_object('subject',subject,'epoch',epoch,'failures',failures)),'[]'::json) FROM ff_reproofing_state),
+      'liveGrantSeconds',(SELECT coalesce(max(greatest(0,extract(epoch from (cast(authorization_json as jsonb)->>'expiresAt')::timestamptz-clock_timestamp()))),0) FROM ff_reproofing_ceremony WHERE authorization_json IS NOT NULL AND stage='ENROLL')
+    );""", 'native_kc')
+    core = owned.psql(directory, owner, """SELECT json_build_object(
+      'cases',(SELECT coalesce(json_agg(json_build_object('status',status,'failures',failures)),'[]'::json) FROM identity_reproofing_case),
+      'grants',(SELECT count(*) FROM identity_reproofing_case WHERE authorization_id IS NOT NULL),
+      'consumedAudits',(SELECT count(*) FROM identity_reproofing_audit WHERE event='CONSUMED'),
+      'executedAudits',(SELECT count(*) FROM identity_reproofing_audit WHERE event='EXECUTED')
+    );""", 'kycb_reproofing')
+    print(json.dumps({'native': json.loads(native), 'core': json.loads(core)}))
+
+
+def mail(start):
+    directory, owner = state()
+    name = owner['project'] + '-mailpit'
+    owned.inspect_container(owner, name)
+    owned.run(['docker', 'start' if start else 'stop', name], directory, 'owned-notification-transport')
+    print(json.dumps({'running': start}))
+
+
+def restart_native():
+    directory, owner = state()
+    name = owner['project'] + '-keycloak'
+    owned.inspect_container(owner, name)
+    owned.run(['docker', 'restart', name], directory, 'owned-reproofing-native-restart')
+    credentials = json.loads((directory / 'credentials.json').read_text())
+    owned.wait_https(credentials['profiles'][0]['issuer'] + '/.well-known/openid-configuration', directory)
+    print(json.dumps({'restarted': True}))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('action', choices=['prepare', 'start', 'stop', 'snapshot', 'mail-stop', 'mail-start', 'restart-native'])
+    args = parser.parse_args()
+    owned.require_hosted()
+    try:
+        if args.action == 'prepare':
+            prepare()
+        elif args.action == 'start':
+            start()
+        elif args.action == 'stop':
+            state()
+            owned.stop()
+        elif args.action == 'snapshot':
+            snapshot()
+        elif args.action == 'restart-native':
+            restart_native()
+        else:
+            mail(args.action == 'mail-start')
+    except Exception:
+        output_json('boot-summary.json', {'phase': owned.PHASE, 'failure': 'Owned credential-loss fixture failed; private logs retained on runner'})
+        print('Owned credential-loss fixture failed; no credentials or private logs emitted.', file=sys.stderr)
+        raise SystemExit(1)
+
+
+if __name__ == '__main__':
+    main()
