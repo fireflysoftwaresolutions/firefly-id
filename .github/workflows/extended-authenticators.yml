@@ -3,9 +3,9 @@ name: Verification expiry and passkey runtime
 on:
   workflow_dispatch:
   push:
-    paths: ['tooling/extended-runtime.mjs', 'tooling/policy-runtime.mjs', 'tooling/console-diagnostics.mjs', 'tooling/safe-errors.mjs', 'tooling/recovery-mail.mjs', 'tooling/startup_diagnostics.py', 'tooling/package*.json', 'tests/test_extended_runtime.py', 'tests/test_startup_diagnostics.py', 'scripts/generate.py', 'scripts/sandbox.py', 'config/authentication-policies.json', 'deploy/images.lock.json', 'themes/**', 'assets/**', '.github/workflows/extended-authenticators.yml']
+    paths: ['tooling/extended-runtime.mjs', 'tooling/build_theme.py', 'tooling/policy-runtime.mjs', 'tooling/console-diagnostics.mjs', 'tooling/safe-errors.mjs', 'tooling/recovery-mail.mjs', 'tooling/startup_diagnostics.py', 'tooling/package*.json', 'tests/test_extended_runtime.py', 'tests/test_theme_build_permissions.py', 'tests/test_startup_diagnostics.py', 'scripts/generate.py', 'scripts/sandbox.py', 'config/authentication-policies.json', 'deploy/images.lock.json', 'themes/**', 'assets/**', '.github/workflows/extended-authenticators.yml']
   pull_request:
-    paths: ['tooling/extended-runtime.mjs', 'tooling/policy-runtime.mjs', 'tooling/console-diagnostics.mjs', 'tooling/safe-errors.mjs', 'tooling/recovery-mail.mjs', 'tooling/startup_diagnostics.py', 'tooling/package*.json', 'tests/test_extended_runtime.py', 'tests/test_startup_diagnostics.py', 'scripts/generate.py', 'scripts/sandbox.py', 'config/authentication-policies.json', 'deploy/images.lock.json', 'themes/**', 'assets/**', '.github/workflows/extended-authenticators.yml']
+    paths: ['tooling/extended-runtime.mjs', 'tooling/build_theme.py', 'tooling/policy-runtime.mjs', 'tooling/console-diagnostics.mjs', 'tooling/safe-errors.mjs', 'tooling/recovery-mail.mjs', 'tooling/startup_diagnostics.py', 'tooling/package*.json', 'tests/test_extended_runtime.py', 'tests/test_theme_build_permissions.py', 'tests/test_startup_diagnostics.py', 'scripts/generate.py', 'scripts/sandbox.py', 'config/authentication-policies.json', 'deploy/images.lock.json', 'themes/**', 'assets/**', '.github/workflows/extended-authenticators.yml']
 
 permissions:
   contents: read
