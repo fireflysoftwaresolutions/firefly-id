@@ -63,6 +63,16 @@ Owner sources: [Configuration typed contracts](https://github.com/fireflysoftwar
 
 ## Jafly configuration and claim mapping
 
+The following recovery-specific source candidates are a separate integration lane from the earlier reviewed business APIs. They do not replace published framework defaults or establish terminal delegation.
+
+| Recovery component | Exact source and qualified scope |
+| --- | --- |
+| [Core SCA draft 2](https://github.com/fireflysoftwaresolutions/core-common-sca-mgmt/pull/2) | `c91880ac092eec11ec4640a65a599a8a1d9d5c2a`: eight producer operations, committed factor reservation, online consumed-receipt verification, durable audit and optional native adapters; 84 source tests in run `41251638357` |
+| [Domain SCA draft 1](https://github.com/fireflysoftwaresolutions/domain-common-sca/pull/1) | `d32ecca07e3dfd3a2330c201e555e95b89476c89`: genuine Core-generated candidate SDK, strict optional receiver, request-local verified bearer relay and phase-specific current native admission; full reactor and 23 required tests in run `41252856215` |
+| Firefly native owner | Java 21 / Keycloak 26.8.1 modules under `extensions/`, outside Jafly; source and complete provider qualification recorded separately in [current evidence](progress.md) |
+
+The [native guide](native-recovery.md) describes explicit opt-in configuration, browser protocol and interruption handling. [Support PIN](support-pin.md) and [zero trust](zero-trust.md) describe the genuine support/delegation owner that is still required. A narrow self-recovery policy cannot authorize other business or workforce actions.
+
 The actual resource-server prefix is `firefly.security.resource-server`. Its relevant properties are `issuer`, `jwk-set-uri`, `audiences`, `signature-algorithms`, `role-claim-paths`, `scope-claim-paths`, `authority-prefix`, `tenant-claim-paths`, `tenant-required`, and `strict-policy`.
 
 | Projection | Current behavior |

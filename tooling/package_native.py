@@ -13,7 +13,12 @@ REQUIRED = {
     "native-recovery": (
         "META-INF/services/org.keycloak.services.resource.RealmResourceProviderFactory",
         "META-INF/services/org.keycloak.connections.jpa.entityprovider.JpaEntityProviderFactory",
+        "META-INF/services/org.keycloak.services.managers.BruteForceProtectorFactory",
+        "META-INF/services/org.keycloak.events.EventListenerProviderFactory",
         "META-INF/firefly-native-recovery.xml",
+        "META-INF/orm.xml",
+        "META-INF/jandex.idx",
+        "META-INF/beans.xml",
     ),
     "native-domain-gateway": (
         "META-INF/services/io.firefly.id.nativeauth.NativeCeremonyGateway$Factory",
@@ -26,6 +31,10 @@ def inspect(path: Path, module: str) -> dict:
         for name in REQUIRED[module]:
             if not archive.read(name):
                 raise ValueError(f"Empty required resource: {name}")
+            if name.startswith("META-INF/services/"):
+                source = ROOT / "extensions" / module / "src/main/resources" / name
+                if archive.read(name).strip() != source.read_bytes().strip():
+                    raise ValueError(f"Provider registration differs from this source checkout: {name}")
         for name in ("LICENSE", "NOTICE"):
             if archive.read("META-INF/" + name) != (ROOT / name).read_bytes():
                 raise ValueError(f"Distribution {name} differs from this source checkout")

@@ -25,7 +25,7 @@
           <input type="hidden" name="csrf" value="${csrf}" />
           <#if stage == "PASSWORD">
             <div class="${properties.kcFormGroupClass!}">
-              <label class="${properties.kcLabelClass!}" for="username">${msg("usernameOrEmail")}</label>
+              <label class="${properties.kcLabelClass!}" for="username"><#if !realm.loginWithEmailAllowed>${msg("username")}<#elseif !realm.registrationEmailAsUsername>${msg("usernameOrEmail")}<#else>${msg("email")}</#if></label>
               <span class="${properties.kcInputClass!}"><input id="username" name="username" type="text" autocomplete="username" required autofocus /></span>
             </div>
             <div class="${properties.kcFormGroupClass!}">

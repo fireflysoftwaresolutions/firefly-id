@@ -3,9 +3,9 @@ name: Native extension qualification
 on:
   workflow_dispatch:
   push:
-    paths: ['extensions/**', 'tooling/summarize_native_build.py', '.github/workflows/native-source-qualification.yml']
+    paths: ['extensions/**', 'tooling/summarize_native_build.py', 'tooling/package_native.py', '.github/workflows/native-source-qualification.yml']
   pull_request:
-    paths: ['extensions/**', 'tooling/summarize_native_build.py', '.github/workflows/native-source-qualification.yml']
+    paths: ['extensions/**', 'tooling/summarize_native_build.py', 'tooling/package_native.py', '.github/workflows/native-source-qualification.yml']
 
 permissions:
   contents: read
