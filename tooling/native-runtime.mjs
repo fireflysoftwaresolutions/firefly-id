@@ -591,6 +591,12 @@ async function supportPin(profile, context) {
     lastHttpStatus = (await page.goto(`${profile.issuer}/firefly-recovery/support-pin/${suffix}?kc_locale=en`)).status();
     await assertTranslation(page, 'en', suffix === 'revoke' ? 'ffidPinRevokeTitle' : 'ffidPinTitle');
     await captureEmptyNativeForm(page, `customers-pin-${suffix}-en-${results.length}`);
+    const beforeFormLocale = snapshot(profile.kind);
+    stage(`customers-pin-${suffix}-spanish-empty-form`);
+    await selectNativeLocale(page, 'es', suffix === 'revoke' ? 'ffidPinRevokeTitle' : 'ffidPinTitle');
+    await captureEmptyNativeForm(page, `customers-pin-${suffix}-es-${results.length}`);
+    await selectNativeLocale(page, 'en', suffix === 'revoke' ? 'ffidPinRevokeTitle' : 'ffidPinTitle');
+    assert.deepEqual(snapshot(profile.kind), beforeFormLocale, 'Empty-form locale changes must preserve PIN state and Native/Core budgets');
     await page.locator('#password').fill(profile.person.password); await page.locator('#otp').fill(await nextCode(profile));
     if (pin) { await page.locator('#pin').fill(pin); await page.locator('#pinConfirm').fill(pin); }
     stage(`customers-pin-${suffix}-actual-stepup-submit`);

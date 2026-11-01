@@ -10,7 +10,7 @@ on:
       core_sha:
         description: Exact qualified owning Core commit including narrow self policy
         required: true
-        default: c91880ac092eec11ec4640a65a599a8a1d9d5c2a
+        default: cc826d27cd05dac831989ec872d78a8c17e88e8b
         type: string
       transport_faults:
         description: Exercise real committed-record response loss through an owned TLS transport
