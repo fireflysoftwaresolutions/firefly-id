@@ -22,7 +22,7 @@ class ReproofingSnapshotTest {
         var policy = mock(PasswordPolicy.class); when(policy.toString()).thenReturn("length(12)"); when(realm.getPasswordPolicy()).thenReturn(policy);
         var otp = mock(OTPPolicy.class); when(otp.getAlgorithm()).thenReturn("HmacSHA1"); when(otp.getDigits()).thenReturn(6); when(otp.getPeriod()).thenReturn(30); when(otp.getType()).thenReturn("totp"); when(realm.getOTPPolicy()).thenReturn(otp);
         var user = mock(UserModel.class, RETURNS_DEEP_STUBS); when(user.getId()).thenReturn("subject"); when(user.isEnabled()).thenReturn(true); when(user.isEmailVerified()).thenReturn(true); when(user.getEmail()).thenReturn("first@example.test");
-        when(user.getAttributeStream("tenant")).thenAnswer(call -> Stream.of("tenant")); when(user.getAttributeStream("party")).thenAnswer(call -> Stream.of("00000000-0000-0000-0000-000000000001")); when(user.getRoleMappingsStream()).thenAnswer(call -> Stream.empty());
+        when(user.getAttributeStream("tenant")).thenAnswer(call -> Stream.of("tenant")); when(user.getAttributeStream("party")).thenAnswer(call -> Stream.of("00000000-0000-0000-0000-000000000001")); when(user.getRoleMappingsStream()).thenAnswer(call -> Stream.empty()); when(user.getRequiredActionsStream()).thenAnswer(call -> Stream.empty());
         CredentialModel credential = new CredentialModel(); credential.setId("history-id"); credential.setType("password-history");
         when(user.credentialManager().getStoredCredentialsStream()).thenAnswer(call -> Stream.of(credential));
         UserEntity owner = new UserEntity(); owner.setId("subject"); CredentialEntity stored = new CredentialEntity(); stored.setId("history-id"); stored.setType("password-history"); stored.setUser(owner); stored.setSecretData("old-hash");
@@ -35,6 +35,7 @@ class ReproofingSnapshotTest {
         stored.setSecretData("replacement-history-hash"); assertNotEquals(original,store.revision(user,state)); stored.setSecretData("old-hash");
         state.pinGeneration = "new-pin-epoch"; assertNotEquals(original,store.revision(user,state)); state.pinGeneration = "pin-epoch";
         assertEquals(original,store.revision(user,state));
+        when(user.getRequiredActionsStream()).thenAnswer(call -> Stream.of("CONFIGURE_TOTP")); assertNotEquals(original,store.revision(user,state)); when(user.getRequiredActionsStream()).thenAnswer(call -> Stream.empty());
         policyFence.revision = 1; assertNotEquals(original,store.revision(user,state)); policyFence.revision = 0;
         var recovery = new ReproofingStateImpl(); when(em.find(eq(ReproofingStateImpl.class),anyString(),eq(LockModeType.PESSIMISTIC_WRITE))).thenReturn(recovery);
         assertEquals(original,store.revision(user,state)); recovery.invalidationVersion = 1; assertNotEquals(original,store.revision(user,state));
