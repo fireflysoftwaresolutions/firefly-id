@@ -1,46 +1,107 @@
-# Published Jafly JWKS integration fixture
+# Integrate a Jafly resource server
 
-[examples/jafly](../examples/jafly/pom.xml) is a genuine consumer of the published `org.fireflyframework:fireflyframework-security-resource-server:26.10.23` artifact. It inherits the published `fireflyframework-parent:26.10.23` with an empty `relativePath`, uses one release train, and includes no copied framework implementation, local source checkout, system-scoped JAR, or repository-specific Maven path. Maven Central returned HTTP 200 for both release POMs during metadata inspection on 2026-10-31. That metadata check does not prove dependency resolution or compilation.
+Jafly applications can receive Firefly Identity access tokens through the framework's generic Spring Security resource-server module. Configure the trusted issuer, remote JWKS, intended audience and principal mapping; keep business authorization in the receiving application.
 
-## Run against the synthetic stack
+Jafly remains independent of Firefly Identity. This integration does not require native recovery classes, a Keycloak administration client or a proofing-provider dependency in the framework.
 
-Use Java 25 and Maven. Complete the safe-capacity and stack-readiness steps in [sandbox.md](sandbox.md), then obtain a fresh `sandbox-web` customer access token through the actual browser authorization-code flow with PKCE S256. The fixture does not use a password grant, mint an unsigned token, or substitute a locally signed token for the issuer's token.
+## Add the resource-server module
 
-The runner must resolve `id.firefly.test` to the sandbox host, reach port 8180, and write the browser-issued compact access token directly into an owner-only regular file. The hosted browser runner uses `.state/sandbox/runtime-token.txt` with mode 0600. Do not print or paste the token into the shell, command arguments, CI logs, test reports, screenshots, caches, or artifacts. Pass only its absolute file path:
+The included [Maven example](../examples/jafly/pom.xml) uses Java 25 and the `26.10.23` Jafly release train. In a Jafly application, keep the parent and framework dependencies on the same selected train. Add the resource-server dependency to the application that receives bearer tokens:
 
-```sh
-export FIREFLY_ID_TOKEN_FILE="$PWD/.state/sandbox/runtime-token.txt"
-mvn -B -ntp -f examples/jafly/pom.xml test
+```xml
+<dependency>
+    <groupId>org.fireflyframework</groupId>
+    <artifactId>fireflyframework-security-resource-server</artifactId>
+    <version>26.10.23</version>
+</dependency>
 ```
 
-The environment variable is required. Missing/unprotected token files or unavailable live JWKS fail the suite; there is no skipped or mocked acceptance path. A token must still be unexpired when the fixture runs. The example does not delete retained state or the token; the owning runner controls the lifetime of its explicitly owned secret files. Exclude `examples/jafly/target/` from source control and do not publish test output if a future test or dependency logs credentials.
+The module targets reactive Spring applications. A browser-facing OIDC client has a separate sign-in/session responsibility; adding a resource-server dependency does not implement its authorization-code callback. Follow [application integration](integration-contract.md) for that side of the connection.
 
-The configured customer issuer is exactly `http://id.firefly.test:8180/realms/sandbox-customers`; audience is `sandbox-api`; JWKS is that issuer's `/protocol/openid-connect/certs`. HTTP is the isolated local sandbox exception. Production must use the approved HTTPS issuer/audience and network/TLS configuration rather than promoting these example names.
+## Configure the trusted token profile
 
-## What the fixture exercises
+The following `application.yml` fragment is for the generated customer sandbox:
 
-The test calls the published `ResourceServerAutoConfiguration.fireflyReactiveJwtDecoder(new InMemoryKeyManagementAdapter(), properties)`. Setting `jwkSetUri` selects the real remote-JWKS decoder; the in-memory key adapter is required by the factory signature and is not used to sign or verify this external token. The allowlist is RS256, with explicit issuer and audience validators. It then calls the published authority mapper, `PrincipalFactory`, and `fireflyJwtAuthenticationConverter` with `tenantClaimPaths=[tenant_id]` and `tenantRequired=true`.
+```yaml
+firefly:
+  security:
+    resource-server:
+      enabled: true
+      issuer: http://id.firefly.test:8180/realms/sandbox-customers
+      jwk-set-uri: http://id.firefly.test:8180/realms/sandbox-customers/protocol/openid-connect/certs
+      audiences:
+        - sandbox-api
+      signature-algorithms:
+        - RS256
+      tenant-claim-paths:
+        - tenant_id
+      tenant-required: true
+      role-claim-paths:
+        - realm_access.roles
+        - resource_access.sandbox-api.roles
+      scope-claim-paths:
+        - scope
+      strict-policy: true
+      permit-matchers: []
+```
 
-The live token path checks signature validation, exact customer issuer, intended audience, preserved opaque subject, the opaque string tenant `synthetic-tenant`, normalized `Instant` expiration, and the actual presence/absence of `nbf`. It emits only a fixed claim-shape summary. If `nbf` exists, its projected type/value must remain an `Instant`; if absent, the fixture records absence and does not create a synthetic not-before claim. Purpose-specific consumers that demand `nbf` still need an approved compatible issuance profile.
+Use the deployment's exact HTTPS issuer and JWKS URI outside the isolated sandbox. `jwk-set-uri` selects external signing keys; leaving it blank selects the framework's local key path rather than the identity server. Narrow the audience to the API and the algorithm list to the approved signing profile.
 
-The customer example must project `principal_kind=HUMAN`, `client_id=sandbox-web`, no financial authorities, only identity scopes, and no inferred product attributes. A signed party reference is not a financial entitlement or authoritative business relationship. The fixture does not call a financial service or grant one permission.
+Tenant projection is explicit. With `tenant-required=true`, a missing or ambiguous tenant refuses authentication. The tenant remains an opaque string; do not parse it as a UUID. Role paths select the roles this API understands, while the scope path maps the token's scope string. Neither mapping creates financial permissions.
 
-Decoder rejection cases alter a signature byte, configure a different expected issuer, configure a different expected audience, and apply the workforce issuer policy to the customer token even while using the customer JWKS. This last case isolates issuer enforcement; it does not claim a separately obtained workforce token was exercised.
+`strict-policy=true` requires explicit policy decisions. An empty policy configuration does not grant access. Configure the application's `PolicyRule` beans or its `PolicyDecisionPort` adapter for the actual URL and business operations. In the strict URL layer, a decision with obligations is refused because that layer cannot fulfill them; enforce business obligations at an owner that can guarantee them. Keep `permit-matchers` limited to deliberately public routes.
 
-Separate, explicitly named **projection-only** cases copy an already verified JWT's claims into a new in-memory `Jwt` object, remove or make `tenant_id` ambiguous, and check that the required-tenant converter rejects both. Another projection-only case proves a non-UUID subject remains opaque. Those mutated objects never pass through the decoder and are not evidence of signature validation or a remotely accepted token.
+The settings bind to the module's [ResourceServerProperties](https://github.com/fireflyframework/fireflyframework-jafly/blob/v26.10.23/modules/security-resource-server/src/main/java/org/fireflyframework/security/rs/ResourceServerProperties.java). If the application supplies its own decoder, converter or security chain, wire the same checks explicitly: the default beans defer to application-defined replacements.
 
-## Reviewed official API source
+## Understand the request pipeline
 
-These APIs were inspected at the exact public release tag, rather than inferred from another release:
+```mermaid
+flowchart TD
+    Bearer[Incoming bearer access token] --> Decoder[Remote-JWKS decoder]
+    Decoder --> Validate[Signature · issuer · audience · time]
+    Validate --> Converter[Claim and tenant projection]
+    Converter --> Principal[SecurityPrincipal]
+    Principal --> Policy[Current URL and business policy]
+    Policy --> Result[Authorized operation or refusal]
+```
 
-- [ResourceServerAutoConfiguration](https://github.com/fireflyframework/fireflyframework-jafly/blob/v26.10.23/modules/security-resource-server/src/main/java/org/fireflyframework/security/rs/ResourceServerAutoConfiguration.java) selects remote JWKS and constructs the configured converter and validators.
-- [ResourceServerProperties](https://github.com/fireflyframework/fireflyframework-jafly/blob/v26.10.23/modules/security-resource-server/src/main/java/org/fireflyframework/security/rs/ResourceServerProperties.java) defines issuer, audience, algorithm, claim-path, and required-tenant setters.
-- [JwtToFireflyPrincipalConverter](https://github.com/fireflyframework/fireflyframework-jafly/blob/v26.10.23/modules/security-resource-server/src/main/java/org/fireflyframework/security/rs/JwtToFireflyPrincipalConverter.java) and [ConfigurableTenantResolver](https://github.com/fireflyframework/fireflyframework-jafly/blob/v26.10.23/modules/security-core/src/main/java/org/fireflyframework/security/core/tenant/ConfigurableTenantResolver.java) preserve a single opaque tenant and reject required unresolved/ambiguous projection.
-- [PrincipalFactory](https://github.com/fireflyframework/fireflyframework-jafly/blob/v26.10.23/modules/security-core/src/main/java/org/fireflyframework/security/core/context/PrincipalFactory.java), [SecurityPrincipal](https://github.com/fireflyframework/fireflyframework-jafly/blob/v26.10.23/modules/security-api/src/main/java/org/fireflyframework/security/api/domain/SecurityPrincipal.java), and [FireflyAuthenticationToken](https://github.com/fireflyframework/fireflyframework-jafly/blob/v26.10.23/modules/security-webflux/src/main/java/org/fireflyframework/security/webflux/authentication/FireflyAuthenticationToken.java) define the actual claims/principal API used by the assertions.
-- [Published train's parent](https://github.com/fireflyframework/fireflyframework-jafly/blob/v26.10.23/build/parent/pom.xml) and [resource-server POM](https://github.com/fireflyframework/fireflyframework-jafly/blob/v26.10.23/modules/security-resource-server/pom.xml) define Java 25 and dependency/plugin versions.
+The decoder returns a verified Spring `Jwt`. The configured converter produces a `FireflyAuthenticationToken` containing a `SecurityPrincipal`. Application code should consume that verified principal through `SecurityContextPort`, instead of parsing the bearer or trusting an actor header.
 
-## Acceptance boundary
+The principal exposes `subject()`, `issuer()`, `tenantId()`, `authorities()`, `scopes()` and `claims()`. Custom `party_id`, `staff_actor_id`, `principal_kind` and `client_id` values remain claims; there are no automatic product-specific party/staff permissions. After conversion, `exp` is an `Instant`; optional `nbf` remains absent when the token does not contain it.
 
-At fixture creation, only POM XML parsing, exact-release API inspection, and public release-POM availability were checked. Local dependency download, compilation, and live tests were deliberately not run because the development host was below the disk gate. A future successful hosted Maven run must be reported separately with its run URL and actual test results; merely adding this fixture is not Jafly acceptance.
+For example, this adapter reads the current identity for downstream application logic without returning the entire token or claims to the browser:
 
-Even a green fixture proves only this published resource-server decoder and principal-projection path against the tested synthetic token. It does not prove a full application security filter chain, downstream policy enforcement, financial permissions, authorization-code implementation in a production application, customer registration/provisioning, or any OpenPlatform service's production acceptance. Firefly Identity and Jafly remain independent releases, with no framework source or behavior changes in this repository.
+```java
+import org.fireflyframework.security.spi.SecurityContextPort;
+import reactor.core.publisher.Mono;
+
+public final class CurrentIdentity {
+    private final SecurityContextPort securityContext;
+
+    public CurrentIdentity(SecurityContextPort securityContext) {
+        this.securityContext = securityContext;
+    }
+
+    public Mono<String> subject() {
+        return securityContext.currentPrincipal()
+                .switchIfEmpty(Mono.error(new IllegalStateException("Authentication required")))
+                .map(principal -> principal.subject());
+    }
+}
+```
+
+This adapter is called inside an already protected reactive request. Map missing authentication through the application's normal security error handling; it is not a controller or a replacement authorization rule. For business access, carry issuer, tenant and subject together and ask the actual resource owner to authorize the operation.
+
+## Check deployment prerequisites
+
+The resource server needs network and TLS trust to the configured JWKS endpoint. Resolve the public issuer consistently, allow retrieval of rotated signing keys and keep clock synchronization within the accepted token-time policy. Do not substitute a different issuer to work around a DNS or trust problem.
+
+If the application overrides framework beans or defines another security chain, ensure each protected route uses the configured decoder, principal converter and policy manager. Keep deliberately public routes explicit. Configure the application's CSRF/session behavior for its actual browser and API flows instead of disabling controls globally to resolve a refused request.
+
+For low-level integration, the [included decoder/converter example](../examples/jafly/src/test/java/org/fireflyframework/id/example/KeycloakJaflyContractTest.java) shows the same supported API calls. The application configuration above supplies them through auto-configuration; ordinary business code should use the verified principal port.
+
+## Complete application authorization
+
+A valid principal is the input to business authorization. Configure current actor eligibility, tenant/resource mapping, consent, action/resource policy and any required assurance. Do not use an unverified token parser or an identity-admin response as bearer validation.
+
+Offline JWT verification cannot discover every subsequent lock, logout or employment change. If immediate blocking is required, add the supported current-state/introspection mechanism and its bounded cache/outage policy in each receiving application. [Zero trust](zero-trust.md) explains this boundary; [claims](provider-claim-profile.md) and [audiences](receiver-audiences.md) explain the token inputs.

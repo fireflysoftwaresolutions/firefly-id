@@ -1,21 +1,53 @@
-# Receiver audience measurement
+# Configure token audiences
 
-`tooling/receiver-audience-runtime.mjs` measures the actual customer access-token audience independently for the interactive public `sandbox-web` client and confidential `sandbox-backend` client. It changes no provider audiences and imposes no exact-single-audience rule. The expected API receiver is `sandbox-api`; `account` membership is recorded independently, whether present or absent. Audience membership authorizes a receiver, not a business operation or tenant entitlement.
+The audience says which API may receive a token. The issuer says who issued it. Configure both: a correctly signed token from the right realm can still be intended for another service.
 
-Each client uses a separate fresh browser context, the protected synthetic customer credentials, a real authorization code, state, nonce and S256 PKCE. The confidential client also authenticates its code exchange with its own protected secret. Callback listeners bind only to loopback, on ports 3000 and 8081, and are closed with the browser on success or failure. The runner does not use a password grant, client-credentials grant, service account, copied token or fabricated identity. It does not change users, roles, passwords, counters or client settings.
+In the sandbox, `sandbox-web` and `sandbox-backend` obtain access tokens for `sandbox-api`. Their ID tokens identify the corresponding sign-in client. The Account Console uses its own account-service token; an application API token is not an account-management credential.
 
-Before recording a result, the runner verifies the actual provider's RS256 signature through its advertised JWKS, exact issuer, future numeric expiration, applicable not-before time, nonempty subject and expected audience membership. It checks the identity token's client audience and nonce, the access token's authorized client, and agreement between both subjects. This is a provider-token measurement, not proof that a consuming framework accepts every valid audience shape or applies online revocation correctly.
-
-Run from the repository root against the explicitly owned synthetic stack with the pinned Playwright installation and the exact checked-out hosted `GITHUB_SHA`:
-
-```sh
-node tooling/receiver-audience-runtime.mjs
+```mermaid
+flowchart TD
+    ID[Firefly Identity] -->|ID token · client audience| Client[Sign-in client]
+    ID -->|Access token · sandbox-api audience| API[Sandbox API]
+    ID -->|Account-service token| Account[Account Console / API]
+    API --> Policy[Current action and resource authorization]
 ```
 
-`FIREFLY_ID_STATE` may select the existing owned sandbox directory. Credentials remain in its owner-only `credentials.json`; do not upload that file. Hosted qualification runs this lane sequentially with the other browser lanes, guarded by successful stack and browser setup even if another flow failed.
+## Choose one audience contract per receiver
 
-The only per-client console/artifact fields are the configured client name, `audienceType` (`string` or `array`), `audienceCount`, `resourcePresent` and `accountPresent`. `.work/receiver-audiences/summary.json` adds schema version, exact source commit and a fixed passed/failed status. It contains no actual audience values, subject, token, credentials, headers or raw errors/URLs. A failed result can contain only the already validated client measurements; require overall `status=passed` and both clients before treating the lane as qualified. Account-console audience and positive Account API evidence belong to the separate main console runtime.
+Record the exact issuer, API audience, approved algorithms and JWKS endpoint in the receiving service. Use a service identifier deliberately registered for that receiver; do not guess the audience from the hostname, client ID or URL of a request.
 
-The shape is observed rather than predicted. Multiple audiences are not rejected merely because there is more than one. Receiver membership remains mandatory. Any consuming owner that requires exactly one audience must review that contract against the measured signed tokens; this probe does not weaken its audience checks or declare that integration complete. Production audience/authorization contracts remain separate from these provisional sandbox examples.
+| Integration | Audience rule |
+| --- | --- |
+| ID token at the sign-in client | Validate the client audience and other OIDC requirements, including nonce |
+| Access token at `sandbox-api` | Require `sandbox-api` in the signed `aud` value |
+| Workforce API | Require its configured audience and workforce issuer; customer tokens remain invalid |
+| Account self-service | Use the Account Console's own authenticated protocol/session and account-service token |
+| Downstream Domain/Core | Obtain authority explicitly intended for that receiving boundary |
 
-Current execution status: [ordinary hosted distribution 41331178246](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41331178246) passed the separate public/confidential interactive audience measurements at source `15fd1b7ffa045835f3d4c71fdcc33020d8f24ecf`. The bounded report records one resource audience in each measured token and no account audience; this observation does not impose an exact-single-audience rule on every consumer. Initial local execution was withheld under the resource restriction. Target deployment and actual consumer authorization remain separate acceptance. See [evidence](evidence.md).
+JWT `aud` can be a string or an array. Normalize it through the JWT library and require membership. If the application deliberately requires exactly one audience, configure the issuer to produce that stricter profile and reject incompatible tokens; do not silently strip additional audiences after issuance.
+
+Audience membership is an admission condition, not a business permission. `aud=sandbox-api` does not grant tenant ownership, access to customer records or financial operations.
+
+## Configure issuance and validation together
+
+The generated interactive clients use an audience mapper with `included.custom.audience=sandbox-api` and `access.token.claim=true`. They disable full-scope access and do not place this API audience in the ID token. Their custom mappers are described in [claims](provider-claim-profile.md).
+
+The receiver must independently require the same audience. For Jafly, configure `firefly.security.resource-server.audiences` together with the trusted issuer and JWKS URI; [the Jafly guide](jafly.md) shows a complete configuration.
+
+Do not broaden a receiver's audience allowlist until one token works. First identify whether the application sent an ID token, an account token, a token from another population or a token issued for a different API.
+
+## Use introspection with a dedicated receiver
+
+The sandbox registers `sandbox-api` as a confidential introspection receiver with its own secret and all ordinary token grants disabled. It is not a service account and does not obtain machine tokens. The receiver authenticates to the issuer's `/protocol/openid-connect/token/introspect` endpoint over the deployment's trusted transport.
+
+Keep the introspection client's credential server-side. In this distribution's Keycloak configuration, the receiver must be in the token's audience; do not bypass audience checking to introspect unrelated tokens. Decide the meaning of `active`, expiry, current user/session state and network failure in the receiving service before using introspection for immediate blocking.
+
+Offline JWKS verification and online introspection have different availability/current-state tradeoffs. Neither authorizes a financial action by itself. [Zero trust](zero-trust.md) explains the additional current-policy decision.
+
+## Call another API
+
+Do not forward a token across receivers merely because services share a network. A token issued only for an Experience API does not become valid for Domain or Core. Use a supported receiver-specific token/delegation contract, preserving the original human identity separately from workload authentication.
+
+General human token exchange is not configured by this distribution. If a downstream service needs signed human proof, implement its explicit contract before enabling that route. Client credentials identify software; adding a customer ID does not transform them into human proof.
+
+For ordinary code/PKCE sign-in, continue with [Integrate an application](integration-contract.md). For a noninteractive caller, use [the Configuration service client](configuration-service-client.md).

@@ -16,6 +16,7 @@ class Document(HTMLParser):
         super().__init__()
         self.ids = set()
         self.references = []
+        self.text = []
         self.feed(text)
 
     def handle_starttag(self, tag, attrs):
@@ -27,6 +28,9 @@ class Document(HTMLParser):
                 self.references.append(attrs[name])
         if attrs.get('srcset'):
             self.references.extend(item.strip().split()[0] for item in attrs['srcset'].split(','))
+
+    def handle_data(self, data):
+        self.text.append(data)
 
 
 def local_path(site, page, target, base_path='/firefly-id/'):
@@ -47,6 +51,10 @@ def validate(site):
     failures = []
     checked = 0
     for path, document in pages.items():
+        visible = ' '.join(' '.join(document.text).split()).lower()
+        if any(phrase in visible for phrase in ('integration contract review', 'reviewed public sources',
+                                                'reviewed commit', 'current qualification', 'source-parent', 'draft pr', 'still pending')):
+            failures.append('Internal engineering narrative entered product page: ' + path.relative_to(site).as_posix())
         for target in document.references:
             url = urlsplit(target)
             if url.scheme or url.netloc:
@@ -77,9 +85,15 @@ def validate(site):
     font = Path('assets/brand/fonts/manrope-latin-wght-normal.woff2')
     if (site / font).read_bytes() != (ROOT / font).read_bytes():
         failures.append('Canonical Manrope bytes changed')
-    for component in ('firefly', 'mkdocs', 'mkdocs-material'):
+    for component in ('firefly', 'mkdocs', 'mkdocs-material', 'mermaid'):
         if not any((site / 'assets/licenses' / component).glob('*')):
             failures.append('Distributed notice is missing: ' + component)
+    search = json.loads((site / 'search/search_index.json').read_text())
+    internal = ('identity-proofing-evaluation', 'progress/', 'evidence/', 'documentation/')
+    if any(any(name in item.get('location', '') for name in internal) for item in search.get('docs', [])):
+        failures.append('Internal report entered product search')
+    if any((site / name / 'index.html').exists() for name in ('identity-proofing-evaluation', 'progress', 'evidence', 'documentation')):
+        failures.append('Internal report entered product publication')
     manifest = json.loads((site / 'documentation-provenance.json').read_text())
     if manifest.get('source_dirty') or not manifest.get('publication_ready'):
         failures.append('Uncommitted preview cannot qualify a publishable source revision')

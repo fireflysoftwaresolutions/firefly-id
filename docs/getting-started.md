@@ -1,84 +1,80 @@
 # Start safely
 
-This walkthrough creates a **new synthetic evaluation environment**. It is not a production deployment or an instruction to modify a shared identity service. If you already have a generated state directory, use its recorded lifecycle; generating another directory creates a separate environment and does not repair or migrate the first one.
+Create a local evaluation with synthetic identities, a dedicated database and a local mail viewer. If you already have a generated state directory, resume it through its recorded lifecycle; a new directory creates a separate environment.
 
-## Choose the installation you need
+## Choose your installation
 
-| Installation | What it provides | Prerequisites and boundary |
+| Installation | Use it for | What you need |
 | --- | --- | --- |
-| Theme distribution | Login, account, administration, email and welcome branding on pinned Keycloak | Build the canonical theme; ordinary Keycloak protocol and action-token behavior remains upstream |
-| Synthetic sandbox | Three application populations, temporary bootstrap administration, dedicated PostgreSQL and local Mailpit | New generated ownership/state, local Docker/Compose and at least 12 GiB free disk |
-| Optional native recovery candidate | Permanent-lock tracking, existing-factor unlock, customer PIN and separate customer credential replacement | Exact native/gateway JARs, reviewed database installation and qualified owning Core/Domain services; enabling a theme alone is insufficient |
-| Regulated production deployment | Institution-approved identity topology and application integration | Requires the [deployment and acceptance plan](regulated-deployment.md); production generation deliberately refuses incomplete contracts |
+| Theme distribution | Branded login, account, administration, email and welcome screens | Built Firefly theme and pinned Keycloak |
+| Synthetic sandbox | Explore sign-in, account management and population policies locally | Local Docker/Compose, new state directory and free capacity |
+| Optional native extension | Known-password unlock, customer PIN and credential-loss recovery | Native JARs, schema review and the services required by the selected journey |
+| Institution deployment | Operate the identity service for real users | [Deployment setup](regulated-deployment.md), application registrations and an operating team |
 
-Read [why Keycloak](why-keycloak.md) and the [solution inventory](solution-overview.md) before adding custom authenticators or adapting account ownership. The repository already has separate extension points; a new login theme or callback must not become a second authorization service.
+Create production realms and clients through the Admin Console or authorized Admin API using the settings in this manual. Keep the sandbox's HTTP endpoints, users and SMTP sink local.
 
-## Check prerequisites
+## Prepare the host
 
-The lightweight source checks use Python 3 and Node.js with standard libraries. The sandbox additionally needs a running **local Unix-socket Docker engine**, Docker Compose v2, sufficient memory for its bounded services and at least **12 GiB of available disk**. Remote/TCP Docker contexts are refused. Do not bypass the ownership or capacity check to use an existing cluster.
+Use Python 3.11+, Node.js 22 and a running local Unix-socket Docker engine with Compose v2. Allow at least **12 GiB free disk** and about 2 GiB of service memory plus engine overhead. Remote/TCP Docker contexts are refused.
 
-Native provider builds use Java 21 and Maven. The separate platform-service qualification fixtures use Java 25. The documentation build uses Python 3.12 in hosted qualification; it does not require starting Keycloak. [Versions and provenance](reference/versions.md) records the exact images.
-
-Run source checks from the repository root:
+Run from the repository root:
 
 ```sh
 make check
 python3 tooling/build_theme.py
 ```
 
-`make check` runs the configured Python/Node suites and syntax checks. The theme builder assembles the approved source, artwork and locally served Manrope into `dist/firefly-id-theme.jar` and `dist/themes/firefly-id`; it does not start a service. Keep the original repository path and editable files. The build output is ignored and must not replace the source tree.
+The theme builder writes `dist/firefly-id-theme.jar` and `dist/themes/firefly-id`, including the local font and assets. It does not start a service. Native extension builds require Java 21 and Maven; their installation is covered in [native recovery](native-recovery.md).
 
-## Generate one new evaluation
+## Create the evaluation
 
-Choose a new output path that does not exist. The following name is illustrative; if it is already present, select another name rather than deleting or overwriting it:
-
-```sh
-python3 scripts/generate.py --mode sandbox --output .state/evaluation-20261101
-```
-
-Expected result: a new protected directory with `ownership.json`, `compose.json`, realm imports and random credentials. There is no shared default password. Generation validates the policy catalogue and refuses an existing output, a symlink or an unselected production contract. It neither enrolls real customers nor modifies a running provider.
-
-The [configuration reference](configuration-reference.md) explains the four population profiles, source-managed attributes, disabled grants, session values and opt-in machine-client exception. Inspect configuration through an approved local tool; never paste generated credentials, imports or ownership files into tickets or documentation.
-
-## Start only the owned environment
-
-Arrange local DNS or an operator-managed hosts entry for `id.firefly.test` to resolve to loopback. The script does not modify your hosts file. Use the same explicit state path for every lifecycle operation:
+Choose a path that does not exist:
 
 ```sh
-python3 scripts/sandbox.py preflight --state .state/evaluation-20261101
-python3 scripts/sandbox.py pull --state .state/evaluation-20261101
-python3 scripts/sandbox.py up --state .state/evaluation-20261101
-python3 scripts/sandbox.py status --state .state/evaluation-20261101
+python3 scripts/generate.py --mode sandbox --output .state/evaluation
 ```
 
-`preflight` validates capacity, the built theme, the ownership marker, immutable Compose hash, local engine and Compose syntax. `pull` explicitly retrieves the pinned images. `up` uses `--pull never` and waits for bounded readiness; it cannot silently fetch a different image. If a step fails, preserve its state and use [troubleshooting](troubleshooting.md). Do not alter an ownership marker to adopt somebody else's database or service.
+The result contains `ownership.json`, `compose.json`, realm imports and random credentials. There is no shared default password. If the path exists, resume that environment or choose a different path; do not remove retained state to make generation succeed.
 
-The sandbox is deliberately local HTTP with synthetic mail. Its addresses are:
+Arrange local DNS or a hosts entry so `id.firefly.test` resolves to `127.0.0.1`. The generator does not change host DNS.
+
+## Start the services
+
+Use the same state path for every lifecycle action:
+
+```sh
+python3 scripts/sandbox.py preflight --state .state/evaluation
+python3 scripts/sandbox.py pull --state .state/evaluation
+python3 scripts/sandbox.py up --state .state/evaluation
+python3 scripts/sandbox.py status --state .state/evaluation
+```
+
+`preflight` checks capacity, the theme, ownership, the Compose hash and the local engine. `pull` downloads the pinned images explicitly. `up` uses `--pull never` and waits for readiness. If a step fails, preserve the directory and follow [troubleshooting](troubleshooting.md).
 
 | Purpose | Address |
 | --- | --- |
-| Identity base | `http://id.firefly.test:8180` |
+| Identity service | `http://id.firefly.test:8180` |
 | Customer discovery | `http://id.firefly.test:8180/realms/sandbox-customers/.well-known/openid-configuration` |
-| Temporary administrative console | `http://id.firefly.test:8180/admin/master/console/` |
+| Temporary administration | `http://id.firefly.test:8180/admin/master/console/` |
 | Synthetic mail viewer | `http://127.0.0.1:8025` |
-| Host-loopback readiness | `http://127.0.0.1:9000/health/ready` |
+| Readiness | `http://127.0.0.1:9000/health/ready` |
 
-The hostname in the verified token issuer is canonical. A container transport name is not a substitute issuer. [Sandbox networking](sandbox.md) explains browser, backend and dynamic backchannel behavior, dedicated database networking and the limits of loopback publication.
+The administrator username is `sandbox-bootstrap`; its random password is in `.state/evaluation/secrets/admin-password`. Application usernames/passwords are in `.state/evaluation/credentials.json`. Read these locally and keep them out of logs, tickets and commits.
 
-## Exercise the intended journey
+## Sign in and explore
 
-The examples expect applications at the exact callback and signed-out addresses in the generated clients. This repository does not start those application frontends. Use the supplied hosted runtime fixtures for reproducible protocol qualification, or implement a client against the [application contract](integration-contract.md).
+The environment has separate customer, workforce and institutional-human realms. Workforce users enroll an authenticator before finishing their first fresh sign-in. Customer MFA is optional in the base sandbox. English and Spanish follow native locale selection and the optional footer control.
 
-For an evaluation, confirm discovery/JWKS, actual code plus PKCE, signature/issuer/audience validation, account access, logout and refresh refusal. Test customer and employee profiles independently. Workforce users must complete native TOTP enrollment before the application receives a code. Browser language matching and the optional footer selector support English/Spanish; check both light and dark presentation at desktop and narrow widths.
+The registered clients expect an application at `http://localhost:3000/oidc/callback` or a confidential backend at `http://localhost:8081/oidc/callback`. This repository does not start those applications. Register your client using [the integration guide](integration-contract.md), or use the supplied runtime tooling in a prepared test environment. A client must validate its response, and its API must validate the access token.
 
-Use only generated synthetic identities. Email verification and password-reset messages go to the local sink. A permanently blocked account must stay disabled after an ordinary reset; follow [recovery choices](access-recovery.md) instead of manually enabling it. Reusing an action, authenticator enrollment or successful recovery does not qualify another fresh operation.
+Explore [customer journeys](customer-journeys.md), profile editing, email verification and logout. Messages go to Mailpit using synthetic `example.invalid` addresses. Use a separate disposable user when trying permanent blocking; three applicable failures do not expire automatically. [Authentication policies](authentication-policies.md) explains the recovery choices.
 
-## Stop and retain
+## Stop and resume
 
 ```sh
-python3 scripts/sandbox.py stop --state .state/evaluation-20261101
+python3 scripts/sandbox.py stop --state .state/evaluation
 ```
 
-Stopping preserves the database volume, generated state and credentials. Mailpit messages are ephemeral. There is deliberately no reset/delete/prune helper. A later `up` must use the same state and project; changing a generated realm import does not update an existing realm.
+Stopping preserves the database volume, generated state and credentials. Mailpit messages disappear when its process stops. Resume with `up` against the same path. The helper deliberately has no reset/delete/prune command.
 
-Before moving beyond evaluation, read [regulated deployment](regulated-deployment.md), [retained data](retained-data.md), [EU/US applicability](controls-matrix.md) and [qualification evidence](evidence.md). None of the steps above approves real identity proofing, a bank's recovery procedure or a production migration.
+Read [sandbox details](sandbox.md) for networking and alternate paths, [configuration](configuration-reference.md) for defaults, and [regulated deployment](regulated-deployment.md) when preparing an institution environment.

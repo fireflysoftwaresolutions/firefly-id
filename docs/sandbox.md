@@ -1,14 +1,14 @@
-# Synthetic local sandbox
+# Local sandbox
 
-This sandbox is a provisional example, not an OpenPlatform integration contract. It contains separate `sandbox-customers`, `sandbox-workforce`, and `sandbox-institutions` realms, plus Keycloak's administrative `master` realm. Each application realm has example clients `sandbox-web` and `sandbox-backend`. The institution realm currently demonstrates a synthetic human institutional user; its party reference does not grant organizational authority. No institution machine/service actor or business authorization is inferred. No production realm, callback, role, scope, tenant, or identifier is implied. See [the integration contract](integration-contract.md) before choosing production settings.
+The sandbox runs Keycloak, dedicated PostgreSQL and Mailpit with synthetic data. It creates `sandbox-customers`, `sandbox-workforce` and `sandbox-institutions`, plus Keycloak's administrative `master` realm. Institutional users represent people; a party link does not give them authority to act for a company.
 
-## Capacity and ownership
+## Requirements and ownership
 
-A run requires at least **12 GiB free disk**, a running Docker engine with Compose v2, and enough available memory for approximately 2 GiB of bounded service allocations plus engine overhead. Do not run on an already pressured host. The measured development host had about 11 GiB free on 2026-10-31; image pulls and runtime qualification were deferred. Registry manifests were fetched without image layers. No package install, image pull, container start, or cleanup is needed for offline checks.
+Use Docker Compose v2 with a local Unix Docker socket, at least **12 GiB free disk** and approximately 2 GiB of service memory plus engine overhead. The lifecycle helper refuses remote/TCP engines and insufficient disk before pulling or starting services.
 
-Every generation creates a unique Compose project recorded in `.state/sandbox/ownership.json`. The lifecycle helper checks this marker and the exact generated Compose hash, and requires a local Unix Docker socket; remote contexts and TCP endpoints are refused. Never change the marker to adopt an existing service. `stop` affects only this project's services and preserves its database volume and generated secrets. Mailpit messages are ephemeral and disappear when its process stops. There is deliberately no delete, reset, prune, or global cleanup command. Obtain explicit approval and identify exact owned resources before any later deletion.
+Every generated directory has a unique Compose project and `ownership.json`. The helper verifies the ownership marker and exact Compose hash before acting. Keep that directory with its database and credentials. Editing the marker to adopt another service defeats this protection.
 
-## Prepare
+## Generate and start
 
 Run from the repository root:
 
@@ -17,17 +17,15 @@ python3 tooling/build_theme.py
 python3 scripts/generate.py --mode sandbox
 ```
 
-Generation creates protected `.state/sandbox`, fresh random bootstrap/database/client/user credentials, realm imports, and `compose.json`. It never overwrites an existing output, rotates a retained password, or resets a database. Reusing retained data means reusing the same state directory and Compose project. A new path creates a separate sandbox, not a migration.
+This creates `.state/sandbox` with realm imports, `compose.json` and random secrets. Generation refuses an existing output. For another independent environment, supply a new `--output` and pass its path through `--state` on every lifecycle command.
 
-On the host, ensure this name resolves to loopback before opening the browser:
+Configure local DNS or a hosts entry:
 
 ```text
 127.0.0.1 id.firefly.test
 ```
 
-This requires an operator-managed hosts entry or local DNS. The same DNS name is a Docker network alias on port 8180, so backend containers attached to this project's `identity` network can fetch the canonical issuer. No service uses another container's `localhost` as an issuer. The source tree is never mounted as a built theme; the build creates `dist/themes/firefly-id`, and generation fails if it is absent.
-
-When a safe capacity window is available, explicitly perform:
+Then start the owned project:
 
 ```sh
 python3 scripts/sandbox.py preflight
@@ -36,39 +34,44 @@ python3 scripts/sandbox.py up
 python3 scripts/sandbox.py status
 ```
 
-`preflight`, `pull`, and `up` stop before Docker if the disk gate fails. `up` uses `--pull never`, waits at most 180 seconds for readiness, and cannot trigger an unexpected image download. Pulls have a ten-minute command deadline. A failure preserves all state; inspect the project's bounded logs and stop services if needed. No helper modifies host DNS or other projects.
+`up` uses `--pull never` and waits up to 180 seconds for readiness. Image pulls have a ten-minute command deadline. A refusal or failed start leaves state in place for diagnosis; see [troubleshooting](troubleshooting.md).
 
-## Addresses and credentials
+## Find the services and credentials
 
 | Surface | Address |
 | --- | --- |
 | Browser and canonical issuer base | `http://id.firefly.test:8180` |
 | Customer discovery | `http://id.firefly.test:8180/realms/sandbox-customers/.well-known/openid-configuration` |
-| Backend transport discovery on identity network | `http://keycloak:8180/realms/sandbox-customers/.well-known/openid-configuration` |
+| Internal discovery transport | `http://keycloak:8180/realms/sandbox-customers/.well-known/openid-configuration` |
 | Administrative console | `http://id.firefly.test:8180/admin/master/console/` |
-| Mail viewer, host only | `http://127.0.0.1:8025` |
-| Readiness, host only | `http://127.0.0.1:9000/health/ready` |
+| Mail viewer | `http://127.0.0.1:8025` |
+| Readiness | `http://127.0.0.1:9000/health/ready` |
 
-The internal discovery transport may return internal token/JWKS endpoints with dynamic backchannel enabled; the token `iss` remains the canonical browser URL. Validate that exact issuer string. Do not substitute a transport URL for the issuer. A backend requiring discovery through its issuer can use `id.firefly.test:8180` directly through the network alias. The `identity` network is internal and contains the dedicated database. Keycloak and Mailpit also attach to a separate `ingress` bridge so Docker can publish their loopback ports; the database never attaches to that bridge. SMTP is unpublished and Mailpit has no external relay configured. The ingress bridge is not an outbound firewall. Keycloak, Mailpit UI, and management ports bind only to host loopback. Docker Desktop host publication and local DNS behavior still require actual runtime verification on the target machine.
+Use `sandbox-bootstrap` with the random password in `.state/sandbox/secrets/admin-password`. Synthetic application credentials and confidential-client secrets are in `.state/sandbox/credentials.json`. Keep both files private. The addresses use `example.invalid` and registration is disabled.
 
-Bootstrap username is `sandbox-bootstrap`; its random password is `.state/sandbox/secrets/admin-password`. Synthetic application usernames and their random passwords are in `.state/sandbox/credentials.json`. Never paste these into issue reports or commit the generated state. Synthetic addresses use `example.invalid`; they are intentionally non-deliverable. The users are preverified solely to exercise the local login and recovery experience. Registration is disabled; a user cannot self-assign a realm, tenant, party, or staff identifier.
+`sandbox-web` uses `http://localhost:3000/oidc/callback` and `http://localhost:3000/signed-out`. `sandbox-backend` uses the equivalent paths on port 8081 and a separate client secret. Both use authorization code and S256 PKCE. Password, implicit, device, CIBA and service-account grants are disabled for these interactive clients. The [Configuration lookup client](configuration-service-client.md) is an explicit optional machine profile.
 
-Clients require authorization code with PKCE S256. The only browser callback is `http://localhost:3000/oidc/callback`, and its only post-logout return is `http://localhost:3000/signed-out`. The confidential backend example uses `http://localhost:8081/oidc/callback` and `http://localhost:8081/signed-out`. These endpoints are contracts for a test application; this repository does not start that application. Password grants, implicit flow, device grants, CIBA and service accounts are disabled in the default interactive profile. The separate [Configuration lookup](configuration-service-client.md) client is opt-in. No redirect contains a wildcard.
+## Understand the network
 
-## Reproduce the scoped runtime acceptance
+The browser hostname is also an alias on the internal `identity` network. Backend containers attached to that network can use the canonical hostname directly. Discovery through `keycloak:8180` may advertise internal backchannel endpoints, but the token issuer remains the canonical browser URL. Validate that exact issuer rather than substituting the Docker service name.
 
-Offline tests inspect generated boundaries; they do not prove Keycloak imported them or enforced them. [Current hosted evidence](evidence.md) records the synthetic paths already executed. The following is the reproduction/target-deployment checklist; restore, production networking and unlisted routes remain separate gates:
+PostgreSQL uses only the internal network and has no host port. Keycloak and Mailpit also use an ingress bridge for loopback port publication. SMTP is unpublished and Mailpit has no external relay. The ingress bridge is not an outbound firewall. Check Docker Desktop publication and local DNS behavior on your host before using the environment.
 
-1. Check `/health/ready` and `/health/live`, discovery issuer, and advertised JWKS from both the host browser path and an attached backend container.
-2. Execute code + PKCE S256 for public and confidential examples. Reject missing/incorrect PKCE, a changed callback, password grants, implicit grants, and a wrong client secret. Validate signature, issuer, audience, expiry, and realm isolation at the backend.
-3. Log in, use account self-service, perform logout with the exact return URI, and prove the old session is invalid. Review English at narrow and desktop widths. The scoped English/Spanish journeys passed the [locale lane](localization.md); other locales and unlisted routes require their own translation and runtime review.
-4. Trigger reset-password and verify-email messages to Mailpit. Inspect both HTML and text, message links, and the expiry/reuse rejection of action links. Do not send real mail.
-5. Attempt tenant/party/staff edits through account/profile and registration/broker paths; verify protected attributes and resulting access-token claims remain unchanged. An admin-controlled mapper alone is insufficient proof.
-6. Prove failed-login throttling, separate user stores, database persistence across stop/start, and backup/restore into a distinct disposable database. Verify no default credential and no externally published database or SMTP port.
-7. Review actual startup warnings, the imported user profile component, scope/audience mappings, theme assets, and available metrics. Capture redacted evidence without tokens, secrets, or synthetic passwords.
+## Try the main tasks
+
+1. Read discovery and JWKS, then complete application sign-in with code/PKCE.
+2. Open account management, edit an allowed profile field and sign out. Verify that tenant/party/staff links remain protected.
+3. Enroll the workforce authenticator and use a fresh browser session to observe the OTP challenge.
+4. Trigger email verification or password reset and read the new message in Mailpit. Treat action links as secrets.
+5. Check both languages and appearances at desktop and mobile widths.
+6. With a separate disposable user, try the permanent-block policy and the intended recovery route.
+
+Do not connect the sandbox to real customer mail or a shared database. Use [authentication policies](authentication-policies.md) and [customer journeys](customer-journeys.md) to understand each task's prerequisites.
+
+## Stop without losing data
 
 ```sh
 python3 scripts/sandbox.py stop
 ```
 
-Stopping preserves the database. Realm `--import-realm` runs on first creation and skips an existing realm; editing a generated import is not an update strategy. Use reviewed administrative changes or a migration against retained data.
+The database and secrets remain; Mailpit messages are ephemeral. Resume with the same directory/project. Realm import skips existing realms, and PostgreSQL initialization runs only for a new data directory. Editing an import or secret file does not update retained identities or rotate a database password. Follow [retained data](retained-data.md) for migration and backup procedures.

@@ -2,7 +2,7 @@
 
 ## The sandbox refuses to start
 
-Run the lifecycle preflight and read its exact refusal. A disk refusal occurs before Docker; do not bypass it or prune unrelated storage. A missing theme requires `make theme`. A changed Compose hash means the generated ownership contract was modified; inspect the change and preserve retained data instead of editing the marker to pass.
+Run the lifecycle preflight and read its exact refusal. A disk refusal occurs before Docker; do not bypass it or prune unrelated storage. A missing theme requires `make theme`. A changed Compose hash means generated deployment configuration was modified; inspect the change and preserve retained data instead of editing the marker to pass.
 
 Use the exact owned Compose file/project from `ownership.json` to inspect service status and bounded logs. Never print generated realm imports or environment/secret files into public logs. Keycloak readiness may take time while its dedicated PostgreSQL schema is first initialized. A failed import requires inspecting the current pinned schema, not disabling profile or issuer protections.
 
@@ -22,12 +22,24 @@ First-start realm import skips an existing realm. PostgreSQL initialization also
 
 ## A recovery message is missing
 
-Use only the synthetic `example.invalid` accounts and local Mailpit. Confirm the realm's SMTP host is `mailpit:1025`, inspect the local mailbox and server delivery error, and check that the action is valid for the account. Never connect a sandbox to a real customer mail system to debug recovery. A successful mail delivery does not prove link expiry/reuse, factor replacement or lost-factor recovery.
+Use only the synthetic `example.invalid` accounts and local Mailpit. Confirm the realm's SMTP host is `mailpit:1025`, inspect the local mailbox and server delivery error, and check that the action is valid for the account. Never connect a sandbox to a real customer mail system to debug recovery. If the account is permanently blocked, use its selected recovery procedure; an ordinary reset message cannot unlock it. For credential-replacement notices, inspect the private worker/outbox status using [notification operations](notification-operations.md).
 
 ## Branding or fonts are missing
 
-Rebuild and verify the JAR includes all five theme properties, logo files, CSS, font and OFL. Confirm realm theme selection and the exact deployed artifact, then inspect resource responses and actual font loading. Production caches require a versioned artifact/restart strategy. Standalone brand preview success does not establish server theme success.
+Rebuild and verify the JAR includes all five theme properties, logo files, CSS, font and OFL. Confirm realm theme selection and the exact deployed artifact, then inspect resource responses and actual font loading. Production caches require a versioned artifact/restart strategy. Check the page served by Keycloak after rebuilding, rather than only the standalone brand preview.
 
 ## A business action is refused after successful login
 
 Check the verified principal population, issuer/audience, authoritative business link, current policy/consent, and Configuration namespace-to-resource binding. Authentication and email verification do not grant banking authority. A refused action must not be fixed by making user-controlled attributes trusted, substituting resource UUIDs into opaque tenant claims, or forwarding identity headers.
+
+## A production database or health probe fails
+
+Check the configured database CA, server certificate/hostname and dedicated JDBC endpoint. Keep `db-tls-mode=verify-server`; remove competing JDBC parameters rather than disabling validation. Use [the configuration checker](production-readiness.md) for unsupported input combinations.
+
+Production management inherits HTTPS on port 9000. An HTTP or plaintext TCP probe is unsuitable there; configure an HTTPS-capable monitor with trusted certificate/name verification. The local sandbox health endpoint remains HTTP. Check private routing and probe source permissions separately.
+
+## A native recovery link or ceremony fails
+
+Selecting the native theme exposes a link but does not install its backend. Verify native/gateway JARs, explicit brute-force provider selection, realm attributes and the service configuration required by the journey. Known-password unlock needs an existing password/TOTP; credential loss needs the independent proofing adapter.
+
+For Origin/CSRF errors, verify canonical HTTPS origin and the browser's actual outgoing Origin. Do not inject permissive headers or disable CSRF. For an ambiguous timeout after execution, preserve the original journal, case and budgets and follow [incident handling](observability-incidents.md).

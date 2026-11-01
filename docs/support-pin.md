@@ -1,43 +1,63 @@
-# Telephone and customer support PIN
+# Customer support PIN
 
-The customer support PIN is a separate CIAM knowledge credential for a future verified assistance process. The customer manages it inside Firefly Identity; an employee or BPO operator never retrieves it. It is not the account password, a card PIN, possession evidence, a payment approval, an unlock authorization or permission to impersonate a customer.
+The support PIN is a separate eight-digit customer knowledge credential. Customers can view its status, create it, replace it or revoke it in Firefly Identity. Nobody can retrieve the stored PIN.
 
-The native candidate implements customer self-service **status, create, replace and revoke**. Status exposes lifecycle state and available timestamps, never the PIN or its hash. The native verification service remains closed until a genuine support authorization owner is supplied. There is no public HTTP PIN verification route and no fallback allow-all implementation.
+The PIN is not an account password, card PIN, payment approval, possession factor, unlock permission or impersonation credential. Telephone and BPO verification are **not implemented**: the customer lifecycle is available, but no support platform currently provides the required verification authorization.
 
-## Customer journey
+## Customer lifecycle
 
-With the native extension and customer account theme installed, account self-service provides **Customer support PIN / PIN de atención al cliente**. The page uses the shared self-hosted Manrope, Firefly artwork and light/dark tokens. It follows native locale negotiation and offers a return to account management.
+Open **Customer support PIN** in customer account management after normal online sign-in. The native route is `{issuer}/firefly-recovery/support-pin`.
 
-An enabled, eligible local customer needs an ordinary SSO identity cookie plus a freshly verified password and pre-enrolled TOTP for creation, replacement or revocation. Each mutation requires exact-origin and one-time CSRF checks. The eight-digit PIN is entered twice in masked controls. Obvious repeated or sequential values are refused; password-visibility controls are absent. A failed step-up feeds the account's native brute-force protection. Workforce and administrator identities cannot use this customer credential surface.
+| Action | What the customer supplies | Result |
+| --- | --- | --- |
+| View status | Active online SSO session | Not set, active or replacement required, with available lifecycle timestamps |
+| Create or replace | Current password, fresh enrolled TOTP, new PIN and confirmation | New protected PIN; previous PIN authority invalidated |
+| Revoke | Current password and fresh enrolled TOTP | PIN removed and revocation time recorded |
 
-Replacing the PIN advances its independent credential generation, invalidating previous proofs and attempts. Revocation removes the credential and records the lifecycle event. Three failed/reserved verification attempts hold the PIN; there is no automatic timed release. Its verification budget is separate from login and recovery budgets. A successful support PIN check cannot reset an account lock or revoke a fraud/HR hold.
+The customer must be enabled, local and nonprivileged in a configured `HUMAN` realm. Workforce and administrator identities are excluded. An offline token or surviving browser cookie without a real online session is insufficient for account/PIN navigation.
 
-Accepted lifecycle form submissions redirect with HTTP 303 to the authenticated status GET, so refreshing does not resubmit secrets or repeat a change. Status GET does not allocate a new native mutation ceremony. Any generic failure notice belongs to the same authenticated subject's consumed ceremony; a fresh set/revoke form creates its own one-time CSRF state.
+```mermaid
+stateDiagram-v2
+    [*] --> NotSet
+    NotSet --> Active: Password and TOTP verified; create PIN
+    Active --> Active: Password and TOTP verified; replace PIN
+    Active --> ReplacementRequired: Verification budget exhausted or authority invalidated
+    ReplacementRequired --> Active: Authenticated replacement
+    Active --> NotSet: Authenticated revoke
+    ReplacementRequired --> NotSet: Authenticated revoke
+    Active --> NotSet: Authorized security revocation or credential-loss recovery
+```
 
-Privileged security administration has a separate, access-reducing **revocation-only** policy. Keycloak's authenticated, target-user management permission may delete a compromised native PIN without asking the customer for that PIN or password. The native listener retires its credential reference and generation, records revocation time and hold, and preserves login/recovery/verification budgets. It cannot create or replace the PIN, unlock an account or confer customer authority. Ordinary Account REST cannot remove this custom credential through its generic deletion endpoint; customer self-service uses the native step-up journey.
+Eight digits are required. Repeated digits, repeated halves or pairs, and ascending/descending sequences are refused. Controls stay masked. Never put a PIN in notes, transcripts, recordings, a URL or a business DTO.
 
-Administrative revocation emits an append-only `PIN_REVOKED_ADMINISTRATIVE` record with the actual authenticated admin realm, subject, internal client row ID and Keycloak administrative event ID. These values come from the server's `AdminEvent`, never request headers or body claims. Missing attribution vetoes the transaction. The native event and credential deletion commit together; the status then reads not configured and shows the actual latest lifecycle change. Production administration still requires its private ingress, named least-privileged identities, strong MFA and approved operational procedure. A BPO support session is not an administrative identity.
+Mutation forms expire after 120 seconds and require the authenticated subject, Secure/HttpOnly/Strict cookie, exact Origin and one-time CSRF value. Accepted POSTs redirect with 303 to status; refreshing status does not repeat the mutation. A failed password/TOTP step-up participates in ordinary native brute-force protection.
 
-## Credential protection and key rotation
+The PIN verification budget is separate. Three failed verifications hold it without timed release; outstanding reserved checks also count against the three-slot admission limit. Replacement advances its independent generation and invalidates previous proofs. It never resets an account lock or another hold.
 
-Native storage uses an independently versioned HMAC-SHA-256 pepper followed by the native Argon2 password hash provider. HMAC input includes the realm and opaque subject. This protects a low-entropy PIN from database-only offline guessing; it does not make an eight-digit secret a high-entropy factor or establish factor independence by itself.
+## Install and protect keys
 
-| Runtime setting | Required behavior |
+Install [native Identity](native-recovery.md), select the `firefly-id-native` account theme for customers, and keep normal password/TOTP authentication available. Manage pepper keys independently of the database and credential-replacement encryption key.
+
+| Environment setting | Required configuration |
 | --- | --- |
-| `FIREFLY_SUPPORT_PIN_KEYS_DIR` | Mounted directory containing version-named external key files |
-| `FIREFLY_SUPPORT_PIN_ACTIVE_KEY` | Current version identifier: 1–64 ASCII letters, digits, `_` or `-` |
-| `FIREFLY_SUPPORT_PIN_VERIFY_UNTIL_<version>` | UTC ISO expiry for verification with a previous version |
+| `FIREFLY_SUPPORT_PIN_KEYS_DIR` | Mounted directory containing version-named secret key files |
+| `FIREFLY_SUPPORT_PIN_ACTIVE_KEY` | Active version: 1–64 ASCII letters, digits, `_` or `-` |
+| `FIREFLY_SUPPORT_PIN_VERIFY_UNTIL_<version>` | UTC ISO-8601 expiry permitting an older version during a reviewed overlap |
 
-Provision random keys of at least 32 bytes through the actual secret manager. Key files must be readable by the Keycloak runtime identity, with no group/other read or write access; symlinked files are refused. Keys are never stored in identity tables, user attributes or credential metadata. Do not expose them in shell output, build context, logs, backups without separate encryption or CI artifacts.
+Keys contain 32–4,096 bytes and must be readable by Keycloak without group/other read or write permission. Symlinked key files are refused. The native boundary applies subject/realm-bound HMAC-SHA-256 peppering followed by its Argon2 password hash provider.
 
-To rotate, mount a new key version and make it active. Permit a reviewed bounded overlap for the old version with its explicit verification expiry. New/replaced PINs use the active version; existing stored values cannot be rehashed offline without the customer's PIN. Require strong-authenticated replacement during the transition, then retire the old key after approved expiry and recovery planning. An unavailable or expired key causes refusal, never unpeppered fallback. Backups and disaster recovery must preserve the separately protected key versions needed by retained credentials.
+To rotate, provision a new key version and activate it. Keep a bounded explicit verification overlap for the old version and require authenticated PIN replacement. Existing PINs cannot be rehashed without the customer's input. Missing or expired keys cause refusal; no unpeppered fallback exists. Back up required old keys separately and securely alongside the retained credential database.
 
-## Support and BPO integration boundary
+## Security administration
 
-The owning support service must establish the actual case/call, operator, provider/employer, customer, tenant, purpose, requested action, independent possession evidence, current workforce/BPO authority and policy obligations. Caller ID, an already verified phone contact, account history and a staff login do not establish those facts. A contact CRUD API is not an authorization service.
+An authenticated, authorized Keycloak administrator may revoke a compromised PIN through the target user's credential-management operation. This is revocation only: it cannot create or replace a PIN, clear an account lock or impersonate the customer. Generic Account REST deletion of this custom credential is refused; customers use the native step-up flow.
 
-The native `NativeSupportAuthorization.Factory` is the explicit fail-closed integration point. No qualified implementation currently supplies those owner facts. Its current grant shape is a proposal, not an approved producer contract or generated SDK. Before enabling verification, align typed contracts with the actual owner, then issue and verify a short-lived, one-time case-bound authorization. It must bind the actual authenticated relying service/client, intended receiver/audience and current case/call/delegation generation or revocation state, as well as the customer and operator. Reject cross-customer/tenant/case/operator/service substitution, replay, revoked contracts and stale delegation, and retain an audit that identifies the employee/BPO operator separately from the customer. A machine identity alone cannot stand in for customer proof.
+Administrative revocation records the actual administrator realm, subject, client and administrative event together with the native revocation. Missing attribution refuses the transaction. Login, recovery and verification budgets are preserved. Use private administrative ingress, named least-privileged identities, strong MFA and the institution's incident procedure.
 
-The customer should enter the PIN through the approved private capture channel; do not ask an operator to view it or put it in notes, recordings, transcripts or business DTOs. The native credential boundary returns only the approved opaque verification result. Knowledge and possession must remain independently verified under the bank's actual risk policy. The native permitted action is knowledge verification only. Each subsequent business operation still needs its own current policy decision and scoped staff authorization at every hop; a native grant or its two authority checks cannot substitute for them. The authorized support action stays narrowly scoped and expires; it does not become a general customer session or financial permission.
+## Integrating a future support channel
 
-This owner contract and its real UI/channel, consent, abuse controls, recording suppression, notifications, workforce delegation, audit retention and operational acceptance remain required work in the support platform. CIAM lifecycle implementation alone does not complete a BPO or telephone-banking service. See [zero trust boundaries](zero-trust.md) and [native recovery](native-recovery.md) for the separate identity and unlock mechanisms.
+`NativeSupportAuthorization.Factory` is the fail-closed extension point. There is no supplied production owner implementation or public PIN-verification HTTP endpoint.
+
+A support integration must first establish a genuine case/call, actual employee or BPO operator, employer/delegation, target customer and tenant, permitted action, current approvals and independent possession evidence. It must authenticate the requesting service and bind those facts to a short-lived, one-time authorization with replay and revocation checks.
+
+Capture the PIN through an approved private customer input channel, not through an operator. The native verifier may return only an opaque knowledge-verification result. Every subsequent support or financial action still needs its own authorization. Caller ID, account history, a verified contact or a staff login cannot replace this owner integration. Until the channel, authorization service, recording suppression, consent and operating procedures exist, do not offer telephone or BPO verification.

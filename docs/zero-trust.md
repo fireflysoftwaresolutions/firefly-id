@@ -1,32 +1,71 @@
-# Identity and authorization at every service boundary
+# Authorize every service request
 
-Firefly Identity authenticates people and workloads. Each receiving Experience, Domain and Core service remains responsible for authenticating its actual caller and authorizing its current action. A successful ingress check, private network or signed token does not make all subsequent operations authorized.
+Firefly Identity authenticates a person or workload. Each receiving service authenticates its actual caller and authorizes the requested operation. A trusted gateway, private network or successful sign-in does not transfer that responsibility to another layer.
 
-## Receiver responsibilities
+## Validate at each boundary
 
-| Boundary | Required decision |
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Experience
+    participant Domain
+    participant Core
+    Client->>Experience: Token for Experience and requested action
+    Experience->>Experience: Verify caller and current permission
+    Experience->>Domain: Domain-bound workload / required human proof
+    Domain->>Domain: Verify caller, purpose and tenant
+    Domain->>Core: Producer SDK request and required proof
+    Core->>Core: Verify caller, current resource policy and obligations
+    Core-->>Domain: Result or refusal
+    Domain-->>Experience: Result or refusal
+    Experience-->>Client: Result or refusal
+```
+
+The diagram describes the required service integration. A receiver-specific token/delegation mechanism must exist for each enabled path; this distribution does not configure general human token exchange between all applications.
+
+| Boundary | Authentication and authorization inputs |
 | --- | --- |
-| Browser to Experience | Exact issuer/audience/signature/time, authorized session and CSRF where applicable, current actor/purpose and resource permission |
-| Experience to Domain | Genuine workload authentication plus verified original human proof when required; exact tenant/action/resource and current policy |
-| Domain to Core | Actual generated producer SDK contract, preserved proof, fresh Core authorization and authoritative resource/tenant binding |
-| Native recovery callback | Distinct private workload credential plus signed restricted actor, exact phase and current native state |
+| Browser to Experience | Exact trusted issuer, intended audience, signature/time, application session and CSRF where applicable, current actor/purpose/resource permission |
+| Experience to Domain | Genuine workload identity plus independently verified human proof where required; exact tenant, action and resource |
+| Domain to Core | Producer SDK request, preserved original identity/proof and fresh Core authorization against authoritative data |
+| Native recovery service boundary | Separate private workload credential, exact ceremony/purpose/phase and current native admission; ordinary API tokens are not recovery authority |
 
-Do not derive authority from an unsigned `X-Actor` header, caller-supplied subject/body, frontend claims or a machine token with invented human fields. A protected identity link connects an opaque subject to an owner; it does not grant access to every record belonging to that person. The opaque identity tenant namespace is separate from Configuration's resource tenant UUID. Resolve the actual current binding through its owning contract.
+Reject unsigned `X-Actor` headers, caller-selected actor IDs and browser claims as authentication. The service may accept a requested resource identifier, but it must bind that resource to the verified actor and current tenant before use.
 
-Unavailable, stale or indeterminate authorization refuses the protected operation. Audit refusal as well as mutation under the receiving owner's durable contract. Operation-specific constraints, step-up, maker/checker, amount, expiry and other applicable obligations must be enforced by the owner that can actually guarantee them.
+## Separate authentication from business authorization
 
-## Jafly stays independent
+For token admission, validate signature, exact issuer, audience, approved algorithm, expiration and applicable not-before. Then project a verified principal and check its required population/tenant fields. The [Jafly resource-server guide](jafly.md) shows this configuration.
 
-Jafly provides provider-neutral Spring Security resource-server and authorization extension points. Its generic token/principal, current-state and policy mechanisms must not import Firefly Identity, Keycloak native classes or product realm names. Firefly-specific credential, native lock and PIN code stays in this distribution; business owner adapters stay with their owning service.
+For the business decision, resolve the authoritative customer/staff link, current membership, resource ownership, consent, purpose and applicable assurance. Preserve both the opaque identity namespace and Configuration's separately typed resource-tenant UUID. A party ID identifies a relationship; it does not authorize every record linked to that person.
 
-Published framework versions, source candidates and adoption by a running consumer are distinct facts. Published Jafly 26.10.23 does not establish a universal live authorization default in every microservice. Current-state and policy source work requires independent review, release and explicit consumer configuration/migration. See the [integration matrix](integration-contract.md) and [Jafly guide](jafly.md) for the actual qualified baseline.
+Ask the current policy owner about the actual action/resource. Treat an empty, stale, unavailable, failed or indeterminate result as refusal. Fulfill obligations such as step-up, maker/checker, amount limits or time restrictions before mutation. If the receiving layer cannot guarantee an obligation, it must refuse rather than pass the obligation to an untrusted caller.
 
-Offline JWT validation can continue accepting an otherwise valid unexpired token after a user is blocked. Short lifetimes bound that exposure but do not provide immediate revocation. Receivers requiring immediate enforcement need a real current-state decision, with appropriate cache/revocation semantics and outage behavior. Native session retirement and user not-before are necessary controls; they do not remotely revoke every application's own session or change an offline decoder.
+Recheck authority at the point where an operation commits when asynchronous work may outlive a token, binding observation or authorization. Use bounded deadlines and preserve a durable decision/execution record without logging bearer tokens or credential material.
 
-## Workforce acting for a customer
+## Configure current-state enforcement
 
-Customer and workforce identities have separate issuers, credentials, policies and owner links. Preserve the employee/BPO actor throughout the audit. Acting for a customer requires explicit, current, purpose- and resource-limited delegation from its genuine business owner. It must bind operator, customer, tenant, case, action, expiry and applicable approvals; revocation and employment/provider changes must take effect according to the approved enforcement policy.
+Offline JWT validation proves that the token was correctly issued and is within its accepted time constraints. It cannot, by itself, discover that the user was subsequently blocked, an employment link changed or an application session was revoked.
 
-Neither an administrator token exchange nor a supplied customer ID is sufficient evidence of that delegation. Do not replace the employee audit identity with a customer identity or hand an employee the customer's refresh token. Backoffice/terminal session design must enforce the actual delegation on each service hop and separate observation, support, privileged mutation and financial initiation.
+Choose the required behavior for each API:
 
-The support case/call verification and delegation owner is a tracked platform gap. The CIAM PIN verification hook therefore stays closed. Self-only native account recovery cannot be reused to authorize a staff operator, a BPO action, customer impersonation or a payment. See [support PIN](support-pin.md) for the exact integration gate.
+- If bounded token lifetime is sufficient, document the expiry window and ensure the application does not extend it silently.
+- If immediate blocking is required, use the supported online current-state/introspection mechanism and configure bounded caching, invalidation and fail-closed outage behavior.
+- If the application maintains its own session, revoke or revalidate that session as part of the lifecycle; issuer logout cannot operate an unrelated application store automatically.
+
+Native recovery terminates relevant identity sessions and advances user not-before. Every receiving service still needs the selected enforcement mechanism. [Audiences and introspection](receiver-audiences.md) explains receiver identity; [architecture](architecture.md) explains joiner/mover/leaver ownership.
+
+## Keep workloads and human delegation distinct
+
+Client credentials establish software identity. They cannot establish a customer's knowledge, possession, consent or authorization by carrying a supplied customer ID. For a human operation across service hops, use a supported signed proof/delegation contract binding original issuer/subject, tenant, intended receiver, purpose, delegating client and bounded lifetime.
+
+Do not forward a token to an API outside its audience. Do not infer raw bearer authority from a projected principal, and do not replace an employee's identity with a customer's refresh token. Where no compatible delegation contract is available, disable that operation until the owning services provide one.
+
+Jafly supplies generic principal and policy ports; Firefly-specific native credentials, locks and PINs stay in Identity. Business adapters stay with their actual service owners. Selecting Identity as an issuer does not require the framework to depend on its native extension or a proofing provider.
+
+## Staff acting for a customer
+
+Authenticate the employee through the workforce issuer and retain the real employee identity in every audit record. Acting for a customer requires separate current authority for the operator, customer, tenant, case, action/resource, expiry and required approvals. Employment/provider changes and delegation revocation must affect access according to the selected enforcement policy.
+
+Observation, telephone support, privileged mutation and financial initiation are different permissions. A customer support PIN is only a scoped knowledge credential; it does not create an operator mandate or substitute for possession proof. Support verification remains unavailable until a genuine support case/call authorization owner is integrated.
+
+Self-service account recovery is also a distinct purpose. It cannot authorize BPO access, staff impersonation or a payment. Use [support PIN](support-pin.md), [workforce administration](workforce-administration.md) and [the recovery journey guide](access-recovery.md) to select the appropriate ownership and controls.

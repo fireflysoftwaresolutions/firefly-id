@@ -15,6 +15,7 @@ def publishable(path):
     parts = Path(path).parts
     return bool(parts) and not any(part.startswith('.') for part in parts) and parts[0] not in {
         'superpowers', 'overrides', 'private-source-index.example.json',
+        'progress.md', 'evidence.md', 'identity-proofing-evaluation.md', 'documentation.md',
     }
 
 
@@ -45,10 +46,10 @@ def rewrite_target(target, page_path, root, source_url, image=False):
 def policy_reference(catalogue):
     if catalogue.get('schemaVersion') != 1:
         raise ValueError('Unsupported authentication policy catalogue')
-    text = ['# Effective policy catalogue', '',
-            'Generated directly from `config/authentication-policies.json` for this build. '
-            'These are engineering defaults for synthetic new realms, not a regulatory certification '
-            'or a retained-realm migration.', '',
+    text = ['# Default realm settings', '',
+            'Use this reference for the population settings supplied with the local environment. '
+            'The values are not a regulatory certification; select the factor and session settings '
+            'appropriate to each deployed journey.', '',
             'Read [authentication policies](../authentication-policies.md) for enforcement and '
             '[EU and US controls](../controls-matrix.md) for applicability.', '',
             '## Shared brute-force settings', '', '| Property | Value |', '| --- | --- |']
@@ -59,7 +60,7 @@ def policy_reference(catalogue):
         'customers': 'Optional in the synthetic customer profile; this is not a banking SCA policy.',
         'workforce': 'Required password and OTP in the workforce browser flow.',
         'institutions': 'Optional in the synthetic institutional-human profile; organizational authority is separate.',
-        'administrators': 'Policy records MFA required; permanent administrator phishing-resistant MFA and bootstrap removal still need production acceptance.',
+        'administrators': 'Configure permanent administrator phishing-resistant MFA and remove temporary bootstrap access before operating privileged administration.',
     }
     for name, profile in catalogue['profiles'].items():
         text.extend(['', '## ' + name.capitalize(), '', profile['population'], '',
@@ -68,8 +69,9 @@ def policy_reference(catalogue):
                      '| Realm property | Value |', '| --- | --- |'])
         text.extend(f'| `{key}` | `{value(item)}` |' for key, item in profile['realmSettings'].items())
     text.extend(['', '## Applying a change', '',
-                 'Change the catalogue through review, build and test an owned new fixture, then read back '
-                 'the effective server settings. Keycloak import skips an existing realm. A source edit '
-                 'does not update retained users, enroll a possession factor, impose payer inactivity '
-                 'limits in consuming applications or validate an external verification provider.', ''])
+                 'The local generator applies these values when creating new realms. For an existing realm, '
+                 'apply the selected settings through the Admin Console or authorized Admin API, '
+                 'then verify the effective values. Import does not overwrite an existing realm. '
+                 'Enroll required factors and configure application inactivity separately; editing '
+                 'the catalogue does not migrate retained users.', ''])
     return '\n'.join(text)

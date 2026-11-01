@@ -69,11 +69,17 @@ try {
         if (measured.activeLinkColor) assert.equal(measured.activeLinkColor, linkColor, 'Active navigation drifted from the canonical Firefly palette');
         assert.equal(measured.brokenImages, 0);
         assert.equal(measured.repeatedHeaderTitles, 0, 'The masthead repeats the identity already present in the logo');
+        assert.equal(await page.locator('pre code.language-mermaid').count(), 0, 'A product diagram remained unrendered source');
+        const figures = page.locator('.flow-figure');
+        if (await figures.count()) {
+          assert.ok(await figures.first().locator(`.diagram-${mode}`).isVisible(), 'Diagram does not match the reading appearance');
+          assert.equal(await figures.first().locator(`.diagram-${mode === 'light' ? 'dark' : 'light'}`).isVisible(), false);
+        }
         assert.ok(await page.locator('.md-header__button.md-logo').isVisible(), 'Product branding is missing from the masthead');
         if (route) assert.ok(await page.locator('.md-path').isVisible(), 'Inner page has no breadcrumb trail');
         assert.match(measured.footer, /Firefly Software Foundation Inc\./); assert.match(measured.footer, /Keycloak/);
         summary.surfaces.push({ route, width, mode, fontLoaded: measured.fontLoaded, horizontalOverflow: false });
-        if (['', 'controls-matrix/', 'configuration-reference/'].includes(route)) {
+        if (['', 'architecture/', 'integration-contract/', 'access-recovery/', 'controls-matrix/', 'configuration-reference/'].includes(route)) {
           await page.screenshot({ path: resolve(evidence, `${route.replaceAll('/', '') || 'home'}-${width}-${mode}.png`) });
         }
       }

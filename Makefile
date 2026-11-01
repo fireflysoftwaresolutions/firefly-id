@@ -12,6 +12,7 @@ check:
 	node --check tooling/native-runtime.mjs
 	node --check tooling/reproofing-runtime.mjs
 	node --check tooling/documentation-runtime.mjs
+	node --check tooling/documentation-diagrams.mjs
 	node --check themes/firefly-id-native/account/resources/js/native-account-links.js
 	node --check themes/firefly-id/login/resources/js/native-ui.js
 	node --input-type=module --check < themes/console-policy.js
@@ -28,4 +29,5 @@ runtime:
 	node tooling/runtime.mjs
 
 docs:
+	node tooling/documentation-diagrams.mjs
 	python3 -m mkdocs build --strict

@@ -1,34 +1,14 @@
-# Production decisions and candidate audit
+# Check production settings
 
-Production readiness has two different inputs: controls the repository can supply and decisions/evidence that belong to the operating institution. This page records both. The independent audit does not require a KYC vendor, start a service, contact an endpoint, alter a realm or enable recovery.
+Use the configuration checker before applying server and realm changes. It reads local files, checks a supported set of security settings and prints a compact JSON result. It does not connect to Keycloak or change accounts.
 
-The [server reference](../deploy/keycloak.production.conf.example) now selects verifying database TLS, inherited HTTPS management, explicit TLS 1.2/1.3, normal outgoing hostname verification and no legacy public observability interface. These are supported Keycloak 26.8.1 settings. The [candidate auditor](../scripts/check_production.py) rejects common unsafe configuration and realm/client combinations before they reach an environment. Neither is an approval to deploy a bank.
+## Prepare the inputs
 
-## Controls implemented independently of KYC
+Supply a resolved, nonsecret `keycloak.conf` and complete realm/client exports for `customers`, `workforce` and `administrators`. The administrator export must identify `master`; the other realm names must be distinct. An optional `institutions` export is also supported.
 
-| Control | Implementation | Verification boundary |
-| --- | --- | --- |
-| Database encryption and identity | `db-tls-mode=verify-server`, `/run/secrets/database-ca.pem` | PostgreSQL maps this to certificate and hostname verification; actual server certificate, CA custody and runtime role still need target evidence |
-| Protected management transport | `http-management-scheme=inherited` and disabled main HTTP | Management inherits HTTPS/certificates; network policy must additionally isolate port 9000 |
-| Modern protocol and peer defaults | Explicit TLS 1.2/1.3 and `tls-hostname-verifier=DEFAULT` | Actual supported protocols/handshakes require runtime verification |
-| No public legacy metrics/health | `legacy-observability-interface=false` | Ingress/firewall denial remains an actual-environment check |
-| Unsafe candidate refusal | Dependency-free offline server, population and application-client checks | Only the supplied literal configuration and snapshots are inspected |
-| Safe diagnostics | Fixed control IDs, fixed decision IDs, pass/fail only | No file paths, endpoint values, usernames, supplied secrets or exception bodies are emitted |
-| Repository documentation publication | Exact-source MkDocs build, actual browser qualification and GitHub Pages deployment | Public documentation deployment is separate from CIAM activation |
+Obtain exports through the authorized administration process and keep them outside the public checkout. Realm-only responses that omit clients are insufficient. Exports can contain confidential fields, so protect them like other administrative configuration.
 
-The pinned upstream [database mapper](https://github.com/keycloak/keycloak/blob/26.8.1/quarkus/runtime/src/main/java/org/keycloak/quarkus/runtime/configuration/mappers/DatabasePropertyMappers.java) preserves TLS properties already specified in a full JDBC URL. Therefore the auditor's bounded database contract permits **no JDBC query parameters**, user information, custom driver or separate `db-url-properties`. Use a plain dedicated PostgreSQL URL and the first-class TLS options. The pinned mapper also checks for TLS-property substrings anywhere in the full URL, so the audit refuses `sslmode`, `sslrootcert`, `sslfactory` and `sslhostnameverifier` in host/database names as well; otherwise a name such as `identity_sslmode` can suppress upstream injection. Merely adding `db-tls-mode` beside `?sslmode=disable` is unsafe. Multi-host/custom-driver/extra-property arrangements need a separately reviewed extension to this audit; they are not silently accepted.
-
-Management accepts `inherited` or `http`, not a literal `https` scheme value. See the pinned [management options](https://github.com/keycloak/keycloak/blob/26.8.1/quarkus/config-api/src/main/java/org/keycloak/config/ManagementOptions.java). Inherited HTTPS requires the main server's valid TLS setup and an HTTPS-capable monitor with the correct trust/name. A plaintext bash TCP probe is not an HTTPS health check.
-
-## Prepare the supplied inputs
-
-Run this check in a protected review/CI workspace, separate from the Keycloak process. Supply one concrete `keycloak.conf` and complete exported realm/client representations for `customers`, `workforce` and `administrators`. The administrator representation must identify `master`; other populations must have distinct non-master realm names. An optional `institutions` representation is also accepted and checked. Assign populations from the approved inventory; the tool cannot establish that an operator labeled an export honestly.
-
-The configuration parser intentionally accepts a small literal `key=value` subset. Duplicate keys, expressions, backslash escaping/continuations, colon separators and unresolved `${…}` refuse. The unrendered reference is expected to fail. Do not use a shell `eval` or broad environment dump to render it. Have the deployment's reviewed configuration generator emit the literal nonsecret settings used for review. Passwords remain in the secret manager, outside that file.
-
-Realm snapshots contain operational identity configuration and may contain confidential fields. Obtain them through the institution's authorized administration/export procedure and keep them outside the public checkout. Use complete client representations, not a realm-only `kcadm get realms/…` response that omits clients. This is a configuration review input, not a backup/restore artifact. Never upload snapshots, raw admin responses, secrets or runtime environment dumps as documentation/CI evidence.
-
-For an already approved local review directory:
+The server file accepts literal `key=value` entries. Resolve `${…}` placeholders with your reviewed configuration generator; the unrendered production reference is expected to fail. Duplicate keys, backslash continuations, colon separators and expressions are refused. Keep passwords in the secret manager rather than the review file. Each input is limited to 2 MiB.
 
 ```sh
 python3 scripts/check_production.py \
@@ -38,61 +18,61 @@ python3 scripts/check_production.py \
   --realm administrators=/secure-review/master.json
 ```
 
-Each input is bounded to 2 MiB. Duplicate JSON keys, malformed shapes and duplicate population arguments refuse. The tool reads files and prints one bounded JSON report; it performs no network calls, process launch, account operation or state mutation. It exits 1 on findings and 0 when the supported candidate checks pass.
+Run the checker in a separate clean review process. It refuses Keycloak/Quarkus/Java override variables in its own environment, rather than guessing their effect. Do not clear variables from a running service and treat that as a review of the service.
 
-`candidate_checks_passed=true` means only those checks passed. `production_approved` is always `false`; there is no bypass/approve flag. The report retains `decisions_required` even for a technically valid candidate. A safe summary may be retained under institution change-control rules; source snapshots must remain protected separately.
+## Read the result
 
-## What the auditor checks
+Exit code `0` means the supplied settings passed the supported checks; exit code `1` means findings need attention. The result includes fixed finding IDs without echoing paths, hostnames, usernames or secrets. `candidate_checks_passed` describes only these file checks. `production_approved` is always `false`, and `decisions_required` lists the operational areas to review with the deployment team.
 
-| Finding ID | Refusal conditions |
+| Finding | What to inspect |
 | --- | --- |
-| `INPUT_INVALID` | Ambiguous/malformed/unresolved/oversized input, duplicate keys/populations, unreadable files or invalid JSON structures |
-| `EXTERNAL_CONFIG_SOURCE` | The audit process carries `KC_`, `KCRAW_`, `QUARKUS_`, legacy administrator or supported Java override environment variables |
-| `SERVER_UNREVIEWED_OPTION` | Any server property outside the explicit supported audit subset, including raw/SPI trust overrides and alternate public-health placement |
-| `SERVER_TRANSPORT` | Main HTTP, forced HTTP management, nonstrict/dynamic hostname behavior, missing verifying DB mode, legacy observability, unsafe outgoing verifier or unsupported TLS protocol set |
-| `SERVER_HOSTNAME` | Missing/insecure/ambiguous public/admin HTTPS origins, credentials/query/fragment/wildcard values, loopback/unspecified targets or shared public/admin hostname |
-| `SERVER_CERTIFICATE_INPUT` | Missing absolute mounted certificate/key paths |
-| `SERVER_DATABASE` | Unsafe/unsupported full JDBC URL, URL parameters/user information, custom driver/properties, missing absolute CA path, missing username or obvious superuser name |
-| `SERVER_STATIC_SECRET_OR_BOOTSTRAP` | Password properties or any bootstrap administrator properties remain in the supplied normal-runtime configuration |
-| `SERVER_PROXY_TRUST` | Missing/unsupported forwarded-header mode, empty/malformed proxy addresses or universal/unspecified/multicast ranges |
-| `REALM_POPULATIONS` | Missing required declared populations, unknown population, master misuse, empty or colliding realm names |
-| `REALM_POLICY` | Disabled realm, non-`all` SSL, public registration, username editing, duplicate emails, missing email verification, refresh reuse, detailed admin representations or weaker permanent third-failure settings, including a nonzero temporary-lockout budget |
-| `REALM_PASSWORD_POLICY` | Required catalogue policy terms missing |
-| `REALM_SESSION_POLICY` | Missing/invalid/nonpositive or longer-than-selected idle/access-token settings |
-| `REALM_CLIENT` | Missing/incomplete client list, unsupported non-OIDC applications, unsafe grants (including JWT authorization), interactive machine authority, missing S256, wildcard/HTTP/ambiguous application callbacks, logout returns or origins |
+| `INPUT_INVALID` | Input format/size, duplicate JSON keys, missing fields or duplicate population arguments |
+| `EXTERNAL_CONFIG_SOURCE` | Override variables in the checker process |
+| `SERVER_UNREVIEWED_OPTION` | A server property outside the supported subset, including raw/SPI trust overrides or alternate public-health placement |
+| `SERVER_TRANSPORT` | HTTP listeners, management scheme, hostname strictness, DB TLS mode, outgoing verifier and TLS protocol selection |
+| `SERVER_HOSTNAME` | Public/admin HTTPS origins, distinct hostnames and absence of credentials, wildcards, queries or fragments |
+| `SERVER_CERTIFICATE_INPUT` | Absolute certificate/key mount paths |
+| `SERVER_DATABASE` | Plain PostgreSQL URL, username, mounted CA and absence of driver/TLS overrides |
+| `SERVER_STATIC_SECRET_OR_BOOTSTRAP` | Password or bootstrap properties left in normal runtime configuration |
+| `SERVER_PROXY_TRUST` | Exact forwarded-header mode and valid, bounded proxy addresses |
+| `REALM_POPULATIONS` | Required realm inventory, distinct names and administrative `master` assignment |
+| `REALM_POLICY` | Enabled realm, SSL, registration/profile restrictions, verification, refresh rotation and permanent-block settings |
+| `REALM_PASSWORD_POLICY` | Missing or duplicated policy terms |
+| `REALM_SESSION_POLICY` | Missing, nonpositive or excessive idle/access-token lifetimes or a declared administrative maximum session lifetime |
+| `REALM_CLIENT` | Incomplete/non-OIDC application clients, unsafe grants, service-account combinations, S256 and exact HTTPS return/origin values |
 
-The client check distinguishes interactive clients from noninteractive machine clients: it does not globally ban legitimate service accounts. An enabled service account must be a confidential, noninteractive client; public or standard-flow service-account combinations refuse. Application clients must explicitly declare `protocol=openid-connect` and complete boolean grant fields. Standard-flow clients require disabled service accounts and exact HTTPS callbacks with S256. Post-logout returns must be exact HTTPS values; the upstream `+` shorthand is allowed only as the entire value and reuses the already checked redirect allowlist. Built-in Keycloak console/account/broker/administration clients and explicitly disabled clients are excluded from application-client checks; qualify them through the separate actual distribution/admin flows. The audit does not establish a machine client's scopes, protocol-mapper authority, audience correctness, trusted profile attributes, service delegation or business entitlement.
+Fix the specific setting and rerun the same inputs. An unsupported option needs a reviewed extension to the checker; it should not be silently deleted from the review while remaining active in the deployment.
 
-## Configuration precedence and limits
+## Database and management setup
 
-Keycloak's supported configuration precedence is CLI, environment, configuration file, then keystore. A static file cannot prove the effective running configuration. See the [pinned configuration guide](https://github.com/keycloak/keycloak/blob/26.8.1/docs/guides/server/configuration.adoc).
+The [production reference](../deploy/keycloak.production.conf.example) uses `db-tls-mode=verify-server` with `/run/secrets/database-ca.pem`. In PostgreSQL this selects certificate and hostname verification. The checker accepts a plain single-host PostgreSQL JDBC URL, with no query parameters, user information, custom driver or separate `db-url-properties`.
 
-The server-property allowlist refuses unreviewed SPI/driver/raw settings, including options that disable certificate trust or move health onto the public interface. The CLI refuses known external override variables in its own process rather than pretending to merge them. This is an input-review tool, not a production launcher. Run it in an explicitly clean review job; do not strip variables from a running service and then claim that service was inspected. Review the actual deployment's final command, environment, keystore, raw Quarkus/JVM options and selected configuration path separately. The tool cannot discover undeclared deployment sources, prevent a later override, read live configuration, validate CA/certificate contents or prove routing/privileges.
+The pinned [database mapper](https://github.com/keycloak/keycloak/blob/26.8.1/quarkus/runtime/src/main/java/org/keycloak/quarkus/runtime/configuration/mappers/DatabasePropertyMappers.java) preserves conflicting full-URL properties and checks TLS-property names as substrings. Consequently the checker also refuses `sslmode`, `sslrootcert`, `sslfactory` and `sslhostnameverifier` in host/database names. Use an unambiguous plain URL and the first-class TLS options; custom/multi-host arrangements need separate review.
 
-The catalogue's `mfaRequired` flag is not accepted as evidence of a factor flow. Customer banking MFA, permanent phishing-resistant administration, workforce factors and privileged recovery must be tested against the actual selected flow/enrollment/SSO behavior. Password policy checks establish the selected terms, not the existence of a maintained compromised-password feed, a FIPS-certified cryptographic module or legal compliance. Bootstrap-property absence does not prove a temporary administrator was removed.
+Management uses `http-management-scheme=inherited`, not a literal `https` value. It inherits the main server's HTTPS setup. Use a private HTTPS probe with the correct certificate/name and isolate port 9000. [Management options](https://github.com/keycloak/keycloak/blob/26.8.1/quarkus/config-api/src/main/java/org/keycloak/config/ManagementOptions.java).
 
-## Decisions and evidence still required
+## Application-client requirements
 
-| Decision ID | What the institution must choose / provide | Acceptance evidence |
-| --- | --- | --- |
-| `LEGAL_APPLICABILITY` | Entity, EU/US regulators/state overlays, jurisdictions, journey and processing roles | Signed applicability/control mapping and change owner; see [EU/US matrix](controls-matrix.md) |
-| `CUSTOMER_FACTOR_FLOW` | Covered login/enrollment/step-up, payment SCA/dynamic linking, inactivity, phishing resistance and alternate evidence | Real positive/refusal/enrollment/expiry tests for each journey |
-| `PRIVILEGED_FACTOR_FLOW` | Named least-privilege administrators, approved phishing-resistant factors, emergency access and private administration | Actual privileged MFA/SSO/refusal and emergency-access review |
-| `TRUSTED_IDENTITY_BINDING` | Authoritative customer/staff/tenant linkage and protected provisioning/revocation | Current-state, forged-profile, cross-tenant and substitution refusals |
-| `KYC_ASSURANCE_PROVIDER` | Third party, existing-party resolver, evidence/assurance/policy provenance, retention and eIDAS applicability | Actual adapter/vendor conformance; a KYC status is not recovery authority |
-| `WORKFORCE_ADMIN_RECOVERY` | Employment/privileged recovery owner and acceptable alternate evidence | Separate approved loss/revocation and termination journeys |
-| `BPO_DELEGATION` | Staff/customer/case/call/tenant/purpose authority, supervision and consent | Actual attributed, narrowly delegated receiving-service checks; PIN is insufficient |
-| `NETWORK_CERTIFICATES_DATABASE_PRIVILEGES` | Topology, issuer/admin/proxy ownership, CA/mounts, secret manager, monitoring and least-privilege DB roles | Real TLS/hostname failure tests, public-route denial and runtime privilege probes |
-| `BOOTSTRAP_ACCOUNT_REMOVAL` | Permanent access and temporary-account removal procedure | Actual account/role readback and refused temporary login after removal |
-| `RETAINED_DATA_HA` | Residency, restore objectives, compatible migrations/rollback and cluster topology | Isolated retained restore/migration and selected multi-node failure results |
-| `NOTIFICATION_CHANNEL` | Real channel, advance-block notice/restoration, service levels, alert receivers and terminal escalation | Channel outage/recovery and monitored end-to-end notice acceptance |
-| `CONSUMER_CURRENT_STATE` | Per-Experience/Domain/Core authorization, revocation/cache/failure policy | Every actual receiver's cross-audience/current-state/refusal results |
-| `AUDIT_PRIVACY_INCIDENTS` | Retention, immutable custody, privacy/transfers and applicable incident clocks | Installed audit/alert controls and rehearsed institution procedures |
+Enabled application clients must declare `protocol=openid-connect` and complete boolean grant fields. Interactive clients need code/S256, exact HTTPS callbacks and no service-account authority. Noninteractive machine service accounts must be confidential. The checker rejects password, implicit, device, CIBA, token-exchange and JWT-authorization grants in this profile.
 
-These are independent decisions. Selecting the KYC provider does not close administration, TLS, database, customer-factor, BPO, HA, incident or notification gates. Conversely, passing offline checks never authorizes the provider, a recovery grant or a banking operation.
+Post-logout returns must be exact HTTPS values. The upstream `+` shorthand is allowed only as the entire value and reuses the checked redirect allowlist. Built-in Keycloak clients and explicitly disabled clients are handled separately; review their real console/admin behavior. Scopes, audiences, trusted claim mappers and business permissions still require the application-specific setup in [integration](integration-contract.md).
 
-## Change and qualification procedure
+## Finish the environment review
 
-Run `make check` after changing the audit or reference; the tests mutate valid synthetic candidates into unsafe variants and require refusal, including TLS URL overrides, permanent-lock changes, cross-population substitution, unsafe grants, ambiguous input and secret-safe errors. Keep test fixtures synthetic and provider-free. The hosted Production reference workflow additionally invokes `show-config all` in the actual digest-pinned Keycloak image with synthetic values and no container network, retaining only expected-option/source/hash results. This establishes option parsing, not a TLS handshake, database connection or production startup. The strict handbook workflow separately verifies the actual documentation under `/firefly-id/` before Pages can publish.
+Keycloak applies CLI, environment, configuration file and keystore in that priority order. Compare the reviewed file with the final deployment command, environment, selected configuration path and keystore. Inspect raw Quarkus/JVM options too. The checker cannot discover undeclared sources or prevent a later override. [Configuration precedence](https://github.com/keycloak/keycloak/blob/26.8.1/docs/guides/server/configuration.adoc).
 
-For promotion, follow [regulated deployment](regulated-deployment.md), [retained-data rehearsal](retained-data.md), [workforce administration](workforce-administration.md) and the [evidence register](evidence.md). Record exact source/artifact, supplied candidate report, effective live readback, owner decisions and actual-environment acceptance as separate records. Production generation remains closed until the genuine institution contract is supplied.
+Then complete the operational tasks:
+
+| Area | Required setup |
+| --- | --- |
+| Authentication | Configure actual customer/workforce factors, privileged phishing-resistant MFA and recovery; a catalogue flag does not enroll users |
+| Provisioning | Connect authoritative party/staff/tenant linkage and lifecycle changes |
+| Networks/storage | Verify real TLS handshakes, public-route denial, proxy ownership, database privileges and secret mounts |
+| Administration | Verify permanent access and removal of temporary bootstrap accounts |
+| Recovery/support | Configure the selected proofing adapter and existing-party resolver; provide separate workforce/admin and BPO procedures |
+| Communications | Configure real SMTP, advance-block warnings where applicable, monitoring and terminal escalation |
+| Resilience | Rehearse retained restore, migrations, rollback, capacity and the chosen HA topology |
+| Applications | Verify current authorization, revocation/cache behavior and independent sessions at each receiver |
+| Governance | Assign legal applicability, privacy/retention, audit custody, supplier and incident responsibilities |
+
+Use [deployment setup](regulated-deployment.md), [retained data](retained-data.md) and [EU/US controls](controls-matrix.md) to carry out these tasks.

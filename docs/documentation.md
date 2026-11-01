@@ -85,3 +85,7 @@ Changing the publishing ref, Pages environment rules or repository visibility is
 Preserve exact source, workflow run, bounded build/browser summaries, artifact hashes and actual Pages deployment receipt. Check the public homepage, a nested guide, search assets, canonical project URLs and provenance after deployment. An uploaded artifact or successful strict build alone is not a published Pages site. See GitHub's [custom Pages workflow documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
 
 Footer recognition of Keycloak and the documentation tools is a deliberate open-source acknowledgement. Preserve the actual applicable LICENSE/NOTICE and font OFL files independently; a “Powered by” line is not a substitute for those notices and is not described as a universal license obligation. Trademark permissions remain separate. See [brand](brand.md) and [themes](themes.md).
+
+## Static product diagrams
+
+Author Mermaid fences in product guides. The hosted Documentation workflow installs Mermaid 12.2.0 as a build dependency, uses its existing Playwright browser to render paired SVGs with canonical embedded Manrope, and packages only static SVG output. Run `node tooling/documentation-diagrams.mjs` before MkDocs after installing the pinned builder in `.work/docs-diagrams`. No Mermaid/CDN code runs in the reader. Internal history, contract reviews, provider evaluation and this maintainer guide are excluded from the product navigation, publication and search.

@@ -1,75 +1,77 @@
 # Frequently asked questions
 
-## What is shipped, and what remains a candidate?
+## How do I start using Firefly Identity?
 
-The repository ships a branded Keycloak distribution, deterministic theme packaging, policy-driven synthetic generation, operational references and application integration fixtures. The optional native extension adds known-password unlock, customer support-PIN lifecycle and the separate credential-loss protocol. Core/Domain recovery owners and their generated SDKs remain independently qualified source candidates; their presence in a passing test does not publish or adopt new platform releases. [Solution overview](solution-overview.md) identifies each owner.
+Run the [local evaluation environment](getting-started.md), then register an application against the customer or workforce issuer. Use [Integrate an application](integration-contract.md) for discovery, authorization code with PKCE, token validation and logout. For a hosted environment, follow [deployment](operations.md) before provisioning real clients or users.
 
-## What has actually passed?
+## Is Keycloak required?
 
-At runtime-qualified Identity source `15fd1b7ffa045835f3d4c71fdcc33020d8f24ecf`, the ordinary distribution and native source/packaging lanes passed. The [known-password/PIN integration](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41331177242) passed 48 controls with Core SCA `cc826d27cd05dac831989ec872d78a8c17e88e8b` and Domain SCA `3cf19a0d2a6baa1e13ad92dc7014b91490996ac4`.
+Yes. Firefly Identity packages themes, policies and optional native modules around Keycloak. Applications connect using standard OIDC interfaces. Jafly remains an independent framework and can also integrate with other compatible identity providers.
 
-The separate [credential-loss integration](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41332055134) passed 25 controls with Core KYCB `26c3b142c66d4d9ad3a0cc9619d476f2b9d24261` and customer Domain `68fa0b7fc849dd3e4dab7756493e344a331bb478`. It used test-only signed proofing and actual synthetic Keycloak/Core/Domain, SMTP failure/retry, restart retention and private-monitor checks. [Progress](progress.md) records artifacts, hashes and historical failures. Documentation-only successors do not create a new runtime qualification.
+## Which components do I need?
 
-## Why does production generation refuse?
+The ordinary distribution needs Keycloak, a dedicated PostgreSQL database, its Firefly theme and configured realms/clients. Native unlock and support PIN additionally need the native provider. Credential-loss recovery needs the separate recovery services and trusted verification adapter. The [component guide](solution-overview.md) explains each selection.
 
-`scripts/generate.py --mode production` intentionally stops before generation because production realm/client/claim and deployment contracts have not been selected and approved. The production configuration file and Containerfiles are references, not an activated production environment. The synthetic HTTP issuer, loopback exposure, local SMTP and example links must not be promoted as production settings. Follow [sandbox](sandbox.md), [security](security.md) and [operations](operations.md) at their separate scopes.
+## How are customers and employees separated?
 
-## Does every customer login use MFA or banking SCA?
+Use separate realms, issuers, stores and policies. Customer identities carry a protected party link; workforce identities carry a protected staff link. Keep privileged administration in the master realm behind private administration access. See [workforce and administration](workforce-administration.md).
 
-No. Customer MFA is optional in the generated synthetic profile; fresh workforce authentication requires password and TOTP. Permanent administrators still need a separately qualified phishing-resistant MFA flow. Payment SCA depends on the applicable activity, factors, independence and other obligations. A service named SCA, a password/OTP screen or a green test does not establish that legal conclusion. [Authentication policies](authentication-policies.md) explains the exact selected defaults and limitations.
+## Does a customer login always require MFA?
 
-## Why three failed attempts, and will waiting unblock the account?
+The evaluation customer profile allows password-only authentication; the workforce browser flow requires password and TOTP for fresh authentication. Configure the factor/enrollment and step-up policy required by your customer journeys. See [authentication policies](authentication-policies.md).
 
-Three recorded failures and permanent blocking are the selected product policy. They are not a universal European or US legislative threshold. There is no timed release under this policy. Password replacement, failure-counter clearing and a bare administrative enable call are not authorized substitutes for the bound recovery transition. Public feedback stays generic and omits remaining attempts. [Permanent recovery](permanent-recovery.md) explains ownership and the native enforcement model.
+## Why does an account stay blocked after waiting?
 
-## Is “Unlock your account” for a forgotten password?
+The selected policy permanently disables ordinary access after three recorded failures. There is no timed release. A secure recovery operation must authorize the current lock transition. A password reset or counter change is not a substitute. See [permanent blocking](permanent-recovery.md).
 
-No. It verifies the current password and a TOTP enrolled before the lock. It is useful when a customer or eligible local employee still has both factors but cannot authenticate ordinarily. A person who forgot either required factor needs the separately approved recovery process. The [access journey guide](access-recovery.md) and [customer walkthrough](customer-journeys.md) keep the entry points distinct.
+## Which recovery journey should I offer?
 
-## Can the credential-loss candidate replace forgotten factors?
+Use existing-factor unlock when the person remembers the password and still has the enrolled authenticator. Use independent credential-loss recovery when those factors are unavailable. Administrative or fraud restrictions go to the authority responsible for the restriction. The [recovery selection guide](access-recovery.md) diagrams these choices.
 
-For an eligible local customer, the implemented candidate replaces password/TOTP after independent Core KYCB/customer Domain proofing authority, current native admission and a bound one-time grant. It can clear an eligible authentication lock as part of that transaction and retires superseded factors, PIN and sessions. It excludes workforce/administrators, foreign credential stores and unsupported types such as passkeys. Real documentary/biometric proofing, escalation and bank operating acceptance remain pending. Read [credential-loss recovery](credential-loss-recovery.md) before installing it.
+## How can someone recover without the old password?
 
-## Which KYC or biometric engine is installed?
+The [credential-loss flow](credential-loss-recovery.md) first obtains independent identity verification through the configured third-party adapter. The customer then chooses a new password and enrolls a new TOTP. The native transition retires old credentials, PIN and sessions and records a notification.
 
-None is selected or installed. Core KYCB is the KYC/KYB system of record; customer Domain integrates the future independent third-party verification provider. The successful provider fixture is test-only and excluded from production JARs. eIDAS is the design baseline, not a scheme qualification or vendor approval. The [provider evaluation](identity-proofing-evaluation.md) and [credential-loss contract](credential-loss-recovery.md) describe the remaining evidence and integration work.
+## Where do I configure a verification provider?
 
-## Does email verification or an existing KYC record authorize recovery?
+Deploy the customer Domain adapter for the selected provider and configure its origin, workload credentials and authoritative customer binding. Core KYCB retains the verification/recovery records; Identity retains credentials. Follow [Connect identity verification](assurance-provider-contract.md). Firefly Identity does not embed a documentary or biometric verification engine.
 
-No. Email verification establishes a bounded communication-channel fact. An existing KYC record, party ID, caller ID, staff login or browser approval flag does not supply fresh purpose-bound recovery evidence. A replacement password is a new credential, not proof that the person knew the old one. Legal-person representative mandates and financial authority also need their own current evidence and owners. See [architecture](architecture.md).
+## Is email verification enough to unlock a blocked account?
 
-## Can a support PIN unlock an account or authorize a payment?
+No. It establishes control of an email channel for that action. Unlock requires its configured factors and purpose-bound authorization; credential replacement requires independent identity evidence. A KYC flag or browser redirect is also insufficient.
 
-No. The PIN is a separate customer knowledge credential. Customer lifecycle mutations require fresh password/TOTP proof; privileged revocation uses its own permission and attributed administrator identity. Verification remains closed until a genuine support case/call authorization owner is integrated. It does not establish possession, customer impersonation, financial permission or BPO/workforce delegation. [Support PIN](support-pin.md) documents the boundary.
+## Can employees use customer credential-loss recovery?
 
-## Does a lock or logout immediately revoke every API JWT?
+No. Local-customer credential replacement is separate from employee and administrator recovery. Use the workforce credential owner's process and preserve employment/privileged restrictions. See [workforce administration](workforce-administration.md).
 
-No blanket result is established. Native recovery retires online/offline sessions and advances user not-before, but an already issued self-contained JWT can still pass offline cryptographic validation until its applicable time limit. Every receiver needs its approved current-state enforcement and authorization path. The tested introspection/receiver lanes are bounded fixtures, not proof that all OpenPlatform applications adopted them. [Zero trust](zero-trust.md) and [receiver audiences](receiver-audiences.md) explain the required service decisions.
+## Can a support PIN authorize a payment or impersonation?
 
-## Is Jafly tied to Keycloak or Firefly Identity?
+No. It is a customer knowledge credential for a narrowly authorized support process. Customer lifecycle actions require fresh password/TOTP proof. Support verification requires an integrated case/call authorization provider; the PIN alone supplies neither possession proof nor staff delegation. See [support PIN](support-pin.md).
 
-No. Jafly remains an independent, provider-neutral framework using generic Spring Security facilities. This repository's actual published-artifact fixture checks selected decoder/principal behavior against a real synthetic issuer; it does not change the framework or prove a production application's full filter chain/business authorization. Native provider JARs and proofing adapters stay outside Jafly. See [Jafly integration](jafly.md) and the [integration matrix](integration-contract.md).
+## Does logout immediately invalidate all access tokens?
 
-## Can I copy the sandbox realms into production or regenerate retained state?
+It ends the relevant server/application session, but an already issued self-contained JWT can remain cryptographically valid until its lifetime ends. APIs must implement their chosen current-state/revocation and application-session behavior. See [token audiences](receiver-audiences.md) and [zero trust](zero-trust.md).
 
-No. Generation creates new synthetic fixtures and refuses an existing output path, including a symlink. It does not migrate an imported realm or rotate a retained database password. Preserve the database together with its matching secrets, ownership and factor state. A separate new fixture is a separate environment, not repair or migration evidence. Use the [sandbox lifecycle](sandbox.md) and [operating procedure](operations.md) for the actual owner-controlled actions.
+## Can I copy the example environment into production?
 
-## Can I enable the native feature after installing its JARs without a migration review?
+Provision production domains, certificates, clients, secret-manager inputs, policies and database roles deliberately. The local environment uses synthetic identities, HTTP convenience and a mail sink. Its generator creates new evaluation state and does not provision production realms. Use [regulated deployment](regulated-deployment.md) and [configuration audit](production-readiness.md).
 
-Installation and enablement are separate gates. The native JPA/Liquibase mappings can register at server startup even while recovery is default-off. Back up and rehearse the identity and Core-owned stores independently before an approved retained-database rollout. Single-process restart tests do not establish backup restoration, multi-node crash behavior or end-to-end HA. [Native installation](native-recovery.md) and [credential-loss installation limits](credential-loss-recovery.md#installation-and-evidence-boundaries) identify the risks and required evidence.
+## How do I upgrade an existing installation?
 
-## What happens if recovery execution or notification loses a response?
+Build immutable artifacts for the supported server version, restore a copy of the existing state into an isolated environment, rehearse migrations and verify authentication/recovery before switching traffic. Keep the matching keys and service configuration. [Retained data and recovery](retained-data.md) explains the sequence.
 
-Retain the original journal, case, grant, execution identity and budgets. The protocol can reconcile an already committed original execution without authorizing another mutation. Notifications use a durable native outbox and an optional default-off Core poller; automatic synthetic retry/restart behavior passed, but the bank's real delivery channel and operating procedure remain unapproved. At-least-once delivery can duplicate a notice after SMTP acceptance and a process failure. Pending, terminal or exhausted states need authorized review, never row deletion, factor replay or budget reset. See [credential-loss operations](credential-loss-recovery.md#notification-and-interruption-handling).
+## Will disabling native recovery avoid a schema migration?
 
-## Are passkeys, registration and every inherited screen qualified?
+No. Installing the native JAR registers its database mappings at server startup. Enablement controls behavior; installation changes persistence. Rehearse installation separately from enabling a journey. See [native installation](native-recovery.md).
 
-No. Theme inheritance preserves upstream presentation mechanisms, while actual enabled flows need independent server/browser evidence. Real TOTP, verification, profile and ordinary flows have bounded receipts; passkey/WebAuthn enrollment/assertion, recovery codes, registration/broker forgery and other listed flows retain their own gates. The [theme coverage table](themes.md) and [progress history](progress.md) distinguish inheritance from observed behavior.
+## What should an operator do after an interrupted recovery?
 
-## Is this certified for EU or US regulated use?
+Reconcile the original case, grant and execution journal through the authorized owner interfaces. Do not create another approval, reset attempts or replay factors to resolve an uncertain response. For delivery failures, use the outbox monitoring and escalation procedure in [notification operations](notification-operations.md).
 
-No certification or universal legal assurance is claimed. Applicability depends on the entity, activity, jurisdiction, data and selected operating model. NIST is technical guidance rather than automatic law; EU payment authentication is not the same scope as every customer login; US banking and FTC Safeguards applicability are distinct. Tests, images and documentation cannot approve those decisions. Use the regulated-deployment/control mappings with the institution's accountable reviewers and actual operational evidence.
+## How do I customize the interface?
 
-## Where should I customize the experience?
+Edit the supported theme resources, rebuild the theme package and exercise the affected server journeys in both languages and appearances. Preserve action URLs, tokens, CSRF and authenticator behavior. Start with [themes](themes.md), [tokens](design-tokens.md) and [language settings](localization.md).
 
-Use the supported theme sources and canonical assets, rebuild the deterministic theme and review actual desktop/mobile server journeys in both color schemes and languages. Preserve action tokens, CSRF, authenticator semantics and protected claims; do not replace missing server controls with CSS or browser code. [Themes](themes.md), [localization](localization.md) and [brand](brand.md) identify the maintained customization points and licensing/attribution boundaries.
+## Is the product automatically compliant with every banking rule?
+
+Compliance depends on the institution, activity, jurisdictions and operated configuration. Use the [EU/US controls guide](controls-matrix.md) to identify applicable requirements, then configure and validate the required factors, recovery, data handling and operations with the responsible owners.

@@ -9,6 +9,7 @@ on:
       - 'tooling/*documentation*'
       - 'tooling/mkdocs_hooks.py'
       - 'tests/test_documentation.py'
+      - 'tests/test_product_handbook.py'
       - 'assets/**'
       - 'config/authentication-policies.json'
       - 'deploy/images.lock.json'
@@ -22,6 +23,7 @@ on:
       - 'tooling/*documentation*'
       - 'tooling/mkdocs_hooks.py'
       - 'tests/test_documentation.py'
+      - 'tests/test_product_handbook.py'
       - 'assets/**'
       - 'config/authentication-policies.json'
       - 'deploy/images.lock.json'
@@ -55,6 +57,17 @@ jobs:
           mkdir -p .work/documentation
           python -m pip install --disable-pip-version-check -r requirements-docs.txt
           python -m pip list --format=json > .work/documentation/dependencies.json
+      - name: Install pinned owned browser tools
+        working-directory: tooling
+        run: |
+          npm ci --ignore-scripts
+          npx playwright install --with-deps chromium
+      - name: Install the pinned build-time diagram engine
+        run: |
+          npm install --prefix .work/docs-diagrams --no-save --package-lock=false --ignore-scripts --no-audit --no-fund mermaid@12.2.0
+          npm list --prefix .work/docs-diagrams --json --all > .work/documentation/diagram-dependencies.json
+      - name: Render static light and dark product diagrams
+        run: node tooling/documentation-diagrams.mjs
       - name: Strict MkDocs build
         env:
           DOCS_SOURCE_SHA: ${{ github.sha }}
@@ -63,11 +76,6 @@ jobs:
         run: python3 tooling/validate_documentation.py
       - name: Package exact static output
         run: tar -czf .work/documentation/handbook.tar.gz -C .work/documentation site
-      - name: Install pinned owned browser tools
-        working-directory: tooling
-        run: |
-          npm ci --ignore-scripts
-          npx playwright install --with-deps chromium
       - name: Actual reading, search and navigation in both appearances
         run: node tooling/documentation-runtime.mjs
       - name: Upload qualified GitHub Pages artifact
@@ -83,6 +91,8 @@ jobs:
           path: |
             .work/documentation/output-summary.json
             .work/documentation/dependencies.json
+            .work/documentation/diagram-dependencies.json
+            .work/documentation/diagrams/summary.json
             .work/documentation/site/documentation-provenance.json
             .work/documentation/browser/summary.json
             .work/documentation/browser/*.png

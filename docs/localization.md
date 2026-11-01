@@ -1,42 +1,44 @@
-# English and Spanish
+# Configure English and Spanish
 
-Firefly Identity supports English (`en`) and Spanish (`es`), with English as the fallback. Newly generated sandbox realms enable internationalization and advertise both languages. Authentication automatically follows the browser's preferred supported language when no stronger preference exists. Browsers usually derive that preference from system settings, but can have a separate language configuration; the service receives `Accept-Language`, not direct access to the operating system language. Spanish browser preferences such as `es-ES` match `es`; English preferences such as `en-US` match `en`. An unsupported browser language falls back to English.
+Firefly Identity supports English (`en`) and Spanish (`es`). English is the fallback. Authentication follows the browser's supported language when no saved or explicit preference takes priority; a compact footer control lets the person choose a language without leaving the current journey.
 
-The optional language selector sits quietly below the three footer lines. It uses a compact native control with a translated accessible label, visible keyboard focus, and a minimum 32-pixel hit area. English and Spanish choices retain Keycloak's supported-language labels and server-generated navigation URLs. Choosing a language keeps the current authentication flow. There are no flags, third-party selector components, browser-language redirect scripts, or extra form panels.
+## Configure a realm
 
-Keycloak 26.8.1 resolves locale preferences in this order: explicit user selection in the authentication session/request, the user's saved profile locale, the application's OIDC `ui_locales` request, the locale cookie, the browser's `Accept-Language` preferences, the configured realm default, then English. Only supported language matches are accepted before the realm fallback. A manual choice, saved profile preference, or application request therefore takes priority over browser settings. Automatic browser matching applies when those preferences are absent; changing the system language does not erase an explicit user choice. Applications that want browser matching should omit `ui_locales`; applications can still request a language explicitly, for example `ui_locales=es`.
+In **Realm settings → Localization**, enable internationalization, add `en` and `es` as supported locales and select `en` as the default. Repeat for customer, workforce and administrative realms that you operate. The local environment generator applies these settings to new example realms.
 
-The theme declares both languages for login, email, account, administration, and welcome. Authentication pages retain the pinned Keycloak 26.8.1 protocol behavior. Their inherited Spanish bundle supplies form fields, buttons, recovery, authenticator challenges and enrollment, passkeys, recovery codes, required actions, logout, and session-expiry text. Firefly overrides translate the product copy, screen titles, and generic authentication and recovery responses. Every customized English authentication message has a Spanish counterpart.
+Installing a theme does not update retained realm settings. Apply localization through the authorized administration process without recreating users or changing credentials, sessions or recovery state.
 
-The owner requested removal of the explanatory lockout paragraph from both UI languages. Neither language displays a failure counter, remaining attempts, an account-existence result, or a timed-unlock promise. Localization does not change the three-failure policy or credential handling.
+## How language is selected
 
-Transactional emails include Spanish subjects, plain-text bodies, HTML bodies, action labels, and the privacy footer. Server-generated action URLs, message placeholders, expiration formatting, and required-action identifiers remain intact. The expiration values are already formatted by Keycloak; Spanish copy does not append an extra unit such as “minutes.” Keycloak chooses the email locale from its user/session locale resolution; the theme does not send messages or choose recipients.
+Keycloak resolves supported locale preferences in this order:
 
-## Account and administration consoles
+1. Explicit selection in the authentication session/request.
+2. The user's saved profile locale.
+3. The application's OIDC `ui_locales` request.
+4. The locale cookie.
+5. The browser's `Accept-Language` preferences.
+6. The realm default, then English.
 
-The account and administration applications use their own inherited message bundles and language resolution. Their `locales=en,es` declarations advertise available languages; a declaration alone is not evidence that every console route has switched language. Account translation requests use `resources/{realm}/account/{language}` and begin with the server-provided environment locale. Administration translation requests use `resources/{realm}/admin/{language}`. Both inherited applications fall back to English for missing translations. Firefly supplies the same product name in both console bundles.
+Browser preferences such as `es-ES` match Spanish and `en-US` match English. An unsupported browser language falls back to the configured default. Browser language usually follows the operating system, but the browser can have its own setting. A deliberate saved/manual choice is preserved when system settings change.
 
-The welcome theme advertises the same languages, while retaining the upstream welcome page. Its language selection and any text that upstream does not localize require separate runtime review; it is not an authentication language selector.
+## Choose browser matching or application preference
 
-## Existing deployments
+Applications that want browser matching should omit `ui_locales`. To request Spanish explicitly, include `ui_locales=es` in the authorization request created by the OIDC library. Keep all normal state, nonce, PKCE and redirect protections; language is an optional protocol preference.
 
-The generator only changes newly created synthetic sandboxes and still refuses to overwrite retained state. Installing this theme does not migrate an existing realm. An authorized administrator must enable internationalization, configure `en` and `es` as supported locales, and choose `en` as the default for each existing realm, including the administration realm if its login or console is in scope. Preserve all existing identities, sessions, credentials, recovery state, and authentication policies when applying those settings.
+The footer selector uses server-generated locale URLs and preserves the current authentication context. Do not implement an independent browser-language redirect that restarts sign-in or drops the original request.
 
-## Qualification
+## Translate custom messages
 
-The source contracts cover generated locale settings, English/Spanish placeholder parity for Firefly overrides, and identical generic authentication failures within each language. The inherited upstream translation files are not copied into this repository. Keycloak's community translation resources contain Spanish and are included by its default `communityTranslations` build profile unless explicitly disabled.
+Edit the corresponding English/Spanish message bundles under the consuming theme, then rebuild the theme package. Keep message keys, variable placeholders, action URLs and required-action identifiers unchanged. Expiration text may already contain formatted units supplied by Keycloak; do not append another unit in translated text.
 
-`tooling/localization-runtime.mjs` implements a real isolated-provider lane. Fresh `en-US` and `es-ES` browser contexts start without `ui_locales` and must resolve to English and Spanish. A fresh `fr-FR` context must fall back to English; a separate English browser with explicit `ui_locales=es` must resolve to Spanish. Each English/Spanish journey switches both ways through the native footer, checks keyboard focus and compact control bounds, and continues the same authorization request through generic invalid-credential text and a successful code/PKCE exchange. It retains logout confirmation and refresh refusal, recovery acknowledgement, and protocol-error checks. The exact pinned upstream template checksum is reconstructed by reversing only the generic-error presentation and the relocated header language block; form and protocol changes still fail that contract.
+Use complete sentences rather than concatenated fragments. Public failures and recovery acknowledgements remain generic in both languages, without account-existence results, remaining attempts or timed-unlock promises. [Themes](themes.md) explains package/build steps.
 
-The lane records desktop/mobile login, focused mobile footer, and mobile logout/recovery/error screenshots after Manrope loads, checking language and horizontal bounds. The workflow runs this independently of the account-console lane. It uses synthetic users only and never uploads credentials, codes, tokens, or raw browser errors. A written lane is not a passing result.
+## Account, administration and email
 
-[Hosted ordinary distribution 41331178246](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41331178246) passed the described EN/ES locale lane at its exact source, including fallback/override, login/refusal/logout/recovery/protocol-error journeys. Native recovery/PIN locale switching and safe light/dark captures also passed their separate [current lanes](evidence.md). Additional email-verification, required-action, authenticator and complete account/administration language paths need their own explicit coverage; do not infer every inherited route from those results. Review both themes at desktop and mobile sizes, with special attention to Spanish wrapping, focus, and password masking. Inspect actual HTML and plain-text email delivery in each language. Local builds, tests, containers, and dependency downloads were not run for this change under the host restriction; source implementation does not establish provider, publication, or production acceptance.
+The account and administration consoles use their inherited translation bundles and locale resolution. Their `locales=en,es` declarations advertise the languages; configure the appropriate realm preference as well. Custom Firefly product/error copy lives in the matching console message resources.
 
-## Pinned upstream references
+Keycloak selects transactional email language from its user/session locale context. The theme supplies subjects, action labels, HTML/plain-text content and footer copy. It does not choose recipients or send mail itself. Configure and verify the real email channel separately.
 
-- [Native locale selection and precedence](https://github.com/keycloak/keycloak/blob/26.8.1/services/src/main/java/org/keycloak/locale/DefaultLocaleSelectorProvider.java)
-- [Login Spanish messages](https://github.com/keycloak/keycloak/blob/26.8.1/themes/src/main/resources-community/theme/base/login/messages/messages_es.properties)
-- [Email English keys and placeholders](https://github.com/keycloak/keycloak/blob/26.8.1/themes/src/main/resources/theme/base/email/messages/messages_en.properties) and [Spanish messages](https://github.com/keycloak/keycloak/blob/26.8.1/themes/src/main/resources-community/theme/base/email/messages/messages_es.properties)
-- [Account locale resolution](https://github.com/keycloak/keycloak/blob/26.8.1/js/apps/account-ui/src/i18n.ts) and [Spanish bundle](https://github.com/keycloak/keycloak/blob/26.8.1/js/apps/account-ui/maven-resources-community/theme/keycloak.v3/account/messages/messages_es.properties)
-- [Administration translation loading](https://github.com/keycloak/keycloak/blob/26.8.1/js/apps/admin-ui/src/i18n/i18n.ts) and [Spanish bundle](https://github.com/keycloak/keycloak/blob/26.8.1/js/apps/admin-ui/maven-resources-community/theme/keycloak.v2/admin/messages/messages_es.properties)
-- [Community translation build profile](https://github.com/keycloak/keycloak/blob/26.8.1/themes/pom.xml)
+## Verify the experience
+
+Check a fresh English browser, a fresh Spanish browser, an unsupported browser language and an explicit application override. Continue through sign-in, refusal, logout, verification, recovery and enabled factor enrollment without losing the original flow. Review Spanish wrapping, keyboard focus, masked password fields and delivered HTML/plain-text messages in both appearances.

@@ -72,6 +72,14 @@ body { font-family: Manrope, sans-serif; }
 .md-typeset .solution-figure { width: 100%; margin: 1.8rem 0 2rem; text-align: left; }
 .md-typeset .solution-figure img { width: 100%; border-radius: 12px; }
 .md-typeset figcaption { font-size: .68rem; max-width: 70ch; color: var(--md-default-fg-color--light); margin-top: .6rem; }
+.md-typeset .flow-figure { margin: 1.5rem 0 2rem; text-align: left; width: 100%; }
+.flow-scroll { box-sizing: border-box; max-width: 100%; overflow-x: auto; border: 1px solid #d8d4ca; border-radius: 12px; background: #ffffff; padding: 16px; scrollbar-color: #62645b #f3f1eb; }
+.flow-scroll a { display: block; width: max-content; min-width: 100%; }
+.flow-scroll img { display: block; max-width: none; height: auto; margin-inline: auto; }
+.flow-scroll .diagram-dark { display: none; }
+[data-md-color-scheme='slate'] .flow-scroll { background: #272820; border-color: #474a42; scrollbar-color: #bfb8ab #272820; }
+[data-md-color-scheme='slate'] .flow-scroll .diagram-light { display: none; }
+[data-md-color-scheme='slate'] .flow-scroll .diagram-dark { display: block; }
 .md-footer-meta { border-top: 1px solid #474a42; }
 .md-copyright { color: #bfb8ab; font-size: .65rem; line-height: 1.8; padding-block: 1.2rem; max-width: 70ch; }
 .md-copyright a { color: #f3f1eb; text-decoration: underline; text-underline-offset: .2em; }

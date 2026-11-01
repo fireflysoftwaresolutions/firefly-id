@@ -1,64 +1,47 @@
-# Extended synthetic identity flows
+# Email verification, profile and authenticator journeys
 
-`tooling/extended-runtime.mjs` adds real-provider verification, profile-integrity, and workforce MFA checks beyond the main browser runner. The initial source was not run locally under the resource restriction. Later [ordinary hosted qualification](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41331178246) passed verification/consumed-link handling, profile integrity for both populations and workforce enrollment/challenge. [Current evidence](evidence.md) identifies the exact scope and source. It does not modify Jafly or prove business authorization.
+Firefly Identity uses Keycloak's normal account and required-action flows for email verification, profile changes and authenticator enrollment. These are ordinary identity journeys, separate from [known-factor unlock](native-recovery.md) and [credential-loss recovery](credential-loss-recovery.md).
 
-## Fixtures and execution
+## Verify an email address
 
-Use a **freshly generated** sandbox from the current generator, after building the theme. Generation never overwrites retained state and never updates an already imported realm. The generator adds these synthetic fixtures:
+An operator can enable realm `verifyEmail` policy or assign the `VERIFY_EMAIL` required action to a user. Configure the realm's real email provider, sender identity and action-token lifetime before requiring verification.
 
-| Fixture | Server policy | Protected local state |
+The person signs in and follows the verification instruction. Identity sends a server-generated link to the configured email address. Opening that link completes the server's verification step; the person may need to return to the original sign-in tab to finish authentication.
+
+| Input | Successful result | If it cannot complete |
 | --- | --- | --- |
-| `synthetic-verify-email` in customers | Unverified `verify-email@example.invalid`, required `VERIFY_EMAIL`; distinct party reference/password | `credentials.json` entry `verify_email` |
-| Existing synthetic workforce user | Required `CONFIGURE_TOTP`; TOTP HmacSHA1, six digits, 30 seconds, one-step validation window, non-reusable codes | `secrets/workforce-totp.json`, initially `pending-enrollment` |
-| Existing synthetic customer | Existing profile and current password; unchanged by extended generation | Existing `customers` credential entry |
+| Current account session or sign-in flow, plus server-generated verification link | Email is marked verified; the normal authentication flow can continue | Expired, consumed or invalid links require the appropriate resend/sign-in flow; they do not grant a session by themselves |
 
-The runner reads `credentials.json` when it starts, so it consumes a password updated by the main runner's actual recovery flow. Run the browser runners **sequentially** because both own the local callback listener on port 3000. Use the already pinned Playwright dependency/browser installation in the hosted runtime environment; do not download browsers or start this stack on a host below the capacity gate.
+Applications should validate signed tokens and examine `email_verified` where required by their product policy. A verified mailbox does not establish a bank customer identity, legal mandate or recovery authorization. Do not interpret an already consumed link as another successful verification grant.
 
-From the repository root, after the owned stack is healthy and the normal runner has finished:
+When delivery is delayed, use the native resend control if available. Check the configured email service and token lifetime rather than editing action URLs or enabling a disabled account. Keep action links private and out of logs, tickets and screenshots.
 
-```sh
-node tooling/extended-runtime.mjs
-```
+## Manage profile information
 
-Set `FIREFLY_ID_STATE` only when using another explicitly owned generated state directory. Default selected flows are `verify,profile,mfa`; any selected failure makes the process exit nonzero. A consumed email-verification fixture is not silently reset or granted another action: on a retained verified account the initial verification screen will be absent, and requesting that initial flow again fails. To rerun the independent profile and retained-factor paths without claiming another first verification:
+Use the account console from an authenticated online session. The operator's user-profile policy determines which fields a person may edit and which require verification or another action.
 
-```sh
-FIREFLY_ID_EXTENDED_FLOWS=profile,mfa node tooling/extended-runtime.mjs
-```
+Protect `tenant_id`, `party_id`, `staff_actor_id`, `principal_kind` and `client_id` as server-owned identity metadata. Do not expose tenant or customer/workforce linkage as public profile inputs. Unknown unmanaged attributes must not become a route to shadow security claims.
 
-`profile` selects the customer integrity probe. The workforce integrity probe runs after successful authentication in `mfa`, using that real enrolled-factor session. Both selections are required to qualify integrity for both populations. Profile checks require the generated users' native `account` permissions and an authenticated sandbox bootstrap administrator for read-only snapshots. Administrative authentication is a separate browser session; its bearer is renewed through that existing SSO session when its lifetime is short. It never substitutes an admin token for an Account REST request or uses a password grant.
+Applications use the issuer and subject as the identity reference, then apply current business authorization. Customer and workforce tokens remain separate: customers use `principal_kind=HUMAN` and their party linkage; workforce uses `principal_kind=STAFF` and its staff linkage. A changed display name or email must not relink an account to another party.
 
-A different fresh output path creates another isolated sandbox/project; it does not migrate or reset an existing one. Preserve the old state and obtain explicit approval before deleting any old resources.
+Changing a verified notification destination or other protected recovery state invalidates unfinished credential-loss work. Existing committed notices retain the previous verified destination. See [recovery notifications](notification-operations.md).
 
-## Implemented paths
+## Enroll and use an authenticator
 
-**Email verification:** the runner snapshots Mailpit message IDs before login, authenticates the separate unverified account using real authorization code with PKCE S256, and requires the actual verification screen. It reads only a newly arrived message addressed to the synthetic verification recipient. The server-generated action URL must have the expected issuer origin/path; a real browser link opens it in a popup. After any server confirmation, the original code flow must complete, the access and ID tokens must verify against live JWKS, and the ID token must contain signed `email_verified=true`. The action is then opened in a fresh isolated browser context: a recognized consumed/already-verified/invalid-action result must appear and neither a callback request nor a final callback URL may occur. A server 5xx fails the probe. The exact upstream English wording “Your email address has been verified already.” is recognized as consumed, not mislabeled as an HTTP error or another verification grant.
+Configure the realm's OTP policy and required authentication flow on the server. Assign `CONFIGURE_TOTP` where enrollment is mandatory. Hiding or showing a theme control does not enforce MFA.
 
-**Profile integrity:** the shared probe runs for the customer after real code/PKCE login and for the employee after the fresh workforce MFA challenge succeeds. It loads each population's actual account console and obtains the bearer header from its real authenticated profile request. It requires a permitted unchanged-profile POST with status 204 before attempting forgery, so blanket denial cannot masquerade as protected-field enforcement.
+The person opens the server's setup form, adds its server-generated account/key to an authenticator, and proves a code before finishing. Keep the secret private. On later sign-in, use a fresh code from the retained authenticator rather than creating another factor automatically.
 
-Before that baseline write and after every subsequent attempt, a separate authenticated administrator reads the exact user's `GET /admin/realms/{realm}/users/{id}` and `GET /admin/realms/{realm}/users/{id}/unmanagedAttributes`. Both complete attribute maps must remain unchanged. The initial managed tenant/population linkage must agree with the signed identity; the opposite population linkage and shadow `principal_kind`/`client_id` attributes must be absent. The unmanaged endpoint matters because the ordinary user representation is profile-filtered: an unknown attribute hidden from that response alone would not prove that it was never stored. These are supported read-only administrative operations; the probe does not change profile configuration or access the database directly. [Pinned user and unmanaged-attribute operations](https://github.com/keycloak/keycloak/blob/26.8.1/services/src/main/java/org/keycloak/services/resources/admin/UserResource.java).
+The normal supported setup displays the realm's policy. The native credential-loss enrollment specifically supports `HmacSHA1`, `HmacSHA256` or `HmacSHA512`, 6–8 digits, periods from 1 to 300 seconds and a configured clock window from 0 to 10 steps, with nonreusable codes. Its [replacement form](credential-loss-recovery.md#customer-steps) displays the actual algorithm, digits and period.
 
-Separate write and empty-value removal attempts target `tenant_id`, `party_id`, `staff_actor_id`, `principal_kind`, `client_id` and a newly generated arbitrary unmanaged sentinel. This covers admin-only attributes, adding the other population's identity link, and attempts to persist a shadow for claims normally supplied by hardcoded client mappers. Each response must be either 400 or 204; neither status is sufficient by itself. Both administrative storage views must remain unchanged, a subsequent authenticated Account GET must omit those fields from its values and metadata, and a new browser code/PKCE exchange must yield cryptographically validated tokens with the original subject and unchanged protected claims. Fresh workforce exchanges reuse only the already authenticated MFA browser SSO context; they do not bypass initial enrollment/challenge or create a new credential grant.
+An incorrect or reused code refuses authentication. Check the account selected in the app, algorithm/digits/period, device time synchronization and whether a fresh interval is needed. Do not remove or reset an enrolled credential merely because the app's secret is unavailable; choose the appropriate recovery journey.
 
-The probe deliberately does not change provider roles, user attributes, counters, passwords or claim mappers. If an attempted forbidden write actually persists, the lane fails and preserves the evidence state rather than silently repairing it. Administrative records, account bearers, signed claims, sentinel values and credentials remain only in memory or their existing protected credential files; none are printed or written to shareable evidence.
+Workforce MFA must be required by the workforce realm flow and policy. A customer's authenticator or recovery case cannot restore an employee. Credentials managed by an external corporate identity provider remain that provider's responsibility.
 
-**Workforce MFA:** the runner completes required TOTP enrollment through the actual inherited form. It uses the server's manual setup display, captures that server-generated secret into the owner-only local factor file, enters a genuine current OTP, and finishes code/PKCE exchange. It never injects a prechosen secret into the hidden server field. The resulting signed token must have `principal_kind=STAFF`, canonical UUID-shaped `staff_actor_id`, opaque `tenant_id=synthetic-tenant`, and no `party_id`.
+## Integrate ordinary sign-in
 
-A fresh browser context must then challenge for the enrolled factor. The runner submits a wrong OTP selected outside the currently valid time window, requires the actual OTP error, and proves no callback happened. It then enters a fresh valid OTP and requires a real signed code exchange. Attempted and accepted counters are retained with the secret; the runner waits for the next interval when necessary, rather than weakening the server's non-reusable-code policy. On a later run it uses the preserved factor and labels that path as retained-factor authentication rather than claiming new enrollment. An enrolled server factor without the matching local secret fails; the runner does not remove/reset it or create another credential grant automatically.
+Use authorization code with PKCE S256, validate issuer/audience/signature and keep redirect URLs exact. Handle required-action screens as part of the server's browser flow; do not fabricate successful email verification or MFA claims in an application.
 
-## Evidence and confidentiality
+Account management and support PIN pages require an online SSO session. Request `offline_access` only for an approved offline-token use case; an initial offline exchange may remove the temporary online session, so a returned token alone does not establish account-console access.
 
-The only shareable output is `.work/extended-runtime/summary.json`: selected flow names, completed fixed stage labels, and explicit pending coverage. The runner takes no screenshots, videos, trace, HAR, raw mail, token, QR, or authenticator-secret artifacts. All request/navigation errors use the existing sanitized error helper, and parallel callback/event promises have handled rejection paths. Do not enable `DEBUG=pw:*`, attach request loggers, or upload `.state` or temporary files.
-
-The TOTP secret/counters are written atomically with mode 0600 under the protected state directory. Preserve this file with the same sandbox database if later challenge tests are needed. It is sensitive credential material even though the account is synthetic. The runner never changes the synthetic customer password, clears a server credential, overwrites retained generation output, or publishes token values.
-
-Offline validation exercises fresh-fixture policy generation and RFC-compatible TOTP vectors using Node's standard library; importing the algorithm does not load Playwright or contact a service. `node --check tooling/extended-runtime.mjs` verifies syntax. These checks establish source behavior only.
-
-## Still pending
-
-- Genuine expiration rejection of a signed email-verification action after its configured lifetime; no forged timestamp or signature-corrupted token is presented as expiry proof.
-- Passkey/WebAuthn enrollment and assertion with an actual configured RP and virtual/physical authenticator. No virtual-authenticator path is advertised as passed or silently skipped.
-- Real-provider lost-factor recovery, workforce/administrator/passkey/external-store recovery, recovery-code enrollment/use, phishing-resistant step-up, registration/broker profile forgery and institution-specific policy. Local-customer password/TOTP replacement without old credentials separately passed with test-only proofing in the [credential-loss lane](credential-loss-recovery.md).
-- Real backend authorization, current authoritative tenant/business relationship checks, permission enforcement, and production readiness.
-
-The implementation follows the pinned upstream [verification form](https://github.com/keycloak/keycloak/blob/26.8.1/themes/src/main/resources/theme/base/login/login-verify-email.ftl), [verification handler](https://github.com/keycloak/keycloak/blob/26.8.1/services/src/main/java/org/keycloak/authentication/actiontoken/verifyemail/VerifyEmailActionTokenHandler.java), [account API](https://github.com/keycloak/keycloak/blob/26.8.1/services/src/main/java/org/keycloak/services/resources/account/AccountRestService.java), [account request implementation](https://github.com/keycloak/keycloak/blob/26.8.1/js/apps/account-ui/src/api/request.ts), [TOTP setup form](https://github.com/keycloak/keycloak/blob/26.8.1/themes/src/main/resources/theme/base/login/login-config-totp.ftl), and [OTP challenge form](https://github.com/keycloak/keycloak/blob/26.8.1/themes/src/main/resources/theme/base/login/login-otp.ftl). Actual hosted observations take precedence over assumptions from source review.
+Passkey/WebAuthn, recovery-code enrollment, external credential-store recovery and privileged/workforce lost-factor recovery are not supplied by the customer credential-loss path. Configure any separate capability with its actual identity owner and supported deployment procedure. Successful identity authentication is not payment consent or business authorization; see [zero trust](zero-trust.md).

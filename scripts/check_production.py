@@ -197,8 +197,7 @@ def audit(server, realms, catalogue):
         guards = {'enabled': True, 'sslRequired': 'all', 'registrationAllowed': False,
                   'editUsernameAllowed': False, 'duplicateEmailsAllowed': False, 'verifyEmail': True,
                   'revokeRefreshToken': True, 'refreshTokenMaxReuse': 0, 'adminEventsDetailsEnabled': False}
-        guards.update({key: catalogue['defaults'][key] for key in (
-            'bruteForceProtected', 'permanentLockout', 'failureFactor', 'maxTemporaryLockouts')})
+        guards.update(catalogue['defaults'])
         if any(type(realm.get(key)) is not type(value) or realm.get(key) != value for key, value in guards.items()):
             findings.add('REALM_POLICY')
         selected = catalogue['profiles'][profile]['realmSettings']
@@ -208,7 +207,9 @@ def audit(server, realms, catalogue):
         if (not set(selected['passwordPolicy'].split(' and ')) <= set(terms)
                 or len(set(identifiers)) != len(identifiers)):
             findings.add('REALM_PASSWORD_POLICY')
-        for key in ('ssoSessionIdleTimeout', 'accessTokenLifespan'):
+        for key in ('ssoSessionIdleTimeout', 'accessTokenLifespan', 'ssoSessionMaxLifespan'):
+            if key not in selected:
+                continue
             value = realm.get(key)
             if type(value) is not int or not 0 < value <= selected[key]:
                 findings.add('REALM_SESSION_POLICY')

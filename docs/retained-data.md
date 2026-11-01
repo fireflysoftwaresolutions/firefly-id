@@ -1,63 +1,64 @@
-# Retained data, migration and recovery
+# Retained data, migration and restoration
 
-The identity database, encryption keys, service-owned journals and application records form a retained system. Starting a new sandbox, regenerating secrets or importing a new realm is not a migration of that system. This guide explains what must travel together and how to rehearse restoration without changing the original evidence or granting fresh access.
+Keep identity storage, service-owned recovery records and the keys needed to read them together. Creating a new sandbox or importing a realm does not migrate an existing system.
 
-## Inventory each owner
+## Know what to preserve
 
-| Owner | Retained state | Why it matters |
-| --- | --- | --- |
-| Keycloak | Users, credentials, authenticators, sessions, clients, keys/configuration and federation links | Establishes identity and factor/session lifecycle; mutable events are not external immutable custody |
-| Native extension | Lock generations, ceremonies, durable reservations/replay protection, protected snapshots, execution/audit records, PIN generations and notification outbox | Prevents replay, conflicting transitions and counter reset; journals can be needed after browser/receipt expiry |
-| Core SCA | Known-password unlock transactions and exact execution records | Reconciliation must identify the original operation, reservation and budget; PIN lifecycle itself is native-owned |
-| Core KYCB | KYC/KYB records, credential-loss cases/provider-start/session bindings, subject/epoch budgets, grants and execution/audit state | Ambiguous provider starts and consumed grants cannot be replaced with a new attempt |
-| Customer Domain | Provider orchestration configuration and integration contract; no recovery database | Calls the actual owners through the genuine SDK and native boundaries |
-| Secret/evidence owners | Signing/decryption/PIN keys, mounted workload secrets, verifier evidence and provider/session references | Restoring database rows without needed keys or external evidence may leave them unverifiable or undecryptable |
+| Owner | Retained material |
+| --- | --- |
+| Keycloak | Users, credentials, authenticators, sessions, clients, signing keys/configuration and federation links |
+| Native extension | Lock generations, ceremonies, reservations/replay records, credential snapshots, execution/audit records, PIN generations and notification outbox |
+| Core SCA | Known-password unlock operations, reservations and exact execution records |
+| Core KYCB | KYC/KYB records, credential-loss cases, provider sessions, budgets, grants and execution/audit |
+| Domain | Provider configuration and service connections; it has no separate recovery database |
+| Secret/evidence owners | Signing/decryption/PIN keys, workload credentials and provider evidence/session references |
 
-The exact schema and installer roles are service-owned. Keycloak should not acquire Core business tables, and Domain should not create a second authoritative recovery database. Inventory dependencies and retention before scheduling any restore.
+PIN lifecycle storage is native-owned. Each Core service has its own installer and roles. Keep Core business tables out of the identity database.
 
-## Import is not update
+## Change an existing realm
 
-The sandbox's `--import-realm` creates a missing realm and skips one that already exists. Editing a generated JSON file and restarting does not apply a reviewed policy update. The generator refuses an existing directory rather than rotate its secrets or repoint its Compose ownership.
+`--import-realm` creates missing realms and skips existing ones. PostgreSQL initialization also applies only to a new data directory. Use supported administration/migration operations to change retained configuration, read back the result and exercise affected clients/users.
 
-Keep the original state path and ownership marker with the corresponding database. A new output creates a different project and identity population. Do not relabel it as the restored original, overwrite an ownership file, copy an unrelated credential file into retained state or reset a user's factor to make an old test script pass.
+For the sandbox, retain the original state directory, ownership marker and matching database. A new generated output is a different environment. Do not overwrite ownership, import unrelated credentials or reset a factor to make an old script work.
 
-For actual retained realm/client changes, use the supported administration/migration interface under a reviewed change plan. Read back the effective settings, qualify affected users/clients and keep an exact pre-change checkpoint.
+## Install native mappings safely
 
-## Native installation changes schema
+The optional provider contributes thirteen JPA mappings and versioned Liquibase changes at startup. Installing its JAR can change the schema even when recovery is disabled. Enable flags govern behavior, not schema installation.
 
-The optional provider contributes JPA mappings and versioned Liquibase changes at Keycloak startup. Installing the JAR can register additive database changes **even when recovery is disabled**. Its enable flags govern behavior, not installation migration.
+Before adding or upgrading the JAR on retained data, restore the current database to an isolated target. Check entity discovery, constraints, append-only protections, roles and ordinary identity operations with that exact build. Include existing users, holds and pending recovery records. Apply Core-owned schema changes through each service's deployment process.
 
-Before first native installation or upgrade, record the current image/provider/theme/configuration versions; back up the owned database; restore to an isolated target; install the exact candidate there; and verify entity discovery, constraints, triggers, roles and ordinary identity operations. Include existing users, permanent holds and retained recovery records in the approved rehearsal dataset. Synthetic clean-database success is not retained-data acceptance.
+## Rehearse restoration
 
-The Core installers have independent objects and role requirements. Apply each owner through its own deployment process. Do not run a production installer from a copied test command or against a URL whose environment/ownership has not been established.
+Choose the source/target, consistent recovery point, responsible operator and required keys before beginning. Block external delivery and provider submissions on the rehearsal target.
 
-## Backup and restore rehearsal
+```mermaid
+flowchart LR
+    Original[Retained service and databases] --> Checkpoint[Consistent backup and owner checkpoints]
+    Keys[Protected original key versions] --> Restore[New isolated restore target]
+    Checkpoint --> Restore
+    Restore --> Migration[Apply selected compatible migration]
+    Migration --> Checks[Verify identity, factors, holds and journals]
+    Checks --> Reconcile[Reconcile each owner and pending work]
+    Reconcile --> Traffic[Controlled traffic switch]
+```
 
-An approved runbook should identify the exact source/target, responsible operator, maintenance boundary, backup encryption/access, consistent recovery point, required keys, application/provider dependencies, external-delivery isolation and acceptance/rollback criteria. A restore is potentially destructive; this handbook intentionally supplies no generic overwrite/drop command.
+1. Coordinate writers and capture a consistent checkpoint for every affected owner. Independently timed snapshots can produce mismatched case/grant/execution state.
+2. Preserve the original backup and failed-state records. Restore into a new dedicated target with compatible images/configuration and controlled access.
+3. Mount historical keys under their original version names and deadlines. Restore service secrets through the secret manager; never substitute new bytes for an existing key version.
+4. Prevent real mail, provider verification submissions and application traffic. An old outbox row is still a delivery intent.
+5. Verify discovery/issuer, signing continuity, credentials, required factors, protected links, holds, sessions/refreshes and database privileges. Check original recovery budgets, leases and exact journal reconciliation.
+6. Reconcile all owners before enabling traffic. An unknown execution stays unresolved; do not create a replacement grant, clear counters or repeat proof to repair it.
 
-1. Record a consistent checkpoint and stop or coordinate writers as required by the approved database and application procedure. Include each owner's correlation/journal position; separately timed snapshots can recreate an impossible cross-service state.
-2. Preserve the original backup and failed-state evidence. Restore into a **new isolated reviewed target**, using the matching compatible images/configuration and controlled access.
-3. Mount the required historical decryption/PIN keys under their original versions and deadlines. Never invent replacement bytes under an old version name. Restore other secrets through the approved secret manager, not through logs or a ticket.
-4. Prevent real customer mail, external verifier submissions and application traffic during rehearsal. An old outbox row remains a delivery intent; isolation must stop accidental replay to a live channel.
-5. Verify discovery/issuer, credential checks, required factors, protected links, lock/hold retention, session/refresh behavior, exact original case/grant budgets, lease ownership and journal reconciliation. Check database privileges and append-only protections using the actual runtime roles.
-6. Record results and reconcile each owner before accepting traffic. Inconsistency, missing evidence or an unknown execution remains unresolved; do not manufacture a new grant, clear counters or approve a new human assertion to make the state appear successful.
+Measure recovery time and the data-loss window against your recovery-time/recovery-point objectives. A health endpoint cannot show whether the restored identities, keys and cross-service records agree.
 
-Define recovery-point and recovery-time objectives with operational owners and measure the rehearsal. Passing a health endpoint does not establish either objective.
+## Retain and rotate keys
 
-## Keys and retention
+Signing keys, PIN peppers and recovery encryption keys have separate lifecycles. Retain previous encryption versions while ceremonies/outbox records require them. A file replacement is not ciphertext migration. For PIN verification, observe the approved old-key deadline and use fresh authenticated PIN replacement to move users to the active version.
 
-Signing-key rotation, PIN pepper verification windows and recovery-record encryption are different lifecycles. The [operations guide](operations.md), [support PIN guide](support-pin.md) and [credential-loss key procedure](credential-loss-recovery.md) explain their supported mechanisms.
+Define retention and access per record purpose: identity events, banking audit, provider documents and biometric templates need different schedules. The sandbox's seven-day event expiry is not a production retention policy. Raw proofing documents and biometrics belong with their designated evidence owner, outside Keycloak attributes and application tokens.
 
-Keep previous encryption versions while retained ceremonies/outbox records need them. A single-key file replacement is not ciphertext migration. Retaining an old verification key beyond its approved deadline is also not a safe default. Document who approves retention, revocation, evidence access and eventual destruction; test missing/revoked-key failure without recreating plaintext.
+## Roll back after a failed upgrade
 
-Legal retention and deletion depend on record purpose and jurisdiction. Authentication events, banking audit evidence, provider documents and biometric templates do not share one default lifetime. Keycloak's seven-day synthetic event expiry is not the institution's retention schedule. Raw proofing documents and biometrics remain outside Keycloak attributes and application tokens with their designated owner.
+If migration changed the schema, do not restart the old binary against that database. Restore the pre-change checkpoint into a compatible target with matching keys/configuration, reconcile external/application state and verify it before switching traffic. Preserve the failed-upgrade data for investigation.
 
-## Upgrade and rollback
-
-Review supported upgrade paths, release notes, inherited templates, SPI/API and schema changes. Build an immutable candidate and run the full applicable protocol, factor, locale, console, recovery, provider and receiving-service checks. Rehearse the exact retained database and selected multi-node topology.
-
-If the new version changes schema, restarting the older binary against that migrated database is not a validated rollback. An approved rollback restores the pre-change state into a compatible reviewed target, with matching keys/configuration and a reconciled application/provider checkpoint. Preserve the failed upgrade's data and records. Read [operations](operations.md) for the change sequence.
-
-## What is currently proved
-
-The actual synthetic native lanes prove retained lock state across restart, scoped concurrent execution, old session retirement, exact response-loss journal reconciliation, and notification retry/terminal state across an owned Core restart. Those results do not qualify arbitrary backup restoration, cross-owner point-in-time recovery, a retained institution database, full multi-node crash/HA behavior or a production migration. [Qualification and acceptance](evidence.md) records the exact scope and remaining owners.
+For upgrade planning and backup tooling, use [operations](operations.md). For an interrupted recovery or failed notification, use [incident handling](observability-incidents.md) and [notification operations](notification-operations.md).

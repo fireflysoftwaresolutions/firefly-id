@@ -1,56 +1,45 @@
----
-hide:
-  - path
----
+# Firefly Identity
 
-# Firefly Identity handbook
+<p class="handbook-lead">Sign people in, protect their accounts and connect your applications through one consistent identity service.</p>
 
-<p class="handbook-lead">Understand the identity service, configure it deliberately, integrate each trust boundary and operate it with evidence.</p>
+Firefly Identity is the Firefly distribution of Keycloak for customer identity and access management. It provides branded sign-in, account management and recovery, with separate customer, employee and administration populations. Applications use OpenID Connect; identity credentials stay with the identity service, while each application controls access to its business resources.
 
-Firefly Identity is the Firefly-branded Keycloak distribution for customer identity and access management, with separate workforce and administrative security profiles. This handbook explains the complete solution: the upstream capabilities we use, the configuration we select, the extensions we add and the responsibilities that remain with applications and operating institutions.
-
-<figure class="solution-figure" markdown>
-<picture>
-  <source media="(max-width: 600px)" srcset="assets/diagrams/solution-mobile.svg">
-  <img src="assets/diagrams/solution.svg" width="1040" height="460" alt="Customers and workforce authenticate through Firefly Identity. Experience, Domain and Core independently authorize their operations; KYC records have a separate owner.">
-</picture>
-<figcaption>Authentication establishes identity. Each receiving application still authorizes its own operation; Core retains business records and recovery authority.</figcaption>
+<figure class="solution-figure">
+  <picture>
+    <source media="(max-width: 720px)" srcset="assets/diagrams/solution-mobile.svg">
+    <img src="assets/diagrams/solution.svg" alt="Separate customer and workforce identities connect through Firefly Identity to application, Domain and Core services. Each service checks the caller and authorizes its own operation.">
+  </picture>
+  <figcaption>Firefly Identity manages authentication. Applications and business services authorize their own resources and operations.</figcaption>
 </figure>
 
-!!! note "Read the implementation boundary first"
-    The repository supplies a qualified synthetic distribution and optional recovery candidates. Production realm generation remains closed. Customer MFA is optional in the base synthetic profile; workforce password and OTP are mandatory. No real identity-proofing provider or bank procedure is approved. [Qualification and acceptance](evidence.md) identifies the exact passing source revisions and the remaining gates.
+## Get started
 
-## Start with your task
+If you are evaluating the product, [start a local environment](getting-started.md). The guide walks through building the theme, creating the sample realms, starting the owned services and checking sign-in and email.
 
-| Your task | Read first | What you should be able to decide |
-| --- | --- | --- |
-| Evaluate the solution | [Why Keycloak](why-keycloak.md), [solution inventory](solution-overview.md), [architecture](architecture.md) | What the platform owns, what Firefly adds and the cost of operating it |
-| Run an isolated evaluation | [Start safely](getting-started.md), [sandbox](sandbox.md), [configuration reference](configuration-reference.md) | How to create a fresh synthetic environment without touching retained state |
-| Integrate an application | [Application contract](integration-contract.md), [Jafly](jafly.md), [zero trust](zero-trust.md) | How to authenticate and authorize every receiving boundary without framework coupling |
-| Design customer and employee journeys | [Journey map](customer-journeys.md), [workforce and administration](workforce-administration.md), [recovery choices](access-recovery.md) | Which factor, enrollment, recovery and account-management paths apply to each population |
-| Prepare a regulated deployment | [EU and US controls](controls-matrix.md), [regulated deployment](regulated-deployment.md), [evidence](evidence.md) | Which obligations apply, who enforces them and what still needs institutional acceptance |
-| Operate or investigate an incident | [Operations](operations.md), [retained data](retained-data.md), [observability and incidents](observability-incidents.md) | How to preserve evidence, restore service and avoid manufacturing a new authorization |
+If you are connecting an application, follow [Integrate an application](integration-contract.md). It explains discovery, client registration, authorization code with PKCE, access-token validation and logout. Java teams can continue with the [Jafly guide](jafly.md).
 
-## Follow the actual configuration
+If you operate the identity service, begin with [deployment and operations](operations.md), then configure [authentication policies](authentication-policies.md), [workforce administration](workforce-administration.md) and [monitoring](observability-incidents.md).
 
-The [generated policy catalogue](reference/effective-defaults.md) is derived from the same JSON the generator consumes. The [configuration reference](configuration-reference.md) explains the rest of the realm, client, server and extension settings. The [version reference](reference/versions.md) identifies the pinned images and documentation source.
+## Understand the architecture
 
-Defaults are a reviewed starting point. They are not a universal password law, an approved payment SCA policy, a production tenant contract or a compliance certificate. The [controls matrix](controls-matrix.md) distinguishes EU legislation, US regulatory requirements, supervisory guidance and technical benchmarks.
+The [architecture guide](architecture.md) shows the components, trust boundaries and identity lifecycle. The [component overview](solution-overview.md) explains which modules you need. The [customer journeys](customer-journeys.md) follow sign-in, account management, logout and access recovery from the person's perspective.
 
-## Understand recovery before enabling it
+Customer, workforce and administrative identities use separate security profiles. An authenticated identity is associated with the appropriate party or staff record through a protected link. A customer identifier, employee login or machine token does not by itself grant access to a bank account or permission to act for another person. The [security model](security.md) explains these boundaries.
 
-Known-password two-factor unlock and recovery after losing credentials are different purposes. The first requires existing knowledge and enrolled possession. The second requires independently verified identity evidence before a new password and authenticator can be installed. An email link, support PIN, KYC `VERIFIED` flag or employee login cannot replace that authority.
+## Configure the experience and security
 
-Read [native unlock](native-recovery.md), [lost-credential recovery](credential-loss-recovery.md), [the provider contract](assurance-provider-contract.md) and [notification operations](notification-operations.md) together. KYC/KYB is the system of record; Domain integrates a future third-party verifier. Jafly remains an independent framework.
+Use the [configuration reference](configuration-reference.md) for server, realm, client and extension settings, and [default realm settings](reference/effective-defaults.md) for exact values. [Customizations](customizations.md) explains the Firefly behavior added around Keycloak.
 
-## Keep the experience coherent
+The web experience uses Manrope, the Firefly identity, light/dark appearances and English/Spanish text. [Themes](themes.md), [language settings](localization.md) and [design tokens](design-tokens.md) explain how to customize it while preserving protocol behavior.
 
-The product uses the approved protected-identity symbol, self-hosted Manrope, canonical Firefly tokens, English/Spanish journeys, light/dark presentation and the established isometric authentication backgrounds. The [customization catalog](customizations.md) connects all Firefly changes to their implementation, reason and verification. [Themes](themes.md), [localization](localization.md), [design tokens](design-tokens.md) and [brand](brand.md) explain how those resources are built and tested across login, logout, recovery, account and administration.
+## Recover access
 
-Presentation preserves the upstream protocol, CSRF and authenticator boundaries. A hidden password-reveal control is a presentation choice; server-side factor, policy, authorization and recovery checks carry the security decision.
+There are different journeys for a remembered password, a lost credential and an account restricted for an administrative reason. Start with [Choose an access recovery flow](access-recovery.md). It directs you to existing-factor unlock, independent identity verification or the appropriate support procedure.
 
-## Evidence and maintenance
+Native recovery and the [support PIN](support-pin.md) are optional modules. Install and configure their backend services before selecting the corresponding theme. Lost-credential recovery also requires a trusted external verification adapter. The [recovery installation guide](native-recovery.md) and [provider integration guide](assurance-provider-contract.md) explain the prerequisites.
 
-The latest customer credential-loss lane passed [25 controls](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41332055134); the shared native binary separately passed [48 known-password/PIN controls](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41331177242). These are exact-source synthetic-provider receipts. They do not approve a real provider, retained-data rollout or production deployment.
+## Deploy and operate
 
-[Qualification and acceptance](evidence.md) gives the concise current record. [Implementation history](progress.md) retains the original failed and successful checkpoints. [Maintain this handbook](documentation.md) explains strict builds, source-linked references and the checks that keep the manual aligned with the implementation.
+Follow [regulated deployment](regulated-deployment.md) for HTTPS, private administration, database security, credentials and environment preparation. Use the [production configuration audit](production-readiness.md) to check candidate settings before deployment. [Backup and recovery](retained-data.md) covers existing databases, keys, migrations and restoration; [notification operations](notification-operations.md) covers delivery and supervision.
+
+For regulated organizations, the [EU/US controls guide](controls-matrix.md) maps authentication and operating responsibilities to the relevant scope. Use [troubleshooting](troubleshooting.md), [frequently asked questions](faq.md) and the [glossary](glossary.md) when you need a specific answer.

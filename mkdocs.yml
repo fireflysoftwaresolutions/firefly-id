@@ -11,6 +11,10 @@ exclude_docs: |
   superpowers/
   overrides/
   private-source-index.example.json
+  progress.md
+  evidence.md
+  identity-proofing-evaluation.md
+  documentation.md
 hooks:
   - tooling/mkdocs_hooks.py
 theme:
@@ -86,27 +90,26 @@ nav:
   - Overview:
       - Handbook: index.md
       - Why Keycloak: why-keycloak.md
-      - Solution inventory: solution-overview.md
+      - Components: solution-overview.md
       - Architecture and lifecycle: architecture.md
       - Journey map: customer-journeys.md
       - Glossary: glossary.md
       - Questions and answers: faq.md
   - Configure:
-      - Start safely: getting-started.md
-      - Synthetic sandbox: sandbox.md
+      - Getting started: getting-started.md
+      - Local environment: sandbox.md
       - Configuration reference: configuration-reference.md
-      - Generated policy catalogue: reference/effective-defaults.md
+      - Default realm settings: reference/effective-defaults.md
       - Authentication policies: authentication-policies.md
-      - Versions and provenance: reference/versions.md
+      - Supported versions: reference/versions.md
   - Integrate:
-      - Application contract: integration-contract.md
-      - Verified claims: provider-claim-profile.md
-      - Receiver audiences: receiver-audiences.md
-      - Independent Jafly: jafly.md
+      - Integrate an application: integration-contract.md
+      - Token claims: provider-claim-profile.md
+      - Token audiences: receiver-audiences.md
+      - Use Jafly: jafly.md
       - Configuration lookup client: configuration-service-client.md
       - Zero trust in each service: zero-trust.md
-      - Proofing provider contract: assurance-provider-contract.md
-      - Provider evaluation: identity-proofing-evaluation.md
+      - Connect identity verification: assurance-provider-contract.md
   - Recover access:
       - Choose the right recovery: access-recovery.md
       - Permanent blocking: permanent-recovery.md
@@ -116,14 +119,14 @@ nav:
       - Notification operations: notification-operations.md
       - Verification and enrollment: extended-flows.md
   - Customize:
-      - Customization catalog: customizations.md
+      - Firefly customizations: customizations.md
       - Themes and surfaces: themes.md
       - English and Spanish: localization.md
       - Design tokens: design-tokens.md
       - Brand system: brand.md
       - Isometric artwork: isometric-backgrounds.md
   - Operate and govern:
-      - Production decisions and audit: production-readiness.md
+      - Check production settings: production-readiness.md
       - Regulated deployment: regulated-deployment.md
       - EU and US controls: controls-matrix.md
       - Workforce and administration: workforce-administration.md
@@ -132,6 +135,3 @@ nav:
       - Retained data and recovery: retained-data.md
       - Observability and incidents: observability-incidents.md
       - Troubleshooting: troubleshooting.md
-      - Qualification and acceptance: evidence.md
-      - Detailed implementation history: progress.md
-      - Maintain this handbook: documentation.md

@@ -153,6 +153,57 @@ class ProductionAuditTest(unittest.TestCase):
         realms['customers']['maxTemporaryLockouts'] = 5
         self.assertIn('REALM_POLICY', self.findings(realms=realms))
 
+    def test_every_shared_brute_force_setting_must_match_the_catalogue(self):
+        changes = {'bruteForceProtected': False, 'permanentLockout': False,
+                   'failureFactor': 4, 'bruteForceStrategy': 'LINEAR',
+                   'waitIncrementSeconds': 0, 'maxFailureWaitSeconds': 0,
+                   'maxDeltaTimeSeconds': 0, 'quickLoginCheckMilliSeconds': 1000,
+                   'minimumQuickLoginWaitSeconds': 0, 'maxTemporaryLockouts': 1}
+        for profile in self.realms:
+            for key, value in changes.items():
+                with self.subTest(profile=profile, key=key):
+                    realms = copy.deepcopy(self.realms)
+                    realms[profile][key] = value
+                    self.assertIn('REALM_POLICY', self.findings(realms=realms))
+
+    def test_missing_shared_brute_force_settings_are_refused(self):
+        for profile in self.realms:
+            for key in self.catalogue['defaults']:
+                with self.subTest(profile=profile, key=key):
+                    realms = copy.deepcopy(self.realms)
+                    del realms[profile][key]
+                    self.assertIn('REALM_POLICY', self.findings(realms=realms))
+
+    def test_shared_brute_force_settings_require_exact_types(self):
+        changes = {'bruteForceProtected': 1, 'permanentLockout': 1,
+                   'failureFactor': 3.0, 'bruteForceStrategy': ['MULTIPLE'],
+                   'waitIncrementSeconds': 900.0, 'maxFailureWaitSeconds': 900.0,
+                   'maxDeltaTimeSeconds': 43200.0, 'quickLoginCheckMilliSeconds': False,
+                   'minimumQuickLoginWaitSeconds': 60.0, 'maxTemporaryLockouts': False}
+        for profile in self.realms:
+            for key, value in changes.items():
+                with self.subTest(profile=profile, key=key):
+                    realms = copy.deepcopy(self.realms)
+                    realms[profile][key] = value
+                    self.assertIn('REALM_POLICY', self.findings(realms=realms))
+
+    def test_administrator_maximum_session_requires_a_positive_bounded_integer(self):
+        for value in (3601, 0, -1, None, True, 3600.0, '3600'):
+            with self.subTest(value=value):
+                realms = copy.deepcopy(self.realms)
+                realms['administrators']['ssoSessionMaxLifespan'] = value
+                self.assertIn('REALM_SESSION_POLICY', self.findings(realms=realms))
+        realms = copy.deepcopy(self.realms)
+        del realms['administrators']['ssoSessionMaxLifespan']
+        self.assertIn('REALM_SESSION_POLICY', self.findings(realms=realms))
+
+    def test_shorter_administrator_maximum_sessions_remain_valid(self):
+        for value in (1, 3599, 3600):
+            with self.subTest(value=value):
+                realms = copy.deepcopy(self.realms)
+                realms['administrators']['ssoSessionMaxLifespan'] = value
+                self.assertEqual([], self.findings(realms=realms))
+
     def test_jwt_grant_and_unsafe_logout_returns_are_refused(self):
         for key, value in [('oauth2.jwt.authorization.grant.enabled', 'true'),
                            ('post.logout.redirect.uris', '*'),

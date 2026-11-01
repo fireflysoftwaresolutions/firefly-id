@@ -3,9 +3,9 @@ name: Native extension qualification
 on:
   workflow_dispatch:
   push:
-    paths: ['extensions/**', 'tooling/summarize_native_build.py', 'tooling/package_native.py', '.github/workflows/native-source-qualification.yml']
+    paths: ['extensions/**', 'themes/**', 'assets/**', 'deploy/Containerfile.native', 'deploy/images.lock.json', 'config/password-blacklist.txt', 'tooling/build_theme.py', 'tooling/summarize_native_build.py', 'tooling/package_native.py', '.github/workflows/native-source-qualification.yml']
   pull_request:
-    paths: ['extensions/**', 'tooling/summarize_native_build.py', 'tooling/package_native.py', '.github/workflows/native-source-qualification.yml']
+    paths: ['extensions/**', 'themes/**', 'assets/**', 'deploy/Containerfile.native', 'deploy/images.lock.json', 'config/password-blacklist.txt', 'tooling/build_theme.py', 'tooling/summarize_native_build.py', 'tooling/package_native.py', '.github/workflows/native-source-qualification.yml']
 
 permissions:
   contents: read
@@ -33,6 +33,120 @@ jobs:
             --native-jar extensions/native-recovery/target/firefly-id-native-recovery-26.10.1-SNAPSHOT.jar \
             --gateway-jar extensions/native-domain-gateway/target/firefly-id-native-domain-gateway-26.10.1-SNAPSHOT.jar \
             --output .qualification/native-installation
+      - name: Qualify packaged native image and default provider
+        timeout-minutes: 10
+        run: |
+          umask 077
+          python3 tooling/build_theme.py
+          python3 - <<'PY'
+          import hashlib,json,os,secrets,shutil,subprocess,time,urllib.request,zipfile
+          from pathlib import Path
+          root=Path('.qualification')
+          summary={'scope':'Packaged native image startup and default provider selection; recovery and production acceptance are separate','result':'failed'}
+          phase='PACKAGE'
+          owned=[]
+          run=os.environ['GITHUB_RUN_ID']+'-'+os.environ['GITHUB_RUN_ATTEMPT']
+          label='io.firefly.identity.native-image-smoke'
+          network='firefly-native-image-'+run
+          image='firefly-id-native-smoke:'+run
+          expected=['start','--optimized','--spi-theme--default=firefly-id','--spi-brute-force-protector--provider=firefly-native-recovery']
+          def call(args,timeout=60):
+              return subprocess.run(args,capture_output=True,check=True,timeout=timeout).stdout
+          def inspect(kind,name):
+              return json.loads(call(['docker',kind,'inspect',name]))[0]
+          def private_file(path,value):
+              with path.open('x') as output:
+                  os.chmod(path,0o600)
+                  output.write(value)
+          def ready(probe,seconds):
+              until=time.monotonic()+seconds
+              while time.monotonic()<until:
+                  try:
+                      if probe(): return
+                  except Exception: pass
+                  time.sleep(1)
+              raise RuntimeError('Owned packaged-image readiness failed')
+          try:
+              shutil.copytree(root/'native-installation/providers',Path('dist/native/providers'))
+              phase='BUILD'
+              with (root/'native-image-private-build.log').open('xb') as output:
+                  result=subprocess.run(['docker','build','--file','deploy/Containerfile.native','--tag',image,'.'],stdout=output,stderr=subprocess.STDOUT,timeout=360)
+              if result.returncode: raise RuntimeError('Owned image build failed')
+              phase='IMAGE_CONFIG'
+              metadata=inspect('image',image)
+              assert metadata['Config']['Entrypoint']==['/opt/keycloak/bin/kc.sh']
+              assert metadata['Config']['Cmd']==expected
+              summary['image_id']=metadata['Id']
+              summary['default_brute_force_provider']='firefly-native-recovery'
+              summary['default_command_verified']=True
+              phase='BOOT'
+              call(['docker','network','create','--internal','--label',label+'='+run,network])
+              owned.append(('network',network))
+              password=secrets.token_urlsafe(36)
+              db=network+'-db'
+              server=network+'-identity'
+              db_env=root/'native-image-db.env'
+              server_env=root/'native-image-server.env'
+              private_file(db_env,'POSTGRES_DB=native_smoke\nPOSTGRES_USER=native_smoke\nPOSTGRES_PASSWORD='+password+'\n')
+              private_file(server_env,'KC_DB=postgres\nKC_DB_URL=jdbc:postgresql://'+db+':5432/native_smoke\nKC_DB_USERNAME=native_smoke\nKC_DB_PASSWORD='+password+'\nKC_HTTP_ENABLED=true\nKC_HOSTNAME=http://localhost\nJAVA_OPTS_KC_HEAP=-Xms128m -Xmx512m\n')
+              postgres=json.loads(Path('deploy/images.lock.json').read_text())['postgres']['image']
+              owned.append(('container',db))
+              call(['docker','run','--detach','--name',db,'--label',label+'='+run,'--network',network,'--tmpfs','/var/lib/postgresql/data:rw,nosuid,size=512m','--env-file',str(db_env),postgres],120)
+              ready(lambda: subprocess.run(['docker','exec',db,'pg_isready','-U','native_smoke','-d','native_smoke'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5).returncode==0,90)
+              owned.append(('container',server))
+              call(['docker','create','--name',server,'--label',label+'='+run,'--network',network,'--env-file',str(server_env),'--publish','127.0.0.1::9000',image])
+              phase='PACKAGED_FILES'
+              packaged=root/'native-image-files'
+              packaged.mkdir()
+              hashes={}
+              for name,source in [('firefly-id-theme.jar',Path('dist/firefly-id-theme.jar')),('firefly-id-native-recovery.jar',Path('dist/native/providers/firefly-id-native-recovery.jar')),('firefly-id-native-domain-gateway.jar',Path('dist/native/providers/firefly-id-native-domain-gateway.jar'))]:
+                  target=packaged/name
+                  call(['docker','cp',server+':/opt/keycloak/providers/'+name,str(target)])
+                  digest=lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+                  assert digest(target)==digest(source)
+                  hashes[name]=digest(target)
+              generated=packaged/'generated-bytecode.jar'
+              call(['docker','cp',server+':/opt/keycloak/lib/quarkus/generated-bytecode.jar',str(generated)])
+              with zipfile.ZipFile(generated) as archive:
+                  persisted=archive.read('META-INF/keycloak-persisted.properties').decode('ISO-8859-1')
+              settings=dict(line.split('=',1) for line in persisted.splitlines() if line and not line.startswith('#') and '=' in line)
+              provider_keys={'kc.spi-brute-force-protector--provider','kc.spi-brute-force-protector-provider'}
+              assert any(settings.get(key)=='firefly-native-recovery' for key in provider_keys)
+              summary['augmented_provider_selection_verified']=True
+              summary['packaged_sha256']=hashes
+              phase='STARTUP'
+              call(['docker','start',server])
+              metadata=inspect('container',server)
+              assert metadata['Config']['Cmd']==expected
+              port=metadata['NetworkSettings']['Ports']['9000/tcp'][0]['HostPort']
+              def healthy():
+                  with urllib.request.urlopen('http://127.0.0.1:'+port+'/health/ready',timeout=2) as response:
+                      return response.status==200 and json.loads(response.read(16384))['status']=='UP'
+              phase='READINESS'
+              ready(healthy,120)
+              summary.update(result='passed',default_command_started=True,packaged_artifacts_verified=True,native_image_ready=True)
+          except Exception:
+              summary['failed_phase']=phase
+          finally:
+              for kind,name in reversed(owned):
+                  try:
+                      value=inspect(kind,name)
+                      labels=value.get('Config',{}).get('Labels',{}) if kind=='container' else value.get('Labels',{})
+                      if labels.get(label)==run:
+                          call(['docker',kind,'rm',*(['--force'] if kind=='container' else []),name])
+                  except Exception: pass
+              (root/'native-image-summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+          print(json.dumps(summary))
+          if summary['result']!='passed': raise SystemExit(1)
+          PY
+      - name: Preserve packaged native image summary
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-image-summary
+          path: .qualification/native-image-summary.json
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Preserve bounded native evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

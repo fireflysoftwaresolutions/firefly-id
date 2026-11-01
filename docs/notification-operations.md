@@ -1,78 +1,96 @@
-# Recovery notification operations
+# Operate recovery notifications
 
-The native credential-replacement transaction records a notice to the customer's **previously verified destination** together with the canonical execution. Native owns the encrypted outbox, leases, send operation and eight-attempt budget. Core KYCB supplies an optional managed worker and private aggregate supervision. Neither the browser nor Domain can dispatch or monitor the queue.
+Credential replacement queues a notice to the customer's previously verified destination in the same transaction as replacement. Native Identity owns the encrypted queue and delivery attempts. Core KYCB can run a managed worker that dispatches notices and publishes private aggregate health information.
 
-The worker is implemented and tested against the actual synthetic SMTP sink. A bank's real channel, service-level targets, monitoring receiver and operating procedure remain separate acceptance. Do not enable customer recovery while those responsibilities are unassigned.
+Configure and verify the real email channel and assign an operations owner before enabling recovery. Browser and Domain credentials cannot supervise or dispatch the queue.
 
-## Enable distinct workloads
+```mermaid
+sequenceDiagram
+    participant Identity as Native Identity
+    participant Queue as Native outbox
+    participant Worker as Core notification worker
+    participant SMTP as Approved email service
+    participant Monitor
+    Identity->>Queue: Commit notice with credential replacement
+    loop Fixed delay after completed cycle
+        Worker->>Identity: Dispatch one due notice
+        Identity->>Queue: Reserve durable attempt and lease
+        Identity->>SMTP: Send to snapshotted verified destination
+        alt Email service accepts
+            Identity->>Queue: Record delivered
+        else Delivery fails
+            Identity->>Queue: Retain failure and schedule bounded retry
+        end
+        Worker->>Identity: Read realm-scoped queue aggregate
+    end
+    Monitor->>Worker: Read private status or metrics
+```
 
-Create a separate confidential, grant-disabled Native notification client and set realm attribute `firefly.reproofing.notification-workload-client-id` to its ID. Native verifies its current client state and credential. It may invoke only `dispatch` and `notification-status`; it cannot prepare, admit or journal a ceremony.
+## Enable the worker
 
-When that attribute is absent, older deployments retain the existing Core-only manual dispatcher, without fallback status authority. The new worker requires the dedicated identity. It always sends `{"limit":1}` to dispatch and `{}` to status under the exact trusted native RPC base `/firefly-recovery/lost-credentials/rpc`. Processing one row is not proof of delivery.
+1. Configure the realm's actual Keycloak email provider and SMTP settings. Keep connect, read and write deadlines bounded; Keycloak defaults each to 10,000 ms.
+2. Create a dedicated confidential Native client with ordinary token grants disabled. Set realm attribute `firefly.reproofing.notification-workload-client-id` to that client ID.
+3. Configure Core's notification identity and a different read-only monitor identity using private secret files.
+4. Enable both `firefly.reproofing.enabled=true` and `firefly.reproofing.notifications.enabled=true`, then restart Core with the configuration.
+5. Configure external scraping/alerts and verify that a stopped worker is detected.
 
-Core requires both `firefly.reproofing.enabled=true` and `firefly.reproofing.notifications.enabled=true`. The notification flag defaults false. Configuration changes follow normal application restart; no scheduler, notification client or worker metrics are created while disabled.
+All properties below use prefix `firefly.reproofing.notifications.`:
 
-## Configure bounded operation
+| Property | Default and bounds |
+| --- | --- |
+| `enabled` | `false`; requires global recovery enablement too |
+| `client-id`, `secret-file` | Dedicated Native notification identity and mounted credential |
+| `monitor.client-id`, `monitor.secret-file` | Separate private monitor identity and mounted credential |
+| `poll-interval` | `PT30S`; 1–300 seconds after the preceding cycle completes |
+| `request-timeout` | `PT30S`; 1–60 seconds, bounding the complete dispatch/status cycle |
+| `stale-after` | `PT90S`; greater than interval plus timeout and no more than 3,600 seconds |
+| `overdue-after` | `PT2M`; 1–3,600 seconds |
 
-All fields below are under `firefly.reproofing.notifications`:
+Secret files must be regular nonsymlink POSIX files with owner-only read/write permissions and 32–2,048 characters. Identity IDs and secret values must differ from one another and the case/native/evidence credentials. Missing, reused or unsafe configuration refuses startup.
 
-| Property | Default / requirement | Purpose |
+The worker uses `firefly.reproofing.native.base-url`, exactly `{issuer}/firefly-recovery/lost-credentials/rpc`, with Basic authentication over trusted HTTPS and no redirects. It starts a cycle immediately, then waits after completion. Disabled configuration creates no worker, notification client or private metrics registry. Shutdown cancels active and scheduled work; restart observes the same durable Native queue.
+
+## Workload permissions and requests
+
+Native operation paths below are relative to the configured native RPC base.
+
+| Caller | Operation | Input/output |
 | --- | --- | --- |
-| `enabled` | `false` | Explicit worker opt-in in addition to global recovery |
-| `client-id`, `secret-file` | Required dedicated Native notification workload | Dispatch and aggregate observation only |
-| `monitor.client-id`, `monitor.secret-file` | Required independent monitor | Private read-only status/metrics only |
-| `poll-interval` | `PT30S`; 1–300 seconds | Delay **after** a bounded cycle completes |
-| `request-timeout` | `PT30S`; 1–60 seconds | Complete dispatch/status cycle and individual transport bound |
-| `stale-after` | `PT90S`; greater than interval + timeout, at most 3,600 seconds | Maximum successful-observation age |
-| `overdue-after` | `PT2M`; 1–3,600 seconds | Due-backlog degradation threshold |
+| Dedicated notification client | Native `POST /dispatch` | Worker sends `{"limit":1}`; response reports `processed` rows, not delivered notices |
+| Dedicated notification client | Native `POST /notification-status` | Exact `{}` request; realm-scoped aggregate response |
+| Independent monitor | Core `GET /internal/identity-recovery/notifications` | Worker snapshot |
+| Independent monitor | Core `GET /internal/identity-recovery/notifications/metrics` | Worker-only Prometheus text |
 
-Both secret files must be regular nonsymlink POSIX files with owner-only read/write permissions, containing 32–2,048 characters. IDs and secret values must differ from each other and receiver/native ceremony credentials, and evidence credentials when configured. Missing/reused/unsafe values refuse startup with generic diagnostics. Mount secrets; never place them in arguments, environment examples, logs or tickets.
+Native dispatch also accepts an exact integer limit from 1 to 10; `{}` preserves the manual ten-row default. The notification client cannot prepare, admit or journal a recovery. Other methods/subpaths and case/browser credentials are denied. Keep these interfaces outside browser ingress.
 
-The worker uses the existing exact `firefly.reproofing.native.base-url`, validated HTTPS and trusted certificates, with no redirects. Responses are bounded to 32 KiB, require exact JSON fields and reject malformed/duplicate/unknown values and invalid counts. Native timestamps more than 30 seconds ahead or 90 seconds behind Core are unavailable observations. Synchronize clocks; do not enlarge tolerance to hide a broken time service.
+For installations without `notification-workload-client-id`, Core's existing ceremony credential retains manual dispatch only, without notification-status fallback. Configure the dedicated identity for the managed worker; do not rely on legacy sharing.
 
-The managed lifecycle starts an immediate cycle, then fixed delay after completion. A local gate permits one active cycle; Native leases fence multiple Core instances and ambiguous responses. Shutdown cancels scheduled and active work. Core restart reobserves the same durable queue and never resets recovery cases, grants, attempts or terminal failures.
+## Read status correctly
 
-## Read private supervision
+The worker snapshot contains `state`, `activeCycle`, `lastAttemptAt`, `lastSuccessAt`, `consecutiveFailures` and `queue`. Queue is null before a successful observation. Its fields are `observedAt`, `pending`, `sending`, `retrying`, `delivered`, `failed`, `invalid`, `due` and `oldestDueDelaySeconds`.
 
-Only the independent monitor Basic credential over HTTPS GET may access:
-
-| Endpoint | Response |
+| State | Operator action |
 | --- | --- |
-| `/internal/identity-recovery/notifications` | Safe immutable worker snapshot |
-| `/internal/identity-recovery/notifications/metrics` | Worker-only Prometheus text |
+| `STARTING` | Wait for the initial bounded observation; investigate if it cannot complete |
+| `HEALTHY` | Observation is fresh and no degradation condition is present |
+| `DEGRADED` | Review retries, terminal/invalid rows or overdue work |
+| `UNAVAILABLE` | Restore the failed dependency; cached queue data is not a new success |
+| `STALE` | Investigate scheduling, service availability and monitoring freshness |
 
-All other methods/subpaths and ordinary/case/notification caller credentials are denied. The monitor cannot invoke case operations. Keep these endpoints outside browser ingress. Both are hidden from the original public producer API and add no SDK operation.
+Counts use Native database time and include only the configured realm. They contain no customer, destination, case/execution ID, ciphertext or raw exception. Preserve original observation timestamps in dashboards. A timestamp more than 30 seconds ahead or 90 seconds behind Core is rejected; synchronize clocks. Staleness is evaluated on reads even when scheduling has stopped.
 
-The snapshot contains exactly `state`, `activeCycle`, `lastAttemptAt`, `lastSuccessAt`, `consecutiveFailures`, `queue`. Queue is null before a valid observation; timestamps retain the corresponding original times. Its exact aggregate fields are `observedAt`, `pending`, `sending`, `retrying`, `delivered`, `failed`, `invalid`, `due`, `oldestDueDelaySeconds`. Counts are realm-scoped using Native database time. No subject, email/destination, case/execution ID, ciphertext, provider detail or raw exception is returned.
+Responses are bounded to 32 KiB and require valid, exact JSON fields and counts. Malformed, duplicate or unknown values are not treated as an empty healthy queue.
 
-| State | Operational interpretation |
-| --- | --- |
-| `STARTING` | No successful queue observation yet |
-| `HEALTHY` | Fresh validated observation without degradation conditions |
-| `DEGRADED` | Failed/invalid/retrying rows or excessive due delay need attention |
-| `UNAVAILABLE` | Latest cycle failed; cached queue information is not a fresh success |
-| `STALE` | Last successful observation aged past the configured bound without a newer success |
+## Monitor and respond
 
-Staleness is evaluated on reads even if scheduling silently stops. Preserve observation times when presenting a cached snapshot. Do not render old counts as a live healthy queue.
+Scrape the private metrics path over HTTPS with the monitor credential in a mounted `password_file`. The `firefly.reproofing.notifications` namespace covers cycle outcomes, bounded failure categories, processing, activity, freshness and queue counts/delay. Prometheus converts dots to underscores and appends `_total` to counters. Initial unavailable queue measurements are NaN, not fabricated zeroes.
 
-## Scrape and alert
+The worker registry is private and is not exported through the global composite or `/actuator/prometheus`. Use the notification alert rules supplied with Core KYCB at `ops/reproofing-notifications/alerts.yml`. Its absence alert expects scrape job `identity-core-notifications`; adapt the selector to the approved deployment topology. Check alert thresholds when changing durations. External monitoring must detect a missing or disabled worker, since the worker cannot report its own absence.
 
-The private registry exposes fixed-label `firefly.reproofing.notifications` metrics: cycles by success/failure, failures by timeout/invalid-response/dependency, processed, active, consecutive failures, last-success epoch, stale, observed and queue counts/due delay. Prometheus converts dots to underscores and counter names gain `_total`. Missing initial queue values are NaN, not fabricated zeros.
+For dependency failures, check credentials, permissions, exact issuer/URL, TLS trust, connectivity, timeouts and clock synchronization. For retries or overdue work, check the approved SMTP path. Restore the dependency and allow the next cycle to observe retained state; do not log HTTP bodies, credential values or SQL bind parameters.
 
-The registry is owned by a private wrapper: it is neither a Spring `MeterRegistry` bean nor a global-composite member. Worker series do not enter `/actuator/prometheus`; existing global metric configuration and security policy remain separately owned. The actual integration explicitly checks this isolation.
+Delivery uses a 60-second fenced lease and at most eight attempts. Failed delivery returns to pending with bounded exponential backoff, up to one hour. An expired eighth sending lease becomes a retained failed row without a ninth send. A late worker cannot overwrite a newer delivery result.
 
-Install the [Core alert rules](https://github.com/fireflysoftwaresolutions/core-common-kycb-mgmt/blob/26c3b142c66d4d9ad3a0cc9619d476f2b9d24261/ops/reproofing-notifications/alerts.yml) in the independent monitoring system. Scrape the private HTTPS metrics path with the dedicated identity and a mounted `password_file`. The supplied absence selector expects job `identity-core-notifications`; adjust it to the approved target/instance topology and test missing-worker detection. Review the 90/120-second thresholds if changing configuration. An application cannot report its own absence after being disabled.
+Delivery is **at least once**: SMTP acceptance followed by an interrupted response can produce duplicate notices. Processing a row or receiving SMTP acceptance is not proof that a person read the message. Failed or invalid rows need a named review procedure. No automatic replay, delete, destination replacement or budget-reset endpoint is supplied.
 
-## Respond without changing authority
-
-For unavailable/stale observations, inspect credential confinement, mount permissions, exact issuer/base URL, certificate trust, host connectivity, timeout and time synchronization. Keep diagnostics bounded; do not enable HTTP-body or SQL-bind logging. Restore the dependency and allow the next cycle to reobserve the retained queue.
-
-For retries/overdue work, check the approved SMTP path and provider monitoring. Keep bounded connect/read/write deadlines; pinned Keycloak 26.8.1 defaults each to 10,000 ms. After restoring the channel, Native backoff and leases remain authoritative. Delivery is **at least once**: SMTP acceptance followed by a lost response can duplicate a notice, without another recovery execution.
-
-An expired final sending lease becomes a retained failed row at attempt eight without a ninth send. Failed/invalid rows require named operational review. There is no supplied automatic replay/delete, address replacement or budget-reset endpoint. Preserve the exact row, lease/attempt and failure evidence and escalate under the approved procedure.
-
-Before normal disabling, quiesce new recovery ingress, drain or review pending notifications, then disable/restart and adjust the external expected-worker alert deliberately. Emergency disabling preserves the Native queue and requires follow-up; it does not manufacture an empty successful status.
-
-## Qualification
-
-[Final actual integration 41332055134](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41332055134) passed automatic SMTP failure/retry/delivery without manual dispatch, Core restart retention, separate workload denial, private metrics/global isolation, actual database realm filtering/constraints and expired eighth-lease terminal supervision. See [evidence](evidence.md) for exact source/SDK hashes and limits. The [Core runbook](https://github.com/fireflysoftwaresolutions/core-common-kycb-mgmt/blob/26c3b142c66d4d9ad3a0cc9619d476f2b9d24261/ops/reproofing-notifications/README.md) is the implementation owner's reference.
+Before routine shutdown, quiesce new recovery ingress and drain or review queued notices. Emergency shutdown preserves the queue for follow-up. Retain the encryption key versions needed by old destinations; see [credential-loss key rotation](credential-loss-recovery.md#protect-pending-enrollment-and-destinations).

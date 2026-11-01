@@ -1,67 +1,61 @@
-# Observability and incident response
+# Monitoring and incident response
 
-Observe whether the identity service is available, whether security decisions are working and whether a specific business/recovery operation has completed. These are different signals. A successful HTTP response or a healthy Keycloak process does not establish that an email arrived, a grant remains current or a receiving application rejects an old token.
+Monitor service availability, security activity and recovery completion separately. A healthy process can still have an SMTP outage, a stalled recovery journal or an application that accepts a revoked identity.
 
-## Signals and owners
+## Connect the signals
 
-| Signal | Owner / access | Interpretation and limit |
+| Signal | Where to collect it | What to watch |
 | --- | --- | --- |
-| Server readiness/liveness | Private Keycloak management network, port 9000 | Process/dependency readiness; not authentication, authorization or recovery acceptance |
-| Server metrics | Approved restricted monitoring system | Capacity, request/error and runtime signals; no public management exposure |
-| Identity/admin events | Identity operations/security; controlled retention and access | Useful investigation records; ordinary Keycloak event tables/logs do not prove immutable custody |
-| Native recovery journals/audit | Native identity owner, append-only controls at the qualified boundary | Exact lock/operation/execution history; not a permission to replay or grant another recovery |
-| Core case/grant/execution state | Respective SCA or KYCB owner | Authoritative operation status and retained budgets; reconcile the original identifiers |
-| Notification snapshot and metrics | Separate HTTPS monitor workload | Freshness and aggregate queue/retry/terminal state; contains no customer destination or case identifier |
-| Consumer enforcement | Each Experience/Domain/Core resource receiver | Correct issuer/audience/policy/current-state decisions and their fail-closed behavior |
+| Startup/readiness/liveness | Private HTTPS management interface, port 9000 | Startup progress, dependency readiness and process failure |
+| Server metrics | Restricted monitoring system | Capacity, request/error rates, pools and runtime pressure |
+| Identity/admin events | Controlled event storage/export | Authentication anomalies, administrative and credential changes |
+| Native journals/audit | Native identity owner | Lock/operation/execution status and interrupted work |
+| Core cases/grants | Respective SCA or KYCB service | Original operations, attempts, authorization and execution status |
+| Notification status/metrics | Independent HTTPS monitor credential | Observation freshness, retry/backlog and terminal rows |
+| Application decisions | Each resource receiver | Issuer/audience failures, authorization, current-state and tenant/resource refusals |
 
-The repository does not ship an enterprise immutable-audit collector or SIEM integration. Before production, define authenticated export, ordering/deduplication, bounded backpressure, custody, retention, residency, access review, alert ownership and failure escalation. Logs or unit tests alone do not supply that infrastructure.
+Set operational baselines and alert receivers for certificates/keys, capacity, database health, authentication anomalies, provider dependencies and consumer failures. Alerts should identify the observation time, link to a runbook and avoid customer data.
 
-## Logging without leaking authority
+An enterprise immutable-audit collector is not supplied. Configure authenticated export, ordering/deduplication, bounded backpressure, custody, retention, residency and access review with the operating team.
 
-The production reference selects JSON console logging. Keep diagnostic content bounded and structured. Prefer fixed event categories, approved correlation identifiers and result states. Restrict who can join identity, case and financial records. A correlation identifier can itself be personal or security-sensitive information; use the approved retention/access policy.
+## Monitor recovery notifications
 
-Never enable token/password/OTP/PIN logging, raw request bodies, browser trace/HAR capture, SQL bind values, full administrative representations, mail bodies or provider-document payloads in a shareable environment. URLs can contain authorization codes and action tokens. Sanitizing only the response body does not make the URL, exception stack or HTTP header safe.
+Install the private worker scrape and external alert rules from [notification operations](notification-operations.md). Monitor both failure and absence: a stopped worker cannot report its own absence. The worker's private registry does not enter global Actuator metrics.
 
-Hosted qualification deliberately retains only safe fixed-stage JSON, source/artifact hashes and empty/masked/completion screenshots. `.state`, ownership files, raw Maven/service logs, TOTP material and synthetic credentials are excluded. Synthetic credentials are still secrets.
+Check that monitor credentials cannot call recovery/case APIs and that acknowledging an alert does not change protected state. Cached counts must retain their observation time rather than look like a live healthy queue.
 
-## Alert on failure and absence
+## Investigate a sign-in failure
 
-Install and test normal platform alerts for service reachability, certificate/key expiry, capacity, abnormal authentication activity, administrative changes, federation/provider availability, database health and consumer enforcement. This requires actual operational baselines and owners; the repository does not invent production thresholds for an unknown institution.
+1. Identify the affected issuer/population, application and approximate time using approved correlation data.
+2. Compare public service reachability with private dependency health.
+3. Check DNS, certificate/name verification, canonical hostname, proxy trust, callback/PKCE and clock synchronization.
+4. Check factor enrollment and current lock/hold state through authorized private interfaces.
+5. If sign-in succeeds but a business action fails, inspect that receiver's permission, tenant/resource binding, consent/mandate and current-state decision.
 
-The recovery notification worker supplies scoped rules for absent/stale observation, dependency/timeout/invalid responses, sustained retry/overdue work and terminal/invalid rows. Its private metrics are excluded from global Actuator export. The monitoring system must independently expect the worker: disabling a process cannot make it emit its own absence signal. [Notification operations](notification-operations.md) explains the exact endpoint, job and alert thresholds.
+Keep public responses generic. Do not disclose account existence or remaining attempts, temporarily enable a real user for diagnosis, or broaden roles to silence a 403. A permanent lock and a fraud/admin/employment hold have different owners.
 
-An alert should link to a named runbook and escalation owner, identify the observation time and avoid revealing customers. Test that alert transport works, its credentials cannot call recovery/case APIs, and acknowledgement does not mutate the protected recovery state.
+## Handle interrupted recovery
 
-## Triage authentication failure
+Locate the original case, operation, reservation, grant and execution. A timeout does not establish success or failure. Read the exact committed journal and reconcile only that operation. Keep original expiry and budgets; do not start another provider session, replay factors or create a replacement grant.
 
-First establish the affected issuer/population, client/journey, approximate time and approved correlation. Compare public-service availability with private dependency health. Check trusted TLS, canonical hostname/proxy behavior, client redirect/PKCE, token issuer/audience, clock synchronization, factor enrollment and current native hold/lock state.
+If provider evidence is unavailable, restore authenticated connectivity and inspect the original session. Do not fabricate approval or a business rejection from an outage. If account/contact/link/hold state changed, investigate the current owner before proceeding.
 
-Keep public failures generic. A support operator must not disclose whether a supplied account exists or how many attempts remain. Do not clear a failed-login counter, replace a password or issue a temporary enable to test a real user's access. A tracked permanent lock has its own approved unlock/reproofing procedure. Fraud/administrative/employment holds remain distinct.
+For SMTP failures, retain destination/attempt/lease state and follow the channel runbook. Eight exhausted attempts become terminal review work, not an automatic requeue. At-least-once delivery can produce a duplicate notice after an ambiguous accepted send; it does not imply another credential change.
 
-If login succeeds but a business request is refused, inspect the receiving service's actual permission, tenant/resource, mandate/consent and current-state decision. Granting broader roles or forwarding an administrator token to silence a 403 is not incident repair.
+## Contain a compromise
 
-## Triage interrupted recovery
+Identify whether the compromised material is a signing key, workload credential, user factor or administrator account. Each needs its own revocation/rotation procedure and consumer response. Preserve relevant records before an authorized mutation and keep secrets out of diagnostics.
 
-Identify the authoritative original case, operation, reservation, grant and execution through the approved private owner interfaces. An ambiguous timeout is not evidence of failure or success. Read the exact committed journal and reconcile only that operation. Do not start another provider session, renew expiry, reset a budget or reconstruct human approval.
+Disablement, session retirement and not-before changes must be accompanied by current-state/revocation handling in applications that need immediate denial. Review cache bounds and independent application sessions. Use the institution's containment plan where an offline decoder would otherwise accept an unexpired JWT.
 
-For unavailable provider evidence, verify authenticated connectivity and original session status. Do not convert an outage into a fabricated negative business check or approval. For a held or changed native account, preserve the hold and investigate its current owner; previous proofing does not override current eligibility.
+## Keep diagnostics private
 
-For failed notification delivery, retain the original destination/attempt/lease evidence and follow the named channel runbook. A terminal row after eight attempts does not automatically requeue. At-least-once SMTP semantics can produce a duplicate notice after an ambiguous accepted send; a duplicate does not imply another credential replacement.
+The reference selects JSON console logs. Prefer fixed event categories, bounded result states and approved correlation identifiers. Restrict who can join identity, recovery and financial records.
 
-## Revoke and contain deliberately
+Exclude raw HTTP bodies, authorization headers, passwords, PINs, OTP/setup keys, browser traces/HARs, SQL bind values, full admin representations and provider/mail payloads from shared diagnostics. URLs can contain codes and action tokens too. Store incident records and configuration exports in the controlled operating system, not the public repository.
 
-Compromised signing keys, workload credentials, factors or privileged accounts require different containment actions. Define who can revoke/rotate each, how consumers observe the change, what remains valid during transition and how failure is detected. Preserve evidence before an approved mutation. Do not dump secrets into diagnostic output to compare them.
+## Apply the right reporting clock
 
-User disablement, session removal and not-before changes are important identity actions. Prove how every receiving service and application session observes current state; offline JWT signature validity alone can outlive the incident decision. Where the integration has no accepted live-state mechanism, record that limitation and use the approved compensating containment plan rather than claim immediate universal revocation.
+DORA, GDPR, US bank-agency rules, FTC and NYDFS use different scopes, triggers and deadlines. Several may apply concurrently. Route technical alerts to the designated incident/privacy/legal owners so they can classify the event, record awareness/determination times and manage notifications. [EU/US controls](controls-matrix.md) lists the primary sources and timing distinctions.
 
-## Apply the correct incident clock
-
-Legal reporting triggers differ. DORA major-incident classification/awareness, GDPR personal-data-breach awareness, US bank notification-incident determination, FTC covered notification events and NYDFS cybersecurity/extortion events have different scopes, clocks and responsible parties. They can apply concurrently. Do not implement one generic timer as legal incident management.
-
-The [EU/US controls matrix](controls-matrix.md) gives dated primary sources and the trigger distinctions. The institution must approve classification, legal/compliance contacts, regulator/individual/customer notifications, supplier escalation, evidentiary retention and contractual deadlines. A technical alert can start investigation; it cannot make the legal classification automatically.
-
-## Close with evidence
-
-Record what was affected, current status, authoritative decisions, protected evidence references, exact changes, consumer/channel recovery and unresolved risks. Confirm monitoring returned to the expected state and original recovery/case budgets were preserved. Capture lessons into the versioned runbook/configuration through review.
-
-Neither an incident ticket closure nor a green synthetic workflow replaces actual provider, retained-data, HA or bank operating acceptance. [Evidence](evidence.md) and [retained data](retained-data.md) explain the remaining gates.
+Before closure, confirm service and consumer recovery, channel/monitoring health and preservation of original cases/budgets. Record affected systems, decisions, changes, unresolved risks and follow-up runbook improvements. Use [retained data](retained-data.md) when restoration is needed.

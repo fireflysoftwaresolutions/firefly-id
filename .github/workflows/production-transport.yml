@@ -1,0 +1,43 @@
+name: Production transport
+
+on:
+  push:
+    paths:
+      - 'deploy/keycloak.production.conf.example'
+      - 'deploy/images.lock.json'
+      - 'tooling/production_transport.py'
+      - 'tests/test_production_transport.py'
+      - '.github/workflows/production-transport.yml'
+  pull_request:
+    paths:
+      - 'deploy/keycloak.production.conf.example'
+      - 'deploy/images.lock.json'
+      - 'tooling/production_transport.py'
+      - 'tests/test_production_transport.py'
+      - '.github/workflows/production-transport.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  transport:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Transport evidence classifier regressions
+        run: python3 -m unittest discover -s tests -p test_production_transport.py -v
+      - name: Actual pinned PostgreSQL TLS and HTTPS-only Keycloak management
+        run: python3 tooling/production_transport.py
+      - name: Preserve bounded transport evidence only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: production-transport-evidence
+          path: .work/production-transport/summary.json
+          if-no-files-found: ignore
+          retention-days: 14
