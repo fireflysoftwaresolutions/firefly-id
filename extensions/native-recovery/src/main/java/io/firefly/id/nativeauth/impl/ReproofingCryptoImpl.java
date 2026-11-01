@@ -18,7 +18,7 @@ public final class ReproofingCryptoImpl {
     static byte[] key() {
         try {
             String configured = System.getenv("FIREFLY_REPROOFING_ENROLLMENT_KEY_FILE"); require(configured != null);
-            Path path = Path.of(configured); require(!Files.isSymbolicLink(path));
+            Path path = Path.of(configured); require(!Files.isSymbolicLink(path) && Files.size(path) == 32);
             Set<PosixFilePermission> permissions = Files.getPosixFilePermissions(path);
             require(!permissions.contains(PosixFilePermission.GROUP_READ) && !permissions.contains(PosixFilePermission.GROUP_WRITE)
                     && !permissions.contains(PosixFilePermission.OTHERS_READ) && !permissions.contains(PosixFilePermission.OTHERS_WRITE));

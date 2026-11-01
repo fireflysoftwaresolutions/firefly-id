@@ -30,8 +30,9 @@ final class ReproofingDispatcherImpl {
                     require(notification != null && notification.realmId.equals(store.config.realm.getId()));
                     var user = child.users().getUserById(store.config.realm, notification.subject); require(user != null);
                     String destination = ReproofingEngineImpl.open("notification:" + id, notification.destinationEncrypted);
-                    child.getProvider(EmailTemplateProvider.class).setRealm(store.config.realm).setUser(user)
-                            .send("ffidCredentialsReplacedSubject", "firefly-credentials-replaced.ftl", Map.of(), destination);
+                    try { child.getProvider(EmailTemplateProvider.class).setRealm(store.config.realm).setUser(user)
+                            .send("ffidCredentialsReplacedSubject", "firefly-credentials-replaced.ftl", Map.of(), destination); }
+                    catch (org.keycloak.email.EmailException unavailable) { throw new IllegalStateException("Notification unavailable"); }
                     return null;
                 });
                 delivered = true;
