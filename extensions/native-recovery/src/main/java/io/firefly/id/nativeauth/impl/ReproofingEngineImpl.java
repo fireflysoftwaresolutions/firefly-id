@@ -16,7 +16,7 @@ final class ReproofingEngineImpl {
     private final KeycloakSession request;
     ReproofingEngineImpl(KeycloakSession request) { this.request = request; }
     View create() {
-        byte[] key = ReproofingCryptoImpl.key(); Arrays.fill(key, (byte) 0);
+        ReproofingKeyringImpl.configured().requireActive();
         return NativePhases.run(request, child -> {
             var store = new ReproofingStoreImpl(child); var c = new ReproofingCeremonyImpl(); c.id = randomToken(); c.realmId = store.config.realm.getId();
             String csrf = randomToken(); c.csrfDigest = digest(csrf); c.stage = "IDENTIFY"; c.expiresAt = store.now() + store.config.ttl() * 1000L;
@@ -152,6 +152,6 @@ final class ReproofingEngineImpl {
         var policy = store.config.realm.getOTPPolicy(); require(OTPCredentialModel.TOTP.equals(policy.getType()) && !policy.isCodeReusable());
         return java.security.MessageDigest.isEqual(ReproofingCryptoImpl.totp(open(c.id, c.encryptedTotp), store.now(), policy.getPeriod(), policy.getDigits(), policy.getAlgorithm()).getBytes(java.nio.charset.StandardCharsets.US_ASCII), code.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
     }
-    static String seal(String context, String value) { byte[] key = ReproofingCryptoImpl.key(); try { return ReproofingCryptoImpl.seal(key, context, value); } finally { Arrays.fill(key, (byte) 0); } }
-    static String open(String context, String value) { byte[] key = ReproofingCryptoImpl.key(); try { return ReproofingCryptoImpl.open(key, context, value); } finally { Arrays.fill(key, (byte) 0); } }
+    static String seal(String context, String value) { return ReproofingKeyringImpl.configured().seal(context, value); }
+    static String open(String context, String value) { return ReproofingKeyringImpl.configured().open(context, value); }
 }

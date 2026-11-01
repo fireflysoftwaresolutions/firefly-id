@@ -6,8 +6,6 @@ import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.nio.file.attribute.PosixFilePermission;
 import java.security.SecureRandom;
 import java.util.*;
 import static io.firefly.id.nativeauth.NativeSecurity.require;
@@ -15,30 +13,31 @@ import static io.firefly.id.nativeauth.NativeSecurity.require;
 public final class ReproofingCryptoImpl {
     private static final SecureRandom RANDOM = new SecureRandom();
     private ReproofingCryptoImpl() { }
-    static byte[] key() {
+    public static String seal(byte[] key, String context, String secret) { return seal(key, "v1", context, secret); }
+    static String seal(byte[] key, String version, String context, String secret) {
         try {
-            String configured = System.getenv("FIREFLY_REPROOFING_ENROLLMENT_KEY_FILE"); require(configured != null);
-            Path path = Path.of(configured); require(!Files.isSymbolicLink(path) && Files.size(path) == 32);
-            Set<PosixFilePermission> permissions = Files.getPosixFilePermissions(path);
-            require(!permissions.contains(PosixFilePermission.GROUP_READ) && !permissions.contains(PosixFilePermission.GROUP_WRITE)
-                    && !permissions.contains(PosixFilePermission.OTHERS_READ) && !permissions.contains(PosixFilePermission.OTHERS_WRITE));
-            byte[] value = Files.readAllBytes(path); require(value.length == 32); return value;
-        } catch (Exception error) { throw refused(); }
-    }
-    public static String seal(byte[] key, String context, String secret) {
-        try {
-            require(key != null && key.length == 32); byte[] nonce = new byte[12]; RANDOM.nextBytes(nonce);
+            require(key != null && key.length == 32); ReproofingKeyringImpl.version(version); byte[] nonce = new byte[12]; RANDOM.nextBytes(nonce);
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(128, nonce));
-            cipher.updateAAD(context.getBytes(StandardCharsets.UTF_8)); byte[] value = cipher.doFinal(secret.getBytes(StandardCharsets.UTF_8));
-            return Base64.getEncoder().encodeToString(ByteBuffer.allocate(nonce.length + value.length).put(nonce).put(value).array());
+            cipher.updateAAD(aad(version, context)); byte[] value = cipher.doFinal(secret.getBytes(StandardCharsets.UTF_8));
+            return "ffr1:" + version + ":" + Base64.getEncoder().encodeToString(ByteBuffer.allocate(nonce.length + value.length).put(nonce).put(value).array());
         } catch (Exception error) { throw refused(); }
     }
-    public static String open(byte[] key, String context, String encrypted) {
+    public static String open(byte[] key, String context, String encrypted) { return open(key, "v1", context, encrypted); }
+    static String version(String encrypted) {
+        require(encrypted != null && encrypted.length() <= 4096);
+        String[] parts = encrypted.split(":", -1); require(parts.length == 3 && "ffr1".equals(parts[0])); ReproofingKeyringImpl.version(parts[1]); return parts[1];
+    }
+    static String open(byte[] key, String expectedVersion, String context, String encrypted) {
         try {
-            require(key != null && key.length == 32); byte[] value = Base64.getDecoder().decode(encrypted); require(value.length > 28 && value.length < 4096);
+            require(key != null && key.length == 32 && expectedVersion.equals(version(encrypted)));
+            byte[] value = Base64.getDecoder().decode(encrypted.substring(encrypted.lastIndexOf(':') + 1)); require(value.length > 28 && value.length < 4096);
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(128, Arrays.copyOfRange(value, 0, 12)));
-            cipher.updateAAD(context.getBytes(StandardCharsets.UTF_8)); return new String(cipher.doFinal(Arrays.copyOfRange(value, 12, value.length)), StandardCharsets.UTF_8);
+            cipher.updateAAD(aad(expectedVersion, context)); return new String(cipher.doFinal(Arrays.copyOfRange(value, 12, value.length)), StandardCharsets.UTF_8);
         } catch (Exception error) { throw refused(); }
+    }
+    private static byte[] aad(String version, String context) {
+        require(context != null && !context.isEmpty() && context.length() <= 512 && context.indexOf('\0') < 0);
+        return ("ffr1\0" + version + "\0" + context).getBytes(StandardCharsets.UTF_8);
     }
     static String secret() { byte[] value = new byte[20]; RANDOM.nextBytes(value); return base32(value); }
     private static String base32(byte[] bytes) {
