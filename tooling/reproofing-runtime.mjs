@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:https';
 import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -278,7 +278,27 @@ try {
     assert.equal(await nativeStage(journey.page), 'VERIFY');
     await journey.context.close();
   }
+  const negativeState = fixture('snapshot');
+  assert.equal(negativeState.core.grants, 0, 'Negative journeys must not secretly issue a Core grant');
+  assert.equal(negativeState.core.verifiedGrantTotal, 0, 'Unverified/forged journeys cannot debit a victim grant ledger');
+  assert.equal(negativeState.native.executions, 0, 'Negative journeys must not mutate credentials');
   passed('forged-wrong-reference-replayed-expired-and-unavailable-proofing-never-replace');
+  phase = 'authenticated-case-refusal-budget';
+  const grantsBeforeRejection = fixture('snapshot').core.grants;
+  const rejected = await startRecovery(profile.person.username);
+  await providerResult(rejected, 'REJECTED');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await submit(rejected.page); assert.equal(await nativeStage(rejected.page), 'VERIFY');
+    assert.doesNotMatch(await rejected.page.locator('.ffid-native-journey').innerText(), /\b[0-3]\s+(?:attempt|intento)/i);
+  }
+  await providerResult(rejected, 'APPROVED'); await submit(rejected.page);
+  assert.equal(await nativeStage(rejected.page), 'VERIFY');
+  const rejectionState = fixture('snapshot');
+  assert.equal(rejectionState.core.grants, grantsBeforeRejection);
+  assert.equal(rejectionState.core.verifiedGrantTotal, 0);
+  assert.ok(rejectionState.core.cases.some(value => value.status === 'DENIED' && value.failures === 3));
+  await rejected.context.close();
+  passed('three-authenticated-case-refusals-preserved-without-target-grant-budget-or-public-count');
   phase = 'enabled-account-credential-loss';
   const recovery = await startRecovery(profile.person.email, 'en');
   await capture(recovery.page, 'provider-en-empty-form');
@@ -365,6 +385,55 @@ try {
   assert.equal((await currentUser(heldPerson)).enabled, false, 'An approved proof must never override a later administrative hold');
   await heldRecovery.context.close();
   passed('administrative-disable-after-proofing-refuses-activation');
+  phase = 'verified-grant-budget-and-enabled-only-identity-invalidation';
+  const changedPerson = profile.changed;
+  const changedContext = await browser.newContext(); await authenticate(changedPerson, changedContext, { enroll: true }); await changedContext.close();
+  const changedJourneys = [];
+  for (let issuance = 0; issuance < 3; issuance++) {
+    const journey = await startRecovery(changedPerson.username);
+    changedJourneys.push({ ...journey, secret: await enrollment(journey) });
+  }
+  const exhausted = await startRecovery(changedPerson.username);
+  await providerResult(exhausted, 'APPROVED'); await submit(exhausted.page);
+  assert.equal(await nativeStage(exhausted.page), 'VERIFY');
+  await exhausted.context.close();
+  const beforeIdentityChange = fixture('snapshot');
+  assert.equal(beforeIdentityChange.native.changedLegacyStates, 0, 'Enabled-only invalidation must not rely on legacy permanent-lock state');
+  assert.equal(beforeIdentityChange.core.changedLiveGrants, 3, 'All original grant expiries must remain live before changing identity');
+  const changedUser = await currentUser(changedPerson);
+  const changedResponse = await admin(`users/${changedPerson.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ attributes: { ...changedUser.attributes, party_id: [randomUUID()] } }) });
+  assert.equal(changedResponse.status, 204);
+  const stale = changedJourneys[0];
+  const stalePassword = randomBytes(30).toString('base64url') + 'aA9!';
+  await stale.page.locator('[name=password]').fill(stalePassword);
+  await stale.page.locator('[name=passwordConfirm]').fill(stalePassword);
+  await stale.page.locator('[name=otp]').fill(totpCode(stale.secret));
+  await submit(stale.page); assert.notEqual(await nativeStage(stale.page), 'COMPLETE');
+  const afterIdentityChange = fixture('snapshot');
+  assert.equal(afterIdentityChange.native.executions, beforeIdentityChange.native.executions);
+  assert.ok(afterIdentityChange.native.changedInvalidationAudits > beforeIdentityChange.native.changedInvalidationAudits);
+  assert.equal(afterIdentityChange.native.epochs.find(value => value.subject === changedPerson.id).epoch,
+    beforeIdentityChange.native.epochs.find(value => value.subject === changedPerson.id).epoch, 'Administrative invalidation must preserve recovery epoch and budgets');
+  for (const journey of changedJourneys) await journey.context.close();
+  passed('three-verified-grants-span-cases-without-reset-and-enabled-only-party-change-invalidates-live-work');
+  phase = 'previous-verified-contact-change';
+  const contactPerson = profile.contact;
+  const contactContext = await browser.newContext(); await authenticate(contactPerson, contactContext, { enroll: true }); await contactContext.close();
+  const contactJourney = await startRecovery(contactPerson.username);
+  const contactSecret = await enrollment(contactJourney);
+  const beforeContact = fixture('snapshot').native.executions;
+  const contactResponse = await admin(`users/${contactPerson.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'changed-destination@example.invalid', emailVerified: true }) });
+  assert.equal(contactResponse.status, 204);
+  const contactPassword = randomBytes(30).toString('base64url') + 'aA9!';
+  await contactJourney.page.locator('[name=password]').fill(contactPassword);
+  await contactJourney.page.locator('[name=passwordConfirm]').fill(contactPassword);
+  await contactJourney.page.locator('[name=otp]').fill(totpCode(contactSecret));
+  await submit(contactJourney.page); assert.notEqual(await nativeStage(contactJourney.page), 'COMPLETE');
+  assert.equal(fixture('snapshot').native.executions, beforeContact);
+  await contactJourney.context.close();
+  passed('previously-verified-destination-change-invalidates-unexecuted-replacement');
   phase = 'literal-completion-reload';
   const beforeReload = fixture('snapshot');
   assert.ok(beforeReload.native.oldestExecutedGrantSeconds < 0, 'Natural consumed authorization expiry must precede audit-only recovery');
@@ -376,7 +445,7 @@ try {
   const afterReload = fixture('snapshot');
   assert.equal(afterReload.native.executions, beforeReload.native.executions);
   assert.equal(afterReload.native.recordedExecutions, beforeReload.native.recordedExecutions + 1);
-  assert.deepEqual(afterReload.core, beforeReload.core);
+  for (const field of ['cases', 'grants', 'verifiedGrantTotal', 'consumedAudits', 'executedAudits']) assert.deepEqual(afterReload.core[field], beforeReload.core[field]);
   await recovery.context.close(); await onlineContext.close(); await offlineContext.close();
   passed('committed-response-loss-restart-and-natural-receipt-expiry-reconcile-only-original-execution');
   await writeFile(`${output}/summary.json`, JSON.stringify({ scope: 'Actual native/Core/customer Domain with test-only proofing adapter; real provider, workforce recovery, receiver-wide JWT revocation and production acceptance excluded', gates, failed: [], fontMeasurements: fonts.length }, null, 2));

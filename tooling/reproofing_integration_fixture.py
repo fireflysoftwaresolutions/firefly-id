@@ -64,6 +64,7 @@ def prepare():
     for name, value in values.items():
         if not name.endswith('_client'):
             protected(directory / 'secrets' / (name + '.secret'), value)
+    protected(directory / 'secrets/native-domain-kc.secret', values['native-domain'])
     protected(directory / 'secrets/enrollment.key', secrets.token_bytes(32))
     credentials['reproofing'] = values
     profile = credentials['profiles'][0]
@@ -73,7 +74,7 @@ def prepare():
     profile['tenant'] = person['attributes']['tenant_id'][0]
     profile['party'] = person['attributes']['party_id'][0]
     person['emailVerified'] = True
-    for label in ('locked', 'changed', 'held-after-proof'):
+    for label in ('locked', 'changed', 'contact', 'held-after-proof'):
         additional = json.loads(json.dumps(person))
         additional.update(id=str(uuid.uuid4()), username=label + '-customer',
                           email=label + '@example.invalid')
@@ -93,6 +94,13 @@ def prepare():
                                  'standardFlowEnabled': False, 'directAccessGrantsEnabled': False,
                                  'serviceAccountsEnabled': False, 'implicitFlowEnabled': False,
                                  'protocol': 'openid-connect', 'fullScopeAllowed': False})
+    for client in realm['clients']:
+        if client['clientId'].startswith('reproofing-'):
+            client['attributes'] = {**client.get('attributes', {}),
+                                    'oauth2.device.authorization.grant.enabled': 'false',
+                                    'oidc.ciba.grant.enabled': 'false',
+                                    'standard.token.exchange.enabled': 'false',
+                                    'oauth2.jwt.authorization.grant.enabled': 'false'}
     realm['smtpServer'] = {'host': '127.0.0.1', 'port': '1025', 'from': 'identity@example.invalid',
                            'fromDisplayName': 'Firefly Identity', 'ssl': 'false', 'starttls': 'false', 'auth': 'false'}
     realm_file.write_text(json.dumps(realm, indent=2) + '\n')
@@ -106,7 +114,7 @@ def prepare():
     owned.tls(directory, credentials)
     # Native image UID reads only these attempt-owned private files; host services
     # use different files, so neither service receives the other's credentials.
-    for name in ('native-domain.secret', 'enrollment.key'):
+    for name in ('native-domain-kc.secret', 'enrollment.key'):
         owned.run(['sudo', 'chown', '1000:0', str(directory / 'secrets' / name)], directory, 'replacement-secret-owner')
     owned.run(['sudo', 'chmod', '755', str(directory / 'secrets')], directory, 'replacement-secret-directory')
     print('Prepared new credential-loss fixture; credentials and synthetic references remain private.')
@@ -139,7 +147,7 @@ def start_native(directory, owner, credentials, images):
                  '--env', 'KC_HTTPS_CERTIFICATE_FILE=/run/native/server.crt', '--env', 'KC_HTTPS_CERTIFICATE_KEY_FILE=/run/native/server.key',
                  '--env', 'KC_LOG_LEVEL=warn', '--env', 'JAVA_OPTS_KC_HEAP=-Xms128m -Xmx768m',
                  '--env', 'FIREFLY_SUPPORT_PIN_KEYS_DIR=/run/pepper', '--env', 'FIREFLY_SUPPORT_PIN_ACTIVE_KEY=v1',
-                 '--env', 'FIREFLY_REPROOFING_DOMAIN_SECRET_FILE=/run/reproofing/native-domain.secret',
+                 '--env', 'FIREFLY_REPROOFING_DOMAIN_SECRET_FILE=/run/reproofing/native-domain-kc.secret',
                  '--env', 'FIREFLY_REPROOFING_ENROLLMENT_KEY_FILE=/run/reproofing/enrollment.key',
                  '--env', 'JAVA_OPTS_APPEND=-Djavax.net.ssl.trustStore=/run/native/trust.p12 -Djavax.net.ssl.trustStorePassword=' + credentials['store'],
                  '--volume', str(directory / 'providers') + ':/opt/keycloak/providers:ro',
@@ -356,19 +364,25 @@ def fault_status():
 
 def snapshot():
     directory, owner = state()
+    credentials = json.loads((directory / 'credentials.json').read_text())
+    changed = str(uuid.UUID(credentials['profiles'][0]['changed']['id']))
     native = owned.psql(directory, owner, """SELECT json_build_object(
       'executions',(SELECT count(*) FROM ff_reproofing_execution),
       'recordedExecutions',(SELECT count(*) FROM ff_reproofing_execution WHERE recorded=true),
       'oldestExecutedGrantSeconds',(SELECT coalesce(min(extract(epoch from (cast(authorization_json as jsonb)->>'expiresAt')::timestamptz-clock_timestamp())),0) FROM ff_reproofing_execution),
       'notifications',(SELECT coalesce(json_agg(json_build_object('status',status,'attempts',attempts)),'[]'::json) FROM ff_reproofing_notification),
       'epochs',(SELECT coalesce(json_agg(json_build_object('subject',subject,'epoch',epoch,'failures',failures)),'[]'::json) FROM ff_reproofing_state),
-      'liveGrantSeconds',(SELECT coalesce(max(greatest(0,extract(epoch from (cast(authorization_json as jsonb)->>'expiresAt')::timestamptz-clock_timestamp()))),0) FROM ff_reproofing_ceremony WHERE authorization_json IS NOT NULL AND stage='ENROLL')
+      'liveGrantSeconds',(SELECT coalesce(max(greatest(0,extract(epoch from (cast(authorization_json as jsonb)->>'expiresAt')::timestamptz-clock_timestamp()))),0) FROM ff_reproofing_ceremony WHERE authorization_json IS NOT NULL AND stage='ENROLL'),
+      'changedLegacyStates',(SELECT count(*) FROM ff_native_state WHERE subject='""" + changed + """'),
+      'changedInvalidationAudits',(SELECT count(*) FROM ff_native_audit WHERE subject='""" + changed + """' AND event_type LIKE 'REPROOFING_%')
     );""", 'native_kc')
     core = owned.psql(directory, owner, """SELECT json_build_object(
-      'cases',(SELECT coalesce(json_agg(json_build_object('status',status,'failures',failures)),'[]'::json) FROM identity_reproofing_case),
+      'cases',(SELECT coalesce(json_agg(json_build_object('status',status,'failures',failures) ORDER BY case_id),'[]'::json) FROM identity_reproofing_case),
       'grants',(SELECT count(*) FROM identity_reproofing_case WHERE authorization_id IS NOT NULL),
+      'verifiedGrantTotal',(SELECT coalesce(sum(verified_grants),0) FROM identity_reproofing_budget),
       'consumedAudits',(SELECT count(*) FROM identity_reproofing_audit WHERE event='CONSUMED'),
-      'executedAudits',(SELECT count(*) FROM identity_reproofing_audit WHERE event='EXECUTED')
+      'executedAudits',(SELECT count(*) FROM identity_reproofing_audit WHERE event='EXECUTED'),
+      'changedLiveGrants',(SELECT count(*) FROM identity_reproofing_case WHERE cast(binding as jsonb)->>'subject'='""" + changed + """' AND grant_expires_at>clock_timestamp()+interval '10 seconds')
     );""", 'kycb_reproofing')
     print(json.dumps({'native': json.loads(native), 'core': json.loads(core)}))
 
