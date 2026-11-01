@@ -48,6 +48,29 @@ class ReproofingBoundaryTest {
         assertThrows(RuntimeException.class, () -> ReproofingResourceImpl.form(input.apply("approved=true")));
         assertThrows(RuntimeException.class, () -> ReproofingResourceImpl.form(input.apply("password=" + "x".repeat(16384))));
     }
+    @Test void privateDeviceGrantClientIsRejected() { grantAttributeRefused("oauth2.device.authorization.grant.enabled"); }
+    @Test void privateCibaGrantClientIsRejected() { grantAttributeRefused("oidc.ciba.grant.enabled"); }
+    @Test void privateStandardTokenExchangeClientIsRejected() { grantAttributeRefused("standard.token.exchange.enabled"); }
+    @Test void privateJwtAuthorizationGrantClientIsRejected() { grantAttributeRefused("oauth2.jwt.authorization.grant.enabled"); }
+    private void grantAttributeRefused(String attribute) {
+        var session = mock(KeycloakSession.class); var context = mock(KeycloakContext.class); var realm = realm(); var clients = mock(ClientProvider.class); var client = mock(ClientModel.class);
+        when(session.getContext()).thenReturn(context); when(context.getRealm()).thenReturn(realm); when(session.clients()).thenReturn(clients); when(clients.getClientByClientId(realm, "core-owner")).thenReturn(client);
+        when(client.isEnabled()).thenReturn(true); when(client.validateSecret("secret")).thenReturn(true); when(client.getAttribute(attribute)).thenReturn("true");
+        String header = "Basic " + Base64.getEncoder().encodeToString("core-owner:secret".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertThrows(RuntimeException.class, () -> ReproofingRpcImpl.workload(session, header, "admit"));
+    }
+    @Test void expiredFinalNotificationLeaseBecomesFailedWithoutAnotherAttemptOrLateResurrection() throws Exception {
+        var notification = new ReproofingNotificationImpl(); notification.status = "SENDING"; notification.leaseToken = "last-lease"; notification.nextAttemptAt = 1000; notification.attempts = 8;
+        java.lang.reflect.Method expire;
+        try { expire = ReproofingDispatcherImpl.class.getDeclaredMethod("expireFinalLease", ReproofingNotificationImpl.class, long.class); }
+        catch (NoSuchMethodException missing) { fail("Missing durable terminal transition for an expired last delivery lease"); return; }
+        assertEquals(false, expire.invoke(null, notification, 999L)); assertEquals("SENDING", notification.status);
+        assertEquals(true, expire.invoke(null, notification, 1000L)); assertEquals("FAILED", notification.status); assertEquals(8, notification.attempts);
+        assertFalse(ReproofingDispatcherImpl.owns(notification, "last-lease"));
+        notification.status = "DELIVERED"; assertEquals(false, expire.invoke(null, notification, 2000L)); assertEquals("DELIVERED", notification.status);
+        notification.status = "SENDING"; notification.leaseToken = "newer-lease"; notification.nextAttemptAt = 3000L;
+        assertEquals(false, expire.invoke(null, notification, 2000L)); assertEquals("newer-lease", notification.leaseToken);
+    }
     private RealmModel realm() {
         var realm = mock(RealmModel.class); when(realm.getName()).thenReturn("customers");
         Map<String, String> attributes = Map.of("enabled", "true", "population", "HUMAN", "allowed-origin", "https://id.test", "issuer", "https://id.test/realms/customers", "core-workload-client-id", "core-owner", "domain-workload-client-id", "domain-owner", "ttl-seconds", "600");
