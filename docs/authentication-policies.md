@@ -15,7 +15,7 @@ All profiles select Argon2, reject a password equal to the whole username or ema
 
 The exact policy IDs are `length`, `maxLength`, `notUsername`, `notEmail`, `passwordHistory`, `hashAlgorithm` and `passwordBlacklist`. See [Keycloak's password policy implementation](https://github.com/keycloak/keycloak/blob/26.8.1/server-spi/src/main/java/org/keycloak/models/PasswordPolicy.java).
 
-Workforce uses `firefly-workforce-browser`: an eligible existing SSO session can be reused; fresh authentication requires both password and OTP. A user without OTP must enroll before the application receives an authorization code. TOTP uses HmacSHA1, six digits, a 30-second period, a one-step validation window and nonreusable codes. TOTP is not phishing resistant. Configure passkeys/security keys and stronger step-up separately where required.
+Workforce uses `firefly-workforce-browser`: an eligible existing SSO session can be reused; fresh authentication requires both password and OTP. A user without OTP must enroll before the application receives an authorization code. TOTP uses HmacSHA1, six digits, a 30-second period, a one-step validation window and nonreusable codes. TOTP is not phishing resistant. Configure [passkeys/security keys](extended-flows.md#configure-passkeys) and stronger step-up separately where required.
 
 The administrator catalogue entry records MFA intent; it does not create a permanent MFA flow or enroll administrators. Follow [workforce and administration](workforce-administration.md) to establish named privileged access and remove bootstrap administration.
 

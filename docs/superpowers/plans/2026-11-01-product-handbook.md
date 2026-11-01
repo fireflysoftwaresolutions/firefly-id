@@ -8,12 +8,14 @@ English source; existing Manrope/Firefly/light-dark/MkDocs/Pages; no local depen
 
 ## Work
 
-- [ ] Archive committed original guides under excluded `docs/superpowers/archive/2026-11-01-product-handbook/`.
-- [ ] Independent writers rewrite disjoint integration, operations/configuration and recovery pages as product guides. Root rewrites overview/customization/glossary/FAQ/navigation and publishing support.
-- [ ] Remove provider evaluation, progress and evidence reports from publication/search/navigation; preserve internal source/history. Remove development-review/receipt fragments and repeated negative qualification copy across public guides. Retain concrete installation dependencies and unsupported operations.
-- [ ] Render authored Mermaid architecture/sequence/state diagrams to local static SVGs at build time. Use the existing hosted Playwright browser, pinned Mermaid12.2.0, canonical font and paired Firefly light/dark styles. No runtime CDN or JavaScript diagram dependency. Build fails on syntax/font/diagram failure.
+- [x] Archive committed original guides under excluded `docs/superpowers/archive/2026-11-01-product-handbook/`.
+- [x] Independent writers rewrite disjoint integration, operations/configuration and recovery pages as product guides. Root rewrites overview/customization/glossary/FAQ/navigation and publishing support.
+- [x] Remove provider evaluation, progress and evidence reports from publication/search/navigation; preserve internal source/history. Remove development-review/receipt fragments and repeated negative qualification copy across public guides. Retain concrete installation dependencies and unsupported operations.
+- [x] Render authored Mermaid architecture/sequence/state diagrams to local static SVGs at build time. Use the existing hosted Playwright browser, pinned Mermaid12.2.0, canonical font and paired Firefly light/dark styles. No runtime CDN or JavaScript diagram dependency. Build fails on syntax/font/diagram failure.
 - [ ] Test editorial exclusions and diagram extraction/rewriting before implementation, then full presubmit; hosted strict build, every-page actual desktop/mobile/light-dark checks, diagram visibility/font/overflow/search exclusions.
 - [ ] Review rewritten content against implementation; inventory technical 'pending' claims, implement safe independent defects found with meaningful tests, and explain unavoidable external configuration plainly. Publish only qualified exact source to GitHub Pages and verify public bytes. No runtime enablement inferred from prose.
+
+- [ ] Close genuine signed verification-link expiry and passkey enrollment/assertion with an owned hosted RP, plus first-administration access under a restrictive build umask. Preserve real-device/RP/privileged and institution acceptance separately.
 
 ## Delegation
 

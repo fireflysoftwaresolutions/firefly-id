@@ -38,6 +38,18 @@ An incorrect or reused code refuses authentication. Check the account selected i
 
 Workforce MFA must be required by the workforce realm flow and policy. A customer's authenticator or recovery case cannot restore an employee. Credentials managed by an external corporate identity provider remain that provider's responsibility.
 
+## Configure passkeys
+
+Use Keycloak's WebAuthn passwordless capability when the selected journey calls for a passkey. In **Authentication → Policies → WebAuthn Passwordless Policy**, set the public relying-party (RP) name and ID, require user verification and discoverable credentials, and choose supported signature algorithms and authenticators. The RP ID must be valid for the public HTTPS sign-in domain; decide it before enrollment because changing it affects existing credentials. Keep additional origins empty unless the deployment explicitly needs and authorizes them. See the [upstream WebAuthn setup](https://www.keycloak.org/docs/26.8.0/server_admin/#_webauthn).
+
+Enable **WebAuthn Register Passwordless** in the realm's required actions, then assign that action to the existing user. Have the person complete it through the existing approved sign-in route: follow the browser/device prompt, verify locally and name the credential. Confirm that the passwordless WebAuthn credential is enrolled on the account before binding a flow that requires it. Identity stores its public credential; an application must never collect the authenticator's private key or device PIN.
+
+For a mandatory passwordless route, create a separate browser flow with **Username Form** followed by **WebAuthn Passwordless Authenticator**, both required. Bind that flow only to the intended realm/client after testing enrollment and sign-in. An alternative password route changes the effective assurance and must be selected explicitly. Customer and workforce flows remain separate.
+
+On later sign-in, the browser asks the person to use the enrolled passkey. Check the exact domain and let the device perform user verification. Handle cancellation or an unavailable device through the configured support/recovery procedure; do not silently replace passkey authentication with an email link. The customer password/TOTP replacement journey does not replace a lost passkey.
+
+Select physical, platform or synced authenticators and attestation requirements for the institution's assurance policy. A browser-based virtual authenticator exercises protocol behavior during development; it does not qualify a real device, sync provider, production RP or banking step-up policy. Applications must still validate the OIDC response and authorize the actual operation.
+
 ## Integrate ordinary sign-in
 
 Use authorization code with PKCE S256, validate issuer/audience/signature and keep redirect URLs exact. Handle required-action screens as part of the server's browser flow; do not fabricate successful email verification or MFA claims in an application.
