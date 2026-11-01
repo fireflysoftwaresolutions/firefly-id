@@ -49,13 +49,15 @@ Only access tokens receive the selected business-reference mappers. Customer/ins
 
 The optional [Configuration lookup](configuration-service-client.md) is an explicit exception to the default service-account-free profile. It requires a distinct nonreserved client, realm and opaque tenant. It issues a narrow `MACHINE` principal without customer/staff linkage, human delegation or financial authority. Its successful synthetic issuance/Jafly fixture is separate from adoption by a real Configuration service.
 
-Every Experience, Domain and Core receiver still authenticates and authorizes its own operation. The [independent Jafly integration](jafly.md) adds no Identity-specific framework dependency; a signed identity link does not remove business-policy, consent, mandate or current-state checks. [Zero trust](zero-trust.md) defines that receiving boundary.
+Every Experience, Domain and Core receiver must authenticate and authorize its own operation. The [independent Jafly integration](jafly.md) adds no Identity-specific framework dependency; a signed identity link does not remove business-policy, consent, mandate or current-state checks. Actual adoption by each receiver remains a deployment acceptance requirement. [Zero trust](zero-trust.md) defines that receiving boundary.
 
 ## Optional native unlock and PIN
 
 | Addition | Implemented responsibility | Boundary to retain |
 | --- | --- | --- |
+| Explicit native provider selection | Startup selects the `firefly-native-recovery` brute-force provider as part of the reviewed native installation | Installing its JAR does not itself select the provider; use the [native installation contract](native-recovery.md) and qualify the actual startup selection |
 | Native lock tracking and eligibility | Capture/recheck current tracked lock generation, protected native state and administrative/credential changes | Fraud, employment and administrative holds are not ordinary authentication locks and cannot be removed by self-service proof |
+| Managed administrative veto | Native invalidation handling vetoes tracked-lock administrative re-enablement and managed attack-detection clearing | Clearing a counter record or sending a generic enable request cannot substitute for the tracked native authorization/transition; this is a native-provider addition, not a claim about every stock Keycloak installation |
 | Existing-factor verification | Native password and previously enrolled nonreusable TOTP checks under committed owning reservations | No old-factor enrollment, ordinary login token or forgotten-password replacement is invented inside known-password unlock |
 | Core/Domain SCA authority | Independent owning challenges, exact purpose/binding and canonical operation | Native workload credentials identify a service, not a customer or financial permission |
 | Execution/journal/replay fences | Locked current-state transition, durable reservations/replay records, old-session retirement and exact execution evidence | Retrying ambiguous work reconciles only the original identifiers; no replay, refunded attempt or fresh grant repairs a lost response |
@@ -65,7 +67,7 @@ Every Experience, Domain and Core receiver still authenticates and authorizes it
 | Attributed privileged PIN revocation | Actual administrator/client/event attribution and preserved recovery budgets | Administrative mutation is not a substitute customer proof or a permission for a BPO operator |
 | BPO verification boundary | Requires the real staff/customer/case/call/tenant/purpose authorization owner | No qualified implementation is supplied, so the support-verification operation remains unavailable |
 
-[Native recovery](native-recovery.md), [the native owner README](../extensions/native-recovery/README.md) and [support PIN](support-pin.md) provide the exact realm attributes, purpose rules and keys. These additions require both provider/gateway installation and genuine owning services. Their thirteen JPA mappings are additive installation changes, including separate credential-loss records; default-off does not suppress schema registration.
+[Native recovery](native-recovery.md), [the native owner README](../extensions/native-recovery/README.md) and [support PIN](support-pin.md) provide the exact realm attributes, purpose rules and keys. Known-password unlock requires the native provider/gateway and genuine SCA owners; credential-loss recovery separately requires KYCB/customer Domain owners. PIN create/rotate/revoke executes within the native owner using its configured profile, session, factors and keys; it does not use Core/Domain as the PIN lifecycle owner. BPO verification awaits its separate authorization owner. The thirteen native JPA mappings are additive installation changes, including separate credential-loss records; default-off does not suppress schema registration.
 
 ## Separate lost-credential recovery
 
