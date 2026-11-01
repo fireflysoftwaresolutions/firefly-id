@@ -270,12 +270,24 @@ def arm_fault(kind, fault):
     print('Armed one bounded owned transport fault; no provider verdict or authorization was fabricated.')
 
 
+def fault_status(kind):
+    if not faults_enabled() or kind not in ('customers', 'workforce'):
+        raise RuntimeError('Owned transport fault status requires explicit hosted opt-in')
+    directory, owner = state()
+    arrivals = directory / ('verify-race-' + kind + '.arrivals')
+    print(json.dumps({'recordLossSpent': (directory / ('record-response-loss-' + kind + '.spent')).is_file(),
+                      'verifyRaceSpent': (directory / ('verify-race-' + kind + '.spent')).is_file(),
+                      'verifyRaceArrivals': int(arrivals.read_text()) if arrivals.is_file() else 0}))
+
+
 def serve_proxy(kind):
     if not faults_enabled(): raise RuntimeError('Owned transport faults require explicit hosted opt-in')
     directory, owner = state()
     profile = next(value for value in json.loads((directory / 'credentials.json').read_text())['profiles'] if value['kind'] == kind)
     trusted = ssl.create_default_context(cafile=str(directory / 'tls/ca.crt'))
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=trusted))
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *_): return None
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=trusted), NoRedirect())
     gate = threading.Event(); lock = threading.Lock(); arrivals = 0
     class Proxy(http.server.BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
@@ -305,6 +317,7 @@ def serve_proxy(kind):
                         participating = marker.exists()
                         if participating:
                             arrivals += 1
+                            (directory / ('verify-race-' + kind + '.arrivals')).write_text(str(arrivals))
                             if arrivals == 2:
                                 marker.rename(marker.with_suffix('.spent')); gate.set()
                     if participating and not gate.wait(3): raise RuntimeError('Second genuine verification did not arrive')
@@ -336,7 +349,7 @@ def snapshot(kind):
     directory, owner = state(); credentials = json.loads((directory / 'credentials.json').read_text())
     profile = next(p for p in credentials['profiles'] if p['kind'] == kind); subject = profile['person']['id']
     if not re.fullmatch(r'[0-9a-f-]{36}', subject): raise RuntimeError('Noncanonical fixture subject')
-    native = psql(directory, owner, f"SELECT coalesce((SELECT json_build_object('locked',locked,'hold',hold,'generation',generation,'bootstrap',bootstrap_attempts,'knowledge',knowledge_attempts,'possession',possession_attempts,'pinActive',(pin_credential_id IS NOT NULL AND pin_revoked_at=0)) FROM ff_native_state WHERE subject='{subject}'),'{{}}'::json)::jsonb || jsonb_build_object('executions',(SELECT count(*) FROM ff_native_execution WHERE subject='{subject}'),'executionId',(SELECT id FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'recorded',(SELECT recorded FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'recordAttempts',(SELECT record_attempts FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'maximumChecksPerReservation',(SELECT coalesce(max(total),0) FROM (SELECT count(*) total FROM ff_native_attestation WHERE subject='{subject}' GROUP BY reservation_id) q));", 'native_kc')
+    native = psql(directory, owner, f"SELECT coalesce((SELECT json_build_object('locked',locked,'hold',hold,'generation',generation,'bootstrap',bootstrap_attempts,'knowledge',knowledge_attempts,'possession',possession_attempts,'pinActive',(pin_credential_id IS NOT NULL AND pin_revoked_at=0)) FROM ff_native_state WHERE subject='{subject}'),'{{}}'::json)::jsonb || jsonb_build_object('executions',(SELECT count(*) FROM ff_native_execution WHERE subject='{subject}'),'executionId',(SELECT id FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'recorded',(SELECT recorded FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'recordAttempts',(SELECT record_attempts FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'unlockAudits',(SELECT count(*) FROM ff_native_audit WHERE subject='{subject}' AND event_type='NATIVE_UNLOCK_COMMITTED'),'recordAudits',(SELECT count(*) FROM ff_native_audit WHERE subject='{subject}' AND event_type='NATIVE_EXECUTION_RECORDED'),'maximumChecksPerReservation',(SELECT coalesce(max(total),0) FROM (SELECT count(*) total FROM ff_native_attestation WHERE subject='{subject}' GROUP BY reservation_id) q));", 'native_kc')
     core = psql(directory, owner, f"SELECT coalesce(json_agg(json_build_object('generation',lock_generation,'state',state,'attempts',attempt_count,'challenges',challenge_count,'outcome',execution_outcome,'executionId',execution_id,'successAudits',(SELECT count(*) FROM sca_recovery_audit a WHERE a.operation_id=sca_recovery_operation.id AND a.event_type='EXECUTION_SUCCEEDED')) ORDER BY created_at),'[]'::json) FROM sca_recovery_operation WHERE target_subject='{subject}';", 'sca_native')
     print(json.dumps({'native': json.loads(native), 'core': json.loads(core)}))
 
@@ -366,13 +379,14 @@ def stop():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['prepare', 'start', 'stop', 'restart', 'snapshot', 'serve_proxy', 'arm_record_loss', 'arm_verify_race'])
+    parser.add_argument('action', choices=['prepare', 'start', 'stop', 'restart', 'snapshot', 'serve_proxy', 'arm_record_loss', 'arm_verify_race', 'fault_status'])
     parser.add_argument('--population', choices=['customers', 'workforce'])
     args = parser.parse_args(); require_hosted()
     if args.action == 'snapshot': snapshot(args.population)
     elif args.action == 'serve_proxy': serve_proxy(args.population)
     elif args.action == 'arm_record_loss': arm_fault(args.population, 'record-response-loss')
     elif args.action == 'arm_verify_race': arm_fault(args.population, 'verify-race')
+    elif args.action == 'fault_status': fault_status(args.population)
     else: globals()[args.action]()
 
 

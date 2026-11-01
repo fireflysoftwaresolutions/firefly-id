@@ -12,6 +12,11 @@ on:
         required: true
         default: c91880ac092eec11ec4640a65a599a8a1d9d5c2a
         type: string
+      transport_faults:
+        description: Exercise real committed-record response loss through an owned TLS transport
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -24,6 +29,8 @@ jobs:
   actual-native-core-domain:
     runs-on: ubuntu-24.04
     timeout-minutes: 55
+    env:
+      FIREFLY_NATIVE_TRANSPORT_FAULTS: ${{ inputs.transport_faults && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262

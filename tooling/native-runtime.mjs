@@ -18,6 +18,7 @@ const callback = 'https://localhost:8448/oidc/callback';
 const pending = new Map();
 const results = [];
 const factors = new Map();
+const transportFaults = process.env.FIREFLY_NATIVE_TRANSPORT_FAULTS === 'true';
 const fontEvidence = [];
 let phase = 'owned-native-runtime-ready';
 let currentStage = 'initialization';
@@ -31,6 +32,7 @@ const delay = milliseconds => new Promise(ok => setTimeout(ok, milliseconds));
 const nativeTool = (action, population) => execFileSync('python3', ['tooling/native_integration_fixture.py', action,
   ...(population ? ['--population', population] : [])], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 const snapshot = population => JSON.parse(nativeTool('snapshot', population));
+const faultStatus = population => JSON.parse(nativeTool('fault_status', population));
 async function request(url, options = {}) { return fetch(url, { ...options, signal: AbortSignal.timeout(20000) }); }
 async function adminToken() {
   const response = await request(`${origin}/realms/master/protocol/openid-connect/token`, { method: 'POST',
@@ -66,7 +68,9 @@ async function authenticate(profile, context, wrong = false, enroll = false) {
   stage(`${profile.kind}-ordinary-oidc-navigation`);
   lastHttpStatus = (await page.goto(url.href))?.status();
   stage(`${profile.kind}-ordinary-recovery-entry-count`);
-  assert.equal(await page.locator(`a[href="${profile.issuer}/firefly-recovery"]`).count(), 1, 'Opted-in native login must expose recovery');
+  const recoveryEntry = page.locator('a.ffid-recovery-entry');
+  assert.equal(await recoveryEntry.count(), 1, 'Opted-in native login must expose one recovery entry');
+  assert.equal(await recoveryEntry.evaluate(anchor => anchor.href), `${profile.issuer}/firefly-recovery`, 'Recovery entry must resolve to the exact trusted native owner');
   stage(`${profile.kind}-ordinary-password-submit`);
   await page.locator('#username').fill(profile.person.username);
   await page.locator('#password').fill(wrong ? 'synthetic-invalid-password-2468!' : profile.person.password);
@@ -123,11 +127,21 @@ async function recovery(profile, context, username, password) {
 }
 async function expectCsrfRefusal(profile) {
   const context = await browser.newContext(); const page = await context.newPage();
-  await page.goto(`${profile.issuer}/firefly-recovery`);
+  await page.goto(`${profile.issuer}/firefly-recovery?kc_locale=en`);
+  await assertTranslation(page, 'en', 'ffidRecoveryTitle');
   const response = await context.request.post(`${profile.issuer}/firefly-recovery`, { headers: { Origin: origin },
     form: { username: profile.person.username, password: profile.person.password, csrf: 'synthetic-forged-csrf' } });
   assert.equal(response.status(), 400);
   await context.close(); passed(`${profile.kind}-native-csrf-refused`);
+}
+async function sourceMessage(language, key) {
+  const messages = await readFile(resolve(`themes/firefly-id/login/messages/messages_${language}.properties`), 'utf8');
+  const entry = messages.split(/\r?\n/).find(line => line.startsWith(`${key}=`)); assert.ok(entry);
+  return entry.slice(key.length + 1);
+}
+async function assertTranslation(page, language, key) {
+  assert.ok((await page.locator('html').getAttribute('lang')).startsWith(language));
+  assert.equal((await page.locator('#kc-page-title').innerText()).trim(), await sourceMessage(language, key));
 }
 async function assertNativeFont(page, label) {
   await page.evaluate(() => document.fonts.ready);
@@ -166,16 +180,97 @@ async function captureSafeJourney(page, name) {
   }
 }
 
+async function reconcileLostRecord(profile, page, committed) {
+  stage(`${profile.kind}-committed-record-response-loss-check`);
+  assert.equal(faultStatus(profile.kind).recordLossSpent, true, 'Actual Domain record204 must precede the injected response loss');
+  assert.equal(committed.native.recorded, false); assert.equal(committed.native.recordAttempts, 1);
+  assert.equal(committed.core[0].successAudits, 1);
+  assert.equal(committed.native.executionId, committed.core[0].executionId);
+  nativeTool('restart');
+  stage(`${profile.kind}-committed-record-restart-resume`);
+  await page.reload(); await page.locator('#ffid-recovery-audit-retry').waitFor();
+  assert.equal(await page.locator('input[type="password"], #otp, #username').count(), 0, 'Audit-only resume must not ask for factors');
+  const fields = await page.locator('#ffid-recovery-audit-retry input').evaluateAll(inputs => inputs.map(input => input.name));
+  assert.deepEqual(fields, ['csrf'], 'Audit reconciliation must send only fresh CSRF');
+  const retained = snapshot(profile.kind);
+  assert.equal(retained.native.executionId, committed.native.executionId);
+  assert.equal(retained.core[0].attempts, committed.core[0].attempts);
+  stage(`${profile.kind}-committed-record-csrf-only-reconciliation`);
+  await page.locator('#ffid-recovery-audit-retry button[type="submit"]').click();
+  await page.locator('#ffid-recovery-audit-retry').waitFor({ state: 'detached' });
+  const reconciled = snapshot(profile.kind);
+  assert.equal(reconciled.native.recorded, true); assert.equal(reconciled.native.recordAttempts, 2);
+  assert.equal(reconciled.native.executions, 1); assert.equal(reconciled.native.executionId, committed.native.executionId);
+  assert.equal(reconciled.native.unlockAudits, 1); assert.equal(reconciled.native.recordAudits, 1);
+  for (const key of ['bootstrap', 'knowledge', 'possession', 'maximumChecksPerReservation']) assert.equal(reconciled.native[key], committed.native[key]);
+  assert.deepEqual(reconciled.core, committed.core, 'Reconciliation must preserve the same consumed receipt, budgets, outcome and single success audit');
+  passed(`${profile.kind}-actual-committed-record-response-loss-restart-csrf-only-reconciliation`);
+}
+
+async function concurrentExecution(profile, context, page, csrf) {
+  nativeTool('arm_verify_race', profile.kind);
+  const code = await nextCode(profile);
+  const submit = token => context.request.post(`${profile.issuer}/firefly-recovery`, {
+    headers: { Origin: origin }, form: { csrf: token, otp: code }, timeout: 20000,
+  }).then(response => ({ response }), error => ({ error }));
+  stage(`${profile.kind}-first-genuine-online-verification`);
+  const first = submit(csrf);
+  const deadline = Date.now() + 2200;
+  while (faultStatus(profile.kind).verifyRaceArrivals === 0 && Date.now() < deadline) await delay(25);
+  assert.equal(faultStatus(profile.kind).verifyRaceArrivals, 1, 'First request must reach accepted real online verification before racing');
+  // Cookie GET is the actual interrupted-delivery resume path: it rotates CSRF and reuses committed proof.
+  stage(`${profile.kind}-concurrent-cookie-resume-fresh-csrf`);
+  await page.reload(); await page.locator('#otp').waitFor();
+  const freshCsrf = await page.locator('input[name="csrf"]').inputValue();
+  assert.notEqual(freshCsrf, csrf);
+  stage(`${profile.kind}-second-genuine-online-verification`);
+  const both = await Promise.all([first, submit(freshCsrf)]);
+  for (const result of both) {
+    if (result.error) throw result.error; assert.equal(result.response.status(), 200);
+    const complete = await page.evaluate(({ html, title }) => {
+      const document = new DOMParser().parseFromString(html, 'text/html');
+      return document.querySelector('#kc-page-title')?.textContent.trim() === title
+        && !document.querySelector('#ffid-native-recovery, .ffid-native-journey [role="alert"]');
+    }, { html: await result.response.text(), title: await sourceMessage('es', 'ffidRecoveryCompleteTitle') });
+    assert.equal(complete, true, 'Each genuine concurrent response must report COMPLETE without a recovery failure alert');
+  }
+  const barrier = faultStatus(profile.kind);
+  assert.equal(barrier.verifyRaceArrivals, 2); assert.equal(barrier.verifyRaceSpent, true);
+  await page.reload();
+  assert.equal(await page.locator('#otp, #password').count(), 0, 'Both actual native requests must settle on the same completed journal');
+  const settled = snapshot(profile.kind);
+  assert.equal(settled.native.executions, 1); assert.equal(settled.native.executionId, settled.core[0].executionId);
+  assert.equal(settled.native.unlockAudits, 1); assert.equal(settled.native.recordAudits, 1);
+  assert.equal(settled.native.maximumChecksPerReservation, 1); assert.equal(settled.native.knowledge, 1); assert.equal(settled.native.possession, 2);
+  assert.equal(settled.core.length, 1); assert.equal(settled.core[0].attempts, 3); assert.equal(settled.core[0].challenges, 2);
+  assert.equal(settled.core[0].state, 'CONSUMED'); assert.equal(settled.core[0].outcome, 'SUCCEEDED'); assert.equal(settled.core[0].successAudits, 1);
+  passed(`${profile.kind}-two-real-online-verifications-one-native-execution-and-core-success-audit`);
+}
+
 async function supportPin(profile, context) {
+  let created = false;
   for (const [suffix, pin, expected] of [['set', '70934628', true], ['set', '84173059', true], ['revoke', null, false]]) {
-    const page = await context.newPage(); await page.goto(`${profile.issuer}/firefly-recovery/support-pin/${suffix}`);
+    const page = await context.newPage(); await page.goto(`${profile.issuer}/firefly-recovery/support-pin/${suffix}?kc_locale=en`);
+    await assertTranslation(page, 'en', suffix === 'revoke' ? 'ffidPinRevokeTitle' : 'ffidPinTitle');
     await page.locator('#password').fill(profile.person.password); await page.locator('#otp').fill(await nextCode(profile));
     if (pin) { await page.locator('#pin').fill(pin); await page.locator('#pinConfirm').fill(pin); }
     await page.locator('#ffid-pin-save').click();
     await page.locator('#ffid-support-pin').waitFor({ state: 'detached' });
     assert.equal(snapshot(profile.kind).native.pinActive, expected, 'Actual native PIN lifecycle state differs');
     assert.equal(await page.locator('input[type="password"]').count(), 0, 'Credential field must not enter status capture');
+    await assertTranslation(page, 'en', 'ffidPinTitle');
     await captureSafeJourney(page, `customers-pin-${suffix}-${results.length}`);
+    await page.goto(`${profile.issuer}/firefly-recovery/support-pin?kc_locale=es`);
+    await assertTranslation(page, 'es', 'ffidPinTitle');
+    if (created) await page.waitForFunction(() => {
+        const time = document.querySelector('time[data-ffid-local-date]');
+        return time && time.textContent === new Intl.DateTimeFormat(document.documentElement.lang,
+          { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(time.dateTime));
+      });
+    else assert.equal(await page.locator('time[data-ffid-local-date]').count(), 0, 'Initial PIN creation must not fabricate a replacement date');
+    if (pin) created = true;
+    assert.equal(snapshot(profile.kind).native.pinActive, expected, 'Localized status GET must not change PIN lifecycle state');
+    await captureSafeJourney(page, `customers-pin-${suffix}-es-${results.length}`);
     await page.close(); passed(`customers-pin-${pin ? 'set-or-rotate' : 'revoke'}-${results.length}`);
   }
 }
@@ -194,6 +289,11 @@ try {
     const previousSession = await browser.newContext();
     const tokens = await authenticate(profile, previousSession, false, true);
     assert.ok(tokens.refresh_token, 'Real refresh/offline session required for retirement check');
+    assert.ok(tokens.scope?.split(' ').includes('offline_access'), 'Actual offline access must have been granted before retirement');
+    const browserClients = await (await admin(profile, 'clients?clientId=native-browser')).json(); assert.equal(browserClients.length, 1);
+    const offlinePath = `users/${profile.person.id}/offline-sessions/${browserClients[0].id}`;
+    const previousOffline = await admin(profile, offlinePath); assert.equal(previousOffline.status, 200);
+    assert.ok((await previousOffline.json()).length > 0, 'Real offline session must exist before the native lock');
     passed(`${profile.kind}-pre-existing-password-and-native-totp-enrolled`);
     for (const endpoint of [profile.core, profile.domain]) {
       const body = endpoint === profile.core ? JSON.stringify({ binding: { issuer: profile.issuer,
@@ -237,12 +337,17 @@ try {
     assert.equal(rejected.native.maximumChecksPerReservation, 1); assert.equal((await user(profile)).enabled, false);
     passed(`${profile.kind}-wrong-totp-persists-native-and-core-attempts`);
     const csrf = await page.locator('input[name="csrf"]').inputValue();
-    await page.locator('#otp').fill(await nextCode(profile)); await page.locator('#ffid-recovery-continue').click();
+    if (transportFaults && profile.population === 'HUMAN') nativeTool('arm_record_loss', profile.kind);
+    stage(`${profile.kind}-native-accepted-possession-submit`);
+    if (transportFaults && profile.population === 'STAFF') await concurrentExecution(profile, context, page, csrf);
+    else { await page.locator('#otp').fill(await nextCode(profile)); await page.locator('#ffid-recovery-continue').click(); }
     await page.locator('#ffid-native-recovery').waitFor({ state: 'detached' });
     assert.equal((await user(profile)).enabled, true, 'Native password+TOTP recovery did not unlock');
     const after = snapshot(profile.kind); assert.equal(after.native.executions, 1); assert.equal(after.native.maximumChecksPerReservation, 1);
     assert.equal(after.core[0].attempts, 3); assert.equal(after.core[0].state, 'CONSUMED'); assert.equal(after.core[0].outcome, 'SUCCEEDED');
+    if (transportFaults && profile.population === 'HUMAN') await reconcileLostRecord(profile, page, after);
     assert.equal(await page.locator('input[type="password"]').count(), 0);
+    await assertTranslation(page, 'es', 'ffidRecoveryCompleteTitle');
     await captureSafeJourney(page, `${profile.kind}-complete`);
     passed(`${profile.kind}-real-native-two-factor-unlock-and-owning-execution-journal`);
     const replay = await context.request.post(`${profile.issuer}/firefly-recovery`, { headers: { Origin: origin }, form: { csrf, otp: '000000' } });
@@ -251,7 +356,9 @@ try {
     const refresh = await request(`${profile.issuer}/protocol/openid-connect/token`, { method: 'POST',
       body: new URLSearchParams({ grant_type: 'refresh_token', client_id: 'native-browser', refresh_token: tokens.refresh_token }) });
     assert.equal(refresh.status, 400); const sessions = await admin(profile, `users/${profile.person.id}/sessions`);
-    assert.equal((await sessions.json()).length, 0); passed(`${profile.kind}-old-refresh-and-online-sessions-retired`);
+    assert.equal((await sessions.json()).length, 0);
+    const retiredOffline = await admin(profile, offlinePath); assert.equal(retiredOffline.status, 200); assert.equal((await retiredOffline.json()).length, 0);
+    passed(`${profile.kind}-old-refresh-online-and-real-offline-sessions-retired`);
     const fresh = await browser.newContext(); await authenticate(profile, fresh);
     passed(`${profile.kind}-fresh-password-and-pre-enrolled-mfa-required-after-unlock`);
     const account = await fresh.newPage(); await account.goto(`${profile.issuer}/account/`);
@@ -289,7 +396,7 @@ try {
     passed(`${profile.kind}-explicit-fixture-user-deletion-preserves-native-tombstone-and-core-evidence`);
   }
   await writeFile(`${output}/summary.json`, JSON.stringify({ status: 'PASSED', passed: results,
-    pending: ['true simultaneous native execution requests', 'post-commit network response-loss injection', 'expired ceremony and swapped private attestation references',
+    pending: [...(transportFaults ? [] : ['true simultaneous native execution requests', 'post-commit network response-loss injection']), 'expired ceremony and swapped private attestation references',
       'support PIN BPO/case/delegation owner acceptance', 'production/regulatory approval'],
     scope: 'Owned synthetic HTTPS native Keycloak/Core PostgreSQL/actual generated-SDK Domain acceptance only.' }, null, 2));
 } catch (error) {
