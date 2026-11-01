@@ -116,6 +116,7 @@ nav:
       - Notification operations: notification-operations.md
       - Verification and enrollment: extended-flows.md
   - Customize:
+      - Customization catalog: customizations.md
       - Themes and surfaces: themes.md
       - English and Spanish: localization.md
       - Design tokens: design-tokens.md

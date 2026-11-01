@@ -45,7 +45,7 @@ Read [native unlock](native-recovery.md), [lost-credential recovery](credential-
 
 ## Keep the experience coherent
 
-The product uses the approved protected-identity symbol, self-hosted Manrope, canonical Firefly tokens, English/Spanish journeys, light/dark presentation and the established isometric authentication backgrounds. [Themes](themes.md), [localization](localization.md), [design tokens](design-tokens.md) and [brand](brand.md) explain how those resources are built and tested across login, logout, recovery, account and administration.
+The product uses the approved protected-identity symbol, self-hosted Manrope, canonical Firefly tokens, English/Spanish journeys, light/dark presentation and the established isometric authentication backgrounds. The [customization catalog](customizations.md) connects all Firefly changes to their implementation, reason and verification. [Themes](themes.md), [localization](localization.md), [design tokens](design-tokens.md) and [brand](brand.md) explain how those resources are built and tested across login, logout, recovery, account and administration.
 
 Presentation preserves the upstream protocol, CSRF and authenticator boundaries. A hidden password-reveal control is a presentation choice; server-side factor, policy, authorization and recovery checks carry the security decision.
 

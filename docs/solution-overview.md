@@ -4,6 +4,8 @@ Firefly Identity is a branded Keycloak distribution with dedicated identity stor
 
 Start here to locate the owner of a decision. Use [architecture](architecture.md) for the full trust/lifecycle model and the linked component guides for configuration and operation.
 
+The [customization catalog](customizations.md) gathers the Firefly-specific presentation, policy, client, native recovery, notification and deployment changes, with their reasons and verification boundaries.
+
 ## Component inventory
 
 | Component | What it owns | Authoritative implementation or guide |
