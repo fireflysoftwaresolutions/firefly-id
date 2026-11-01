@@ -14,6 +14,70 @@ const pause = milliseconds => new Promise(ok => setTimeout(ok, milliseconds));
 
 export const normalizePublicText = value => value.replace(/\s+/g, ' ').trim();
 
+export async function readAdminValidation(response) {
+  const fixed = category => ({ categories: [category], fields: [] });
+  const messages = new Map([
+    ['invalidPasswordMinLengthMessage', 'PASSWORD_MIN_LENGTH'],
+    ['invalidPasswordMaxLengthMessage', 'PASSWORD_MAX_LENGTH'],
+    ['invalidPasswordBlacklistedMessage', 'PASSWORD_DENYLIST'],
+    ['invalidPasswordNotUsernameMessage', 'PASSWORD_USERNAME'],
+    ['invalidPasswordNotEmailMessage', 'PASSWORD_EMAIL'],
+    ['invalidPasswordHistoryMessage', 'PASSWORD_HISTORY'],
+    ['error-invalid-length', 'PROFILE_LENGTH'],
+    ['error-invalid-length-too-short', 'PROFILE_LENGTH'],
+    ['error-invalid-length-too-long', 'PROFILE_LENGTH'],
+    ['error-invalid-email', 'PROFILE_EMAIL'],
+    ['error-non-ascii-local-part-email', 'PROFILE_EMAIL'],
+    ['missingUsernameMessage', 'PROFILE_REQUIRED'],
+    ['missingEmailMessage', 'PROFILE_REQUIRED'],
+    ['missingFirstNameMessage', 'PROFILE_REQUIRED'],
+    ['missingLastNameMessage', 'PROFILE_REQUIRED'],
+    ['updateReadOnlyAttributesRejectedMessage', 'PROFILE_READ_ONLY'],
+    ['User name is missing', 'PROFILE_REQUIRED'],
+    ['User exists with same username', 'DUPLICATE_USER'],
+    ['User exists with same email', 'DUPLICATE_USER'],
+    ['User exists with same username or email', 'DUPLICATE_USER'],
+    ['Could not create user', 'USER_CREATION_FAILURE'],
+  ]);
+  const allowedFields = new Set(['username', 'email', 'firstName', 'lastName',
+    'tenant_id', 'party_id', 'staff_actor_id', 'password']);
+  let content;
+  try {
+    const reader = response.body.getReader();
+    const chunks = [];
+    let length = 0;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        length += value.byteLength;
+        if (length > 16384) {
+          await reader.cancel();
+          return fixed('ADMIN_BODY_TOO_LARGE');
+        }
+        chunks.push(value);
+      }
+    } finally { reader.releaseLock(); }
+    content = Buffer.concat(chunks).toString('utf8');
+  } catch { return fixed('ADMIN_BODY_UNREADABLE'); }
+  let body;
+  try { body = JSON.parse(content); }
+  catch { return fixed('ADMIN_BODY_NOT_JSON'); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return fixed('UNKNOWN_ADMIN_VALIDATION');
+  const categories = new Set();
+  const fields = new Set();
+  const records = [body, ...(Array.isArray(body.errors) ? body.errors.slice(0, 32) : [])];
+  for (const record of records) {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) continue;
+    for (const key of ['error', 'errorMessage']) {
+      if (messages.has(record[key])) categories.add(messages.get(record[key]));
+    }
+    if (allowedFields.has(record.field)) fields.add(record.field);
+  }
+  if (!categories.size) categories.add('UNKNOWN_ADMIN_VALIDATION');
+  return { categories: [...categories].sort(), fields: [...fields].sort() };
+}
+
 export function assertPermanentBlock(user) {
   assert.equal(user.enabled, false, 'Expected a disabled user after permanent blocking');
   assert.deepEqual(user.attributes?.disabledReason, ['permanentLockout'], 'Expected the native permanent-lock reason');
@@ -77,6 +141,7 @@ async function main() {
   let browser;
   let server;
   let phase = 'policy setup';
+  let adminValidation;
   const results = [];
   const pending = new Map();
   const passed = name => { results.push(name); console.log(`PASS ${name}`); };
@@ -244,6 +309,7 @@ async function main() {
           [population === 'workforce' ? 'staff_actor_id' : 'party_id']: [randomUUID()] },
         credentials: [{ type: 'password', value: fixture.password, temporary: false }],
       });
+      if (response.status !== 201) adminValidation = await readAdminValidation(response);
       assert.equal(response.status, 201, 'Fresh synthetic policy fixture creation refused');
       assert.ok(response.headers.get('location'), 'Created fixture has no resource location');
       const location = new URL(response.headers.get('location'), BASE);
@@ -647,6 +713,7 @@ async function main() {
     const evidence = resolve('.work/policy-runtime'); await mkdir(evidence, { recursive: true });
     await writeFile(`${evidence}/summary.json`, JSON.stringify({ status: 'FAILED', results, phase, sourceFrames,
       actual: scalar(error?.actual), expected: scalar(error?.expected),
+      ...(adminValidation ? { adminValidation } : {}),
       scope: 'Bounded policy failure diagnostics; no credential values, bodies or raw errors.' }, null, 2) + '\n');
     process.exitCode = 1;
   } finally {
