@@ -152,12 +152,12 @@ async function resumeNativePage(page, profile, path = '') {
   assert.equal(response.request().method(), 'GET', 'Native resume must use the cookie GET endpoint');
   assert.equal(response.status(), 200, 'Native cookie GET must resume the preserved ceremony');
 }
-async function authenticate(profile, context, wrong = false, enroll = false) {
+async function authenticate(profile, context, wrong = false, enroll = false, offlineRequested = false) {
   const state = randomBytes(20).toString('base64url'), verifier = randomBytes(32).toString('base64url');
   const challenge = createHash('sha256').update(verifier).digest('base64url');
   const url = new URL(`${profile.issuer}/protocol/openid-connect/auth`);
   url.search = new URLSearchParams({ client_id: 'native-browser', redirect_uri: callback, response_type: 'code',
-    scope: 'openid profile email offline_access', code_challenge: challenge, code_challenge_method: 'S256', state,
+    scope: offlineRequested ? 'openid profile email offline_access' : 'openid profile email', code_challenge: challenge, code_challenge_method: 'S256', state,
     nonce: randomBytes(16).toString('hex'), prompt: 'login' }).toString();
   stage(`${profile.kind}-ordinary-new-page`);
   const page = await context.newPage(); lastPage = page; page.setDefaultTimeout(20000);
@@ -200,7 +200,7 @@ async function authenticate(profile, context, wrong = false, enroll = false) {
   const token = await request(`${profile.issuer}/protocol/openid-connect/token`, { method: 'POST', body: new URLSearchParams({
     client_id: 'native-browser', grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: callback }) });
   assert.equal(token.status, 200, 'Genuine ordinary sign-in token exchange failed');
-  sessionEvidence[profile.kind] = { loginPhase: enroll ? 'initial-enrollment' : 'fresh-after-unlock',
+  sessionEvidence[profile.kind] = { loginPhase: offlineRequested ? 'offline-retirement-probe' : enroll ? 'initial-enrollment' : 'fresh-after-unlock',
     beforeAuthenticationPageClose: await cookieMetadata(context, profile) };
   await page.close(); return token.json();
 }
@@ -616,12 +616,20 @@ try {
     activePopulation = profile.kind;
     const previousSession = await browser.newContext();
     const tokens = await authenticate(profile, previousSession, false, true);
-    assert.ok(tokens.refresh_token, 'Real refresh/offline session required for retirement check');
-    assert.ok(tokens.scope?.split(' ').includes('offline_access'), 'Actual offline access must have been granted before retirement');
+    assert.ok(tokens.refresh_token, 'Real online refresh session required for retirement check');
+    assert.equal(tokens.scope?.split(' ').includes('offline_access'), false, 'Online SSO enrollment must not request first offline access');
+    const initialOnline = await admin(profile, `users/${profile.person.id}/sessions`); assert.equal(initialOnline.status, 200);
+    assert.ok((await initialOnline.json()).length > 0, 'A genuine online SSO session must exist before the independent offline probe');
+    // Keycloak retires the current online session on first offline access; isolate that probe from the original SSO session.
+    const offlineSession = await browser.newContext();
+    const offlineTokens = await authenticate(profile, offlineSession, false, false, true);
+    assert.ok(offlineTokens.refresh_token); assert.ok(offlineTokens.scope?.split(' ').includes('offline_access'));
     const browserClients = await (await admin(profile, 'clients?clientId=native-browser')).json(); assert.equal(browserClients.length, 1);
     const offlinePath = `users/${profile.person.id}/offline-sessions/${browserClients[0].id}`;
     const previousOffline = await admin(profile, offlinePath); assert.equal(previousOffline.status, 200);
     assert.ok((await previousOffline.json()).length > 0, 'Real offline session must exist before the native lock');
+    const onlineAfterOffline = await admin(profile, `users/${profile.person.id}/sessions`); assert.equal(onlineAfterOffline.status, 200);
+    assert.ok((await onlineAfterOffline.json()).length > 0, 'Independent offline access must leave the separate original online SSO session live');
     passed(`${profile.kind}-pre-existing-password-and-native-totp-enrolled`);
     for (const endpoint of [profile.core, profile.domain]) {
       const body = endpoint === profile.core ? JSON.stringify({ binding: { issuer: profile.issuer,
@@ -669,6 +677,11 @@ try {
     let rejected = snapshot(profile.kind); assert.equal(rejected.core[0].attempts, 2); assert.equal(rejected.native.possession, 1);
     assert.equal(rejected.native.maximumChecksPerReservation, 1); assert.equal((await user(profile)).enabled, false);
     passed(`${profile.kind}-wrong-totp-persists-native-and-core-attempts`);
+    const onlineBeforeUnlock = await admin(profile, `users/${profile.person.id}/sessions`); assert.equal(onlineBeforeUnlock.status, 200);
+    const offlineBeforeUnlock = await admin(profile, offlinePath); assert.equal(offlineBeforeUnlock.status, 200);
+    assert.ok((await onlineBeforeUnlock.json()).length > 0, 'Real old online session must still exist immediately before native execution');
+    assert.ok((await offlineBeforeUnlock.json()).length > 0, 'Real old offline session must still exist immediately before native execution');
+    passed(`${profile.kind}-separate-live-online-and-offline-sessions-proven-before-native-execution`);
     const csrf = await page.locator('input[name="csrf"]').inputValue();
     if (transportFaults && profile.population === 'HUMAN') nativeTool('arm_record_loss', profile.kind);
     stage(`${profile.kind}-native-accepted-possession-submit`);
@@ -688,6 +701,9 @@ try {
     passed(`${profile.kind}-browser-replay-does-not-create-another-execution`);
     const refresh = await request(`${profile.issuer}/protocol/openid-connect/token`, { method: 'POST',
       body: new URLSearchParams({ grant_type: 'refresh_token', client_id: 'native-browser', refresh_token: tokens.refresh_token }) });
+    const offlineRefresh = await request(`${profile.issuer}/protocol/openid-connect/token`, { method: 'POST',
+      body: new URLSearchParams({ grant_type: 'refresh_token', client_id: 'native-browser', refresh_token: offlineTokens.refresh_token }) });
+    assert.equal(offlineRefresh.status, 400);
     assert.equal(refresh.status, 400); const sessions = await admin(profile, `users/${profile.person.id}/sessions`);
     assert.equal((await sessions.json()).length, 0);
     const retiredOffline = await admin(profile, offlinePath); assert.equal(retiredOffline.status, 200); assert.equal((await retiredOffline.json()).length, 0);
@@ -695,6 +711,7 @@ try {
     const fresh = await browser.newContext(); await authenticate(profile, fresh);
     sessionEvidence[profile.kind].afterAuthenticationPageClose = await cookieMetadata(fresh, profile);
     sessionEvidence[profile.kind].authorityBeforeAccount = await sessionAuthority(profile);
+    assert.ok(sessionEvidence[profile.kind].authorityBeforeAccount.onlineSessionCount > 0, 'Fresh normal sign-in must retain a genuine online SSO session before Account or PIN access');
     passed(`${profile.kind}-fresh-password-and-pre-enrolled-mfa-required-after-unlock`);
     stage(`${profile.kind}-native-account-navigation`);
     const account = await fresh.newPage(); lastPage = account; accountAssetStatuses = {}; accountErrorKinds = []; accountNavigations = [];
@@ -722,6 +739,11 @@ try {
     });
     lastHttpStatus = (await account.goto(`${profile.issuer}/account/`)).status();
     await account.locator('main').waitFor();
+    stage(`${profile.kind}-authenticated-account-console-mount`);
+    await account.locator('.pf-v5-c-page').waitFor({ state: 'visible' });
+    const accountDeadline = Date.now() + 10000;
+    while (!accountAssertions.has(profile.kind) && Date.now() < accountDeadline) await delay(25);
+    assert.ok(accountAssertions.has(profile.kind), 'The actual mounted Account Console must receive an accepted JSON API bearer before interacting with its native link');
     lastAccountInventory = await accountInventory(account);
     sessionEvidence[profile.kind].afterAccountNavigation = await cookieMetadata(fresh, profile);
     accountEvidence[profile.kind] = lastAccountInventory;
@@ -755,7 +777,7 @@ try {
       assert.equal(refusedPin.status(), 403); passed('workforce-customer-pin-surface-refused');
     }
     await account.close();
-    await fresh.close(); await context.close(); await previousSession.close();
+    await fresh.close(); await context.close(); await previousSession.close(); await offlineSession.close();
     const serviceClient = 'untracked-fixture-service-' + profile.kind;
     const clientCreated = await admin(profile, 'clients', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ clientId: serviceClient, protocol: 'openid-connect', enabled: true, publicClient: false,
