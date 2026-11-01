@@ -3,6 +3,110 @@ import test from 'node:test';
 import { assertPermanentBlock, waitForPermanentBlock } from '../tooling/policy-runtime.mjs';
 import * as policy from '../tooling/policy-runtime.mjs';
 
+function fixtureSubmission(responses, users = []) {
+  const fixture = { username: 'owned-policy-fixture', password: 'initial private random password' };
+  const saved = [];
+  let posts = 0;
+  let reads = 0;
+  const options = {
+    persist: async () => { saved.push(structuredClone(fixture)); },
+    create: async () => {
+      assert.equal(saved.at(-1).operations.at(-1).operation, 'create');
+      assert.equal(saved.at(-1).password, fixture.password);
+      return responses[posts++]();
+    },
+    readUsers: async () => {
+      assert.equal(saved.at(-1).operations.at(-1).operation, 'confirm-absent');
+      reads++;
+      return users;
+    },
+    recordValidation: () => {},
+  };
+  return { fixture, options, saved, counts: () => ({ posts, reads }) };
+}
+const deniedCreation = () => new Response(JSON.stringify({ error: 'invalidPasswordBlacklistedMessage' }), { status: 400 });
+const acceptedCreation = () => new Response(null, { status: 201 });
+
+test('fixture creation accepts 201 without retrying or checking absence', async () => {
+  assert.equal(typeof policy.submitPolicyFixture, 'function');
+  const submission = fixtureSubmission([acceptedCreation]);
+  assert.equal((await policy.submitPolicyFixture(submission.fixture, submission.options)).status, 201);
+  assert.deepEqual(submission.counts(), { posts: 1, reads: 0 });
+});
+
+test('exact denylist refusal regenerates only after persisted absence verification', async () => {
+  assert.equal(typeof policy.submitPolicyFixture, 'function');
+  const submission = fixtureSubmission([deniedCreation, deniedCreation, acceptedCreation]);
+  assert.equal((await policy.submitPolicyFixture(submission.fixture, submission.options)).status, 201);
+  assert.deepEqual(submission.counts(), { posts: 3, reads: 2 });
+  const creations = submission.fixture.operations.filter(operation => operation.operation === 'create');
+  assert.equal(new Set(creations.map(operation => operation.password)).size, 3);
+  assert.deepEqual(submission.fixture.operations.map(operation => operation.operation),
+    ['create', 'confirm-absent', 'create', 'confirm-absent', 'create']);
+});
+
+test('denylist regeneration is bounded even when every candidate is refused', async () => {
+  assert.equal(typeof policy.submitPolicyFixture, 'function');
+  const submission = fixtureSubmission([deniedCreation, deniedCreation, deniedCreation]);
+  await assert.rejects(() => policy.submitPolicyFixture(submission.fixture, submission.options));
+  assert.deepEqual(submission.counts(), { posts: 3, reads: 3 });
+});
+
+test('other statuses and mixed or unknown validation failures never trigger regeneration', async () => {
+  assert.equal(typeof policy.submitPolicyFixture, 'function');
+  for (const [status, body] of [
+    [400, { error: 'invalidPasswordMinLengthMessage' }],
+    [400, { error: 'Could not create user' }],
+    [400, { error: 'unrecognized private failure' }],
+    [400, { error: 'invalidPasswordBlacklistedMessage', errors: [{ errorMessage: 'unrecognized private failure' }] }],
+    [400, { error: 'invalidPasswordBlacklistedMessage', errors: [null] }],
+    [400, { error: 'invalidPasswordBlacklistedMessage', errors: [{}] }],
+    [400, { error: 'invalidPasswordBlacklistedMessage', errors: [{ field: 'email' }] }],
+    [400, { error: 'invalidPasswordBlacklistedMessage', errors: 'malformed' }],
+    [400, { error: 'invalidPasswordBlacklistedMessage', errors: Array.from({ length: 33 }, () => ({ errorMessage: 'invalidPasswordBlacklistedMessage' })) }],
+    [400, { errors: [{ errorMessage: 'invalidPasswordBlacklistedMessage' }, { errorMessage: 'error-invalid-email' }] }],
+    [409, { error: 'invalidPasswordBlacklistedMessage' }],
+    [500, { error: 'invalidPasswordBlacklistedMessage' }],
+    [401, { error: 'invalidPasswordBlacklistedMessage' }],
+  ]) {
+    const submission = fixtureSubmission([() => new Response(JSON.stringify(body), { status })]);
+    await assert.rejects(() => policy.submitPolicyFixture(submission.fixture, submission.options));
+    assert.deepEqual(submission.counts(), { posts: 1, reads: 0 });
+  }
+});
+
+test('a surviving user or an uncertain administrative read prevents regeneration', async () => {
+  assert.equal(typeof policy.submitPolicyFixture, 'function');
+  for (const users of [[{ id: 'unexpected-existing-user' }], {}, null]) {
+    const submission = fixtureSubmission([deniedCreation], users);
+    await assert.rejects(() => policy.submitPolicyFixture(submission.fixture, submission.options));
+    assert.deepEqual(submission.counts(), { posts: 1, reads: 1 });
+  }
+  const submission = fixtureSubmission([deniedCreation]);
+  submission.options.readUsers = async () => { throw new Error('private read failure'); };
+  await assert.rejects(() => policy.submitPolicyFixture(submission.fixture, submission.options));
+  assert.equal(submission.counts().posts, 1);
+});
+
+test('baseline probe requires exact denylist refusal and no user, and never regenerates', async () => {
+  assert.equal(typeof policy.submitPolicyFixture, 'function');
+  const submission = fixtureSubmission([deniedCreation]);
+  assert.equal(await policy.submitPolicyFixture(submission.fixture, { ...submission.options, expectDenylist: true }), null);
+  assert.deepEqual(submission.counts(), { posts: 1, reads: 1 });
+  assert.equal(submission.fixture.password, 'initial private random password');
+  const accepted = fixtureSubmission([acceptedCreation]);
+  await assert.rejects(() => policy.submitPolicyFixture(accepted.fixture, { ...accepted.options, expectDenylist: true }));
+  assert.deepEqual(accepted.counts(), { posts: 1, reads: 0 });
+});
+
+test('fixture operations cannot run when their intent cannot be persisted', async () => {
+  assert.equal(typeof policy.submitPolicyFixture, 'function');
+  const submission = fixtureSubmission([acceptedCreation]);
+  submission.options.persist = async () => { throw new Error('private storage failure'); };
+  await assert.rejects(() => policy.submitPolicyFixture(submission.fixture, submission.options));
+  assert.deepEqual(submission.counts(), { posts: 0, reads: 0 });
+});
+
 test('administrative refusal classifies password keys without retaining descriptions or supplied values', async () => {
   assert.equal(typeof policy.readAdminValidation, 'function');
   const result = await policy.readAdminValidation(new Response(JSON.stringify({

@@ -66,16 +66,61 @@ export async function readAdminValidation(response) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return fixed('UNKNOWN_ADMIN_VALIDATION');
   const categories = new Set();
   const fields = new Set();
+  if (Object.hasOwn(body, 'errors') && (!Array.isArray(body.errors) || body.errors.length > 32)) {
+    categories.add('UNKNOWN_ADMIN_VALIDATION');
+  }
   const records = [body, ...(Array.isArray(body.errors) ? body.errors.slice(0, 32) : [])];
   for (const record of records) {
-    if (!record || typeof record !== 'object' || Array.isArray(record)) continue;
+    if (!record || typeof record !== 'object' || Array.isArray(record)) {
+      categories.add('UNKNOWN_ADMIN_VALIDATION');
+      continue;
+    }
+    if (record !== body && !Object.hasOwn(record, 'error') && !Object.hasOwn(record, 'errorMessage')) {
+      categories.add('UNKNOWN_ADMIN_VALIDATION');
+    }
     for (const key of ['error', 'errorMessage']) {
       if (messages.has(record[key])) categories.add(messages.get(record[key]));
+      else if (Object.hasOwn(record, key)) categories.add('UNKNOWN_ADMIN_VALIDATION');
     }
     if (allowedFields.has(record.field)) fields.add(record.field);
   }
   if (!categories.size) categories.add('UNKNOWN_ADMIN_VALIDATION');
   return { categories: [...categories].sort(), fields: [...fields].sort() };
+}
+
+export async function submitPolicyFixture(fixture, { persist, create, readUsers, recordValidation, expectDenylist = false }) {
+  fixture.operations = [];
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const operation = { operation: 'create', attempt, password: fixture.password };
+    fixture.operations.push(operation);
+    await persist();
+    const response = await create();
+    operation.status = response.status;
+    if (response.status === 201) {
+      recordValidation(undefined);
+      await persist();
+      assert.equal(expectDenylist, false, 'Baseline denylist password was accepted');
+      return response;
+    }
+    const validation = await readAdminValidation(response);
+    recordValidation(validation);
+    operation.validation = validation;
+    await persist();
+    assert.equal(response.status, 400, 'Fresh synthetic policy fixture creation refused');
+    assert.deepEqual(validation.categories, ['PASSWORD_DENYLIST'], 'Fixture refusal is not exclusively password denylist policy');
+    fixture.operations.push({ operation: 'confirm-absent', attempt });
+    await persist();
+    const users = await readUsers();
+    assert.ok(Array.isArray(users) && users.length === 0, 'Refused fixture absence could not be confirmed');
+    fixture.operations.at(-1).absent = true;
+    await persist();
+    if (expectDenylist) {
+      recordValidation(undefined);
+      return null;
+    }
+    assert.ok(attempt < 3, 'Random fixture password denylist retry bound exhausted');
+    fixture.password = randomBytes(36).toString('base64url');
+  }
 }
 
 export function assertPermanentBlock(user) {
@@ -294,23 +339,28 @@ async function main() {
     }
     passed('actual customer, workforce and institutional policies match selected profiles; workforce OTP required');
 
-    async function freshFixture(population, purpose, enabled = true) {
+    async function freshFixture(population, purpose, enabled = true, deniedPassword) {
       assert.ok(credentials[`policy_${population}`], 'Missing separate fixture seed');
       const username = `${credentials[`policy_${population}`].username}-${purpose}-${runId}`;
       const fixture = { population, username, email: `policy-${runId.replaceAll('-', '')}-${manifest.users.length}@example.invalid`,
-        password: randomBytes(36).toString('base64url'), enabled };
+        password: deniedPassword ?? randomBytes(36).toString('base64url'), enabled };
       // Persist intent before creation so an interrupted response does not orphan an unrecorded fixture.
       manifest.users.push(fixture);
-      await protectedJson(manifestFile, manifest);
-      const response = await admin(api(population, '/users'), 'POST', {
-        username, email: fixture.email, enabled, emailVerified: true,
-        firstName: 'Synthetic', lastName: 'Policy qualification', requiredActions: [],
-        attributes: { tenant_id: ['synthetic-tenant'],
-          [population === 'workforce' ? 'staff_actor_id' : 'party_id']: [randomUUID()] },
-        credentials: [{ type: 'password', value: fixture.password, temporary: false }],
+      const attributes = { tenant_id: ['synthetic-tenant'],
+        [population === 'workforce' ? 'staff_actor_id' : 'party_id']: [randomUUID()] };
+      const response = await submitPolicyFixture(fixture, {
+        persist: () => protectedJson(manifestFile, manifest),
+        recordValidation: validation => { adminValidation = validation; },
+        expectDenylist: deniedPassword !== undefined,
+        readUsers: () => adminJson(api(population, `/users?username=${encodeURIComponent(username)}&exact=true`)),
+        create: () => admin(api(population, '/users'), 'POST', {
+          username, email: fixture.email, enabled, emailVerified: true,
+          firstName: 'Synthetic', lastName: 'Policy qualification', requiredActions: [],
+          attributes,
+          credentials: [{ type: 'password', value: fixture.password, temporary: false }],
+        }),
       });
-      if (response.status !== 201) adminValidation = await readAdminValidation(response);
-      assert.equal(response.status, 201, 'Fresh synthetic policy fixture creation refused');
+      if (response === null) return fixture;
       assert.ok(response.headers.get('location'), 'Created fixture has no resource location');
       const location = new URL(response.headers.get('location'), BASE);
       assert.equal(location.origin, BASE);
@@ -320,6 +370,18 @@ async function main() {
       await protectedJson(manifestFile, manifest);
       return fixture;
     }
+
+    const denied = (await readFile(new URL('../config/password-blacklist.txt', import.meta.url), 'utf8')).trim().split('\n');
+    for (const population of ['customers', 'workforce']) {
+      phase = `real ${population} fixture-creation denylist refusal and rollback`;
+      const policy = policies.profiles[population].realmSettings.passwordPolicy;
+      const minimum = Number(policy.match(/(?:^| and )length\((\d+)\)/)?.[1]);
+      const maximum = Number(policy.match(/(?:^| and )maxLength\((\d+)\)/)?.[1]);
+      const deniedPassword = denied.find(value => value.length >= minimum && value.length <= maximum);
+      assert.ok(deniedPassword, 'No denylist entry exercises this population boundary');
+      await freshFixture(population, 'denylist-probe', true, deniedPassword);
+    }
+    passed('actual customer and workforce fixture creation rejects a baseline denylist password with the exact policy category and leaves no user');
 
     const metadataCache = new Map();
     async function begin(population) {
@@ -594,7 +656,6 @@ async function main() {
     passed('clearing only the fresh owned fixture counter and replacing its password both leave enabled=false and the permanent-lock reason intact');
 
     phase = 'real password length, denylist, identity and history policies';
-    const denied = (await readFile(new URL('../config/password-blacklist.txt', import.meta.url), 'utf8')).trim().split('\n');
     for (const population of ['customers', 'workforce']) {
       const fixture = await freshFixture(population, 'passwords');
       const policy = policies.profiles[population].realmSettings.passwordPolicy;
