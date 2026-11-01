@@ -18,7 +18,12 @@ const callback = 'https://localhost:8448/oidc/callback';
 const pending = new Map();
 const results = [];
 const factors = new Map();
+const fontEvidence = [];
 let phase = 'owned-native-runtime-ready';
+let currentStage = 'initialization';
+let lastPage;
+let lastHttpStatus;
+const stage = value => { currentStage = value; };
 let browser;
 let server;
 const passed = label => { phase = label; results.push(label); console.log(`PASS ${label}`); };
@@ -54,45 +59,58 @@ async function authenticate(profile, context, wrong = false, enroll = false) {
   url.search = new URLSearchParams({ client_id: 'native-browser', redirect_uri: callback, response_type: 'code',
     scope: 'openid profile email offline_access', code_challenge: challenge, code_challenge_method: 'S256', state,
     nonce: randomBytes(16).toString('hex'), prompt: 'login' }).toString();
-  const page = await context.newPage(); page.setDefaultTimeout(20000);
+  stage(`${profile.kind}-ordinary-new-page`);
+  const page = await context.newPage(); lastPage = page; page.setDefaultTimeout(20000);
   let fulfill;
   const returned = new Promise(ok => { fulfill = ok; pending.set(state, ok); });
-  await page.goto(url.href);
+  stage(`${profile.kind}-ordinary-oidc-navigation`);
+  lastHttpStatus = (await page.goto(url.href))?.status();
+  stage(`${profile.kind}-ordinary-recovery-entry-count`);
   assert.equal(await page.locator(`a[href="${profile.issuer}/firefly-recovery"]`).count(), 1, 'Opted-in native login must expose recovery');
+  stage(`${profile.kind}-ordinary-password-submit`);
   await page.locator('#username').fill(profile.person.username);
   await page.locator('#password').fill(wrong ? 'synthetic-invalid-password-2468!' : profile.person.password);
   await page.locator('#kc-login').click();
   if (wrong) { await page.locator('#password').waitFor(); pending.delete(state); await page.close(); return null; }
+  stage(`${profile.kind}-ordinary-otp-or-enrollment-selector`);
   await page.locator('#totpSecret, #otp').first().waitFor({ state: 'attached' });
   if (await page.locator('#totpSecret').count()) {
     assert.ok(enroll, 'Recovery must not enroll a new factor');
+    stage(`${profile.kind}-ordinary-enrollment-secret-selector`);
     if (await page.locator('#mode-manual').count()) await page.locator('#mode-manual').click();
     const secret = (await page.locator('#kc-totp-secret-key').innerText()).replace(/\s/g, '');
     factors.set(profile.kind, { secret, lastCounter: -1 });
     await writeFile(`${directory}/secrets/totp-${profile.kind}.json`, JSON.stringify({ secret }), { mode: 0o600, flag: 'wx' });
     await page.locator('#totp').fill(await nextCode(profile));
     if (await page.locator('#userLabel').count()) await page.locator('#userLabel').fill('Pre-enrolled native fixture authenticator');
+    stage(`${profile.kind}-ordinary-enrollment-save`);
     await page.locator('#saveTOTPBtn').click();
   } else {
     await page.locator('#otp').fill(await nextCode(profile));
     await page.locator('#kc-login').click();
   }
   if (await page.locator('#kc-oauth-consent-form').count()) await page.locator('input[name="accept"], button[name="accept"]').click();
+  stage(`${profile.kind}-ordinary-callback-wait`);
   const response = await Promise.race([returned, delay(25000).then(() => { throw new Error('Owned authorization callback missing'); })]);
   pending.delete(state);
   assert.equal(response.searchParams.get('state'), state); const code = response.searchParams.get('code'); assert.ok(code);
+  stage(`${profile.kind}-ordinary-token-exchange`);
   const token = await request(`${profile.issuer}/protocol/openid-connect/token`, { method: 'POST', body: new URLSearchParams({
     client_id: 'native-browser', grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: callback }) });
   assert.equal(token.status, 200, 'Genuine ordinary sign-in token exchange failed');
   await page.close(); return token.json();
 }
 async function recovery(profile, context, username, password) {
-  const page = await context.newPage(); page.setDefaultTimeout(25000);
-  await page.goto(`${profile.issuer}/firefly-recovery?kc_locale=es`);
+  stage(`${profile.kind}-native-new-page`);
+  const page = await context.newPage(); lastPage = page; page.setDefaultTimeout(25000);
+  stage(`${profile.kind}-native-password-navigation`);
+  lastHttpStatus = (await page.goto(`${profile.issuer}/firefly-recovery?kc_locale=es`))?.status();
   assert.equal(await page.locator('#password').getAttribute('type'), 'password');
+  stage(`${profile.kind}-native-password-submit`);
   await page.locator('#username').fill(username); await page.locator('#password').fill(password);
   await page.locator('#ffid-recovery-continue').click();
   await page.locator('#otp').waitFor();
+  await assertNativeFont(page, `${profile.kind}-masked-native-factor-form`);
   if ([profile.person.username, profile.person.email].includes(username)) {
     const reserved = snapshot(profile.kind);
     await page.reload(); await page.locator('#otp').waitFor();
@@ -111,10 +129,32 @@ async function expectCsrfRefusal(profile) {
   assert.equal(response.status(), 400);
   await context.close(); passed(`${profile.kind}-native-csrf-refused`);
 }
+async function assertNativeFont(page, label) {
+  await page.evaluate(() => document.fonts.ready);
+  const measured = await page.evaluate(() => ({
+    faces: [...document.fonts].filter(face => face.family.replace(/["']/g, '').toLowerCase() === 'manrope').map(face => ({ family: face.family, status: face.status })),
+    samples: ['#kc-page-title', '.ffid-native-journey p', '.ffid-native-journey label', '.ffid-native-journey input[type="password"]', '.ffid-credential-status dd']
+      .flatMap(selector => [...document.querySelectorAll(selector)].filter(element => element.getClientRects().length)
+        .slice(0, 1).map(element => ({ selector, family: getComputedStyle(element).fontFamily }))),
+    token: getComputedStyle(document.documentElement).getPropertyValue('--ffid-font-family').trim(),
+    request: performance.getEntriesByType('resource').find(entry => new URL(entry.name).pathname.endsWith('/manrope.woff2'))?.name,
+  }));
+  assert.ok(measured.faces.some(face => face.status === 'loaded'), 'Loaded actual Manrope FontFace is required');
+  assert.ok(measured.samples.length >= 2 && measured.samples.every(sample => /Manrope/i.test(sample.family)), 'Actual native title/form/status text must use Manrope');
+  assert.ok(/Manrope/i.test(measured.token), 'Canonical font token must remain Manrope');
+  assert.ok(measured.request, 'Actual Manrope WOFF2 request must be observable');
+  const response = await page.request.get(measured.request); assert.equal(response.status(), 200);
+  const bytes = await response.body(); assert.equal(bytes.subarray(0, 4).toString('ascii'), 'wOF2');
+  const canonical = await readFile(resolve('dist/themes/firefly-id/login/resources/fonts/manrope.woff2'));
+  const sha = value => createHash('sha256').update(value).digest('hex');
+  assert.equal(sha(bytes), sha(canonical), 'Native Manrope bytes must match the generated canonical artifact');
+  fontEvidence.push({ label, faces: measured.faces, samples: measured.samples, token: measured.token,
+    requestPath: new URL(measured.request).pathname, status: response.status(), sha256: sha(bytes) });
+  await writeFile(`${output}/fonts.json`, JSON.stringify(fontEvidence, null, 2));
+}
 async function captureSafeJourney(page, name) {
   assert.equal(await page.locator('input[type="password"], #kc-totp-secret-key').count(), 0, 'Credential-bearing surfaces must not be captured');
-  await page.evaluate(() => document.fonts.ready);
-  assert.ok(await page.evaluate(() => document.fonts.check('16px Manrope')), 'Self-hosted Manrope is unavailable');
+  await assertNativeFont(page, name);
   for (const [width, height] of [[1440, 1000], [390, 844]]) {
     await page.setViewportSize({ width, height });
     for (const mode of ['light', 'dark']) {
@@ -141,11 +181,14 @@ async function supportPin(profile, context) {
 }
 
 try {
+  stage('owned-callback-server-create');
   server = createServer({ pfx: await readFile(`${directory}/tls/server.p12`), passphrase: credentials.store }, (incoming, response) => {
     const url = new URL(incoming.url, callback); response.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
     response.end('Owned native fixture sign-in callback.'); pending.get(url.searchParams.get('state'))?.(url);
   });
+  stage('owned-callback-server-listen');
   await new Promise((ok, fail) => server.listen(8448, '127.0.0.1', ok).once('error', fail));
+  stage('owned-chromium-launch');
   browser = await chromium.launch();
   for (const profile of credentials.profiles) {
     const previousSession = await browser.newContext();
@@ -251,8 +294,26 @@ try {
     scope: 'Owned synthetic HTTPS native Keycloak/Core PostgreSQL/actual generated-SDK Domain acceptance only.' }, null, 2));
 } catch (error) {
   reportFailure(error, phase);
+  const allowedNames = new Set(['AssertionError', 'Error', 'TypeError', 'TimeoutError']);
+  const frames = String(error?.stack || '').split('\n').flatMap(line => {
+    const match = line.match(/tooling\/native-runtime\.mjs:(\d+):(\d+)/);
+    return match ? [`native-runtime.mjs:${match[1]}:${match[2]}`] : [];
+  }).slice(0, 6);
+  let inventory = {};
+  if (lastPage && !lastPage.isClosed()) {
+    try {
+      for (const selector of ['#username', '#password', '#otp', '#totpSecret', '#kc-totp-secret-key', '.ffid-recovery-entry', '#ffid-native-recovery', '#ffid-support-pin']) {
+        inventory[selector] = await lastPage.locator(selector).count();
+      }
+      const path = new URL(lastPage.url()).pathname;
+      inventory.canonicalPath = path.endsWith('/protocol/openid-connect/auth') ? 'oidc-authorize'
+        : path.includes('/login-actions/') ? 'native-login-action' : path.endsWith('/firefly-recovery') ? 'native-recovery'
+        : path.includes('/support-pin') ? 'native-pin' : path === '/oidc/callback' ? 'owned-callback' : 'other';
+    } catch { inventory = {}; }
+  }
   await writeFile(`${output}/summary.json`, JSON.stringify({ status: 'FAILED', passed: results, lastCompleted: phase,
-    scope: 'Partial native integration; uncompleted stages are not qualified.' }, null, 2));
+    currentStage, errorKind: allowedNames.has(error?.name) ? error.name : 'Error', sourceFrames: frames,
+    lastHttpStatus, inventory, scope: 'Partial native integration; uncompleted stages are not qualified.' }, null, 2));
   process.exitCode = 1;
 } finally {
   pending.clear(); if (browser) await browser.close(); if (server) await new Promise(ok => server.close(ok));

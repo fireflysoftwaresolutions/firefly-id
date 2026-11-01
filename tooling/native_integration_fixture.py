@@ -3,6 +3,8 @@
 import argparse
 import hashlib
 import json
+import http.server
+import threading
 import os
 from pathlib import Path
 import re
@@ -19,6 +21,10 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 LABEL = 'org.firefly-id.native-fixture'
 PHASE = 'initialization'
+
+
+def faults_enabled():
+    return os.environ.get('FIREFLY_NATIVE_TRANSPORT_FAULTS') == 'true'
 
 
 def require_hosted():
@@ -96,6 +102,7 @@ def tls(directory, credentials):
          '-out', str(tls_dir / 'server.p12'), '-passout', 'env:FIXTURE_KEYSTORE_PASSWORD'], directory, 'server-store', env=env)
     run(['keytool', '-importcert', '-noprompt', '-storetype', 'PKCS12', '-keystore', str(tls_dir / 'trust.p12'),
          '-storepass:env', 'FIXTURE_KEYSTORE_PASSWORD', '-alias', 'owned-native-ca', '-file', str(tls_dir / 'ca.crt')], directory, 'trust-store', env=env)
+    (tls_dir / 'proxy.key').write_bytes((tls_dir / 'server.key').read_bytes())
     for path in tls_dir.iterdir(): path.chmod(0o600)
     for name in ('ca.crt', 'server.crt', 'trust.p12'): (tls_dir / name).chmod(0o644)
     # Only the hosted attempt's private mounted key is made readable to the native image's fixed UID.
@@ -135,7 +142,7 @@ def prepare():
     subprocess.run(['python3', str(ROOT / 'scripts/generate_native_fixture.py'), '--output', str(directory)], check=True)
     directory, owner = state(); credentials = json.loads((directory / 'credentials.json').read_text())
     tls(directory, credentials)
-    for port in (5432, 8443, 8444, 8445, 8446, 8447, 8448):
+    for port in (5432, 8443, 8444, 8445, 8446, 8447, 8448, 8449, 8451):
         with socket.socket() as probe:
             try: probe.bind(('127.0.0.1', port))
             except OSError: raise RuntimeError('Refusing an occupied fixture port')
@@ -204,7 +211,7 @@ def start():
             'firefly.sca.recovery.native-owner.workload-client-id': 'native-core-owner', 'firefly.sca.recovery.native-owner.workload-secret-file': profile['core_secret_file'],
             'firefly.sca.recovery.native-self-policy.enabled': True, 'firefly.sca.recovery.native-self-policy.realm': profile['realm'],
             'firefly.sca.recovery.native-self-policy.actor-audiences': 'firefly-recovery-core,firefly-recovery-domain'}
-        domain_settings = {**common, 'server.port': profile['domain_port']}
+        domain_settings = {**common, 'server.port': profile['domain_backend_port'] if faults_enabled() else profile['domain_port']}
         env = dict(os.environ, SCA_RECOVERY_ENABLED='true', SCA_RECOVERY_TRUSTED_ISSUER=issuer, SCA_RECOVERY_TRUSTED_JWKS_URI=issuer + '/protocol/openid-connect/certs',
                    SCA_RECOVERY_REALM=profile['realm'], SCA_RECOVERY_POPULATION=profile['population'], SCA_RECOVERY_AUDIENCES='firefly-recovery-domain,firefly-recovery-core',
                    SCA_RECOVERY_ALLOWED_CLIENTS='native-ceremony', SCA_RECOVERY_AUDIENCE='firefly-recovery-core', SCA_RECOVERY_ALLOWED_POPULATIONS=profile['population'],
@@ -223,14 +230,21 @@ def start():
                 process = subprocess.Popen(['java', '-Xms64m', '-Xmx384m', '-Djavax.net.ssl.trustStore=' + str(directory / 'tls/trust.p12'),
                                             '-Djavax.net.ssl.trustStorePassword=' + credentials['store'], '-jar', str(path)], cwd=source, env=service_env, stdout=output, stderr=subprocess.STDOUT)
             owner['processes'].append({'pid': process.pid, 'jar': str(path), 'kind': service + '-' + kind}); save_owner(directory, owner)
-            wait_https(profile[service] + '/api/v1/sca/recovery-operations', directory, process)
+            address = backend_origin(profile) if service == 'domain' and faults_enabled() else profile[service]
+            wait_https(address + '/api/v1/sca/recovery-operations', directory, process)
+        if faults_enabled():
+            with (directory / 'logs' / ('proxy-' + kind + '.log')).open('ab') as output:
+                proxy = subprocess.Popen(['python3', str(Path(__file__).resolve()), 'serve_proxy', '--population', kind], stdout=output, stderr=subprocess.STDOUT)
+            owner['processes'].append({'pid': proxy.pid, 'jar': str(Path(__file__).resolve()), 'kind': 'proxy-' + kind}); save_owner(directory, owner)
+            wait_https(profile['domain'] + '/api/v1/sca/recovery-operations', directory, proxy)
     resource_floor(directory, 8)
     sdk = json.loads((domain / '.qualification/sdk-domain-summary.json').read_text())
     manifest = {'scope': 'Real owned native/Core/Domain HTTPS fixture; production and business acceptance excluded',
                 'identity_source': subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True).strip(),
                 'core_source': sdk['core_source'], 'domain_source': sdk['domain_source'], 'source_parent': sdk['source_parent'],
                 'candidate_sdk_version': sdk['candidate_sdk_version'], 'candidate_sdk_sha256': sdk['candidate_sdk_sha256'],
-                'producer_spec_sha256': sdk['producer_spec_sha256'], 'native_image': images['keycloak']['image'], 'postgres_image': images['postgres']['image']}
+                'producer_spec_sha256': sdk['producer_spec_sha256'], 'native_image': images['keycloak']['image'], 'postgres_image': images['postgres']['image'],
+                'transport_faults_enabled': faults_enabled()}
     for path in list((directory / 'providers').glob('*.jar')) + [core / 'core-common-sca-mgmt-web/target/core-common-sca-mgmt.jar', domain / 'domain-common-sca-web/target/domain-common-sca.jar']:
         manifest[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
     (ROOT / '.work/native-integration').mkdir(parents=True, exist_ok=True)
@@ -238,12 +252,92 @@ def start():
     print('Actual native owner plus isolated customer/workforce Core/Domain HTTPS processes ready.')
 
 
+
+def backend_origin(profile):
+    endpoint = urllib.parse.urlsplit(profile['domain'])
+    return endpoint._replace(netloc=endpoint.hostname + ':' + str(profile['domain_backend_port'])).geturl()
+
+
+def arm_fault(kind, fault):
+    if not faults_enabled(): raise RuntimeError('Owned transport faults require explicit hosted opt-in')
+    directory, owner = state()
+    if kind not in ('customers', 'workforce') or fault not in ('record-response-loss', 'verify-race'):
+        raise RuntimeError('Unsupported owned transport fault')
+    path = directory / (fault + '-' + kind)
+    if path.exists() or path.with_suffix('.spent').exists():
+        raise RuntimeError('Refusing to overwrite a retained fault marker')
+    path.write_text('one owned negative transport fault only\n'); path.chmod(0o600)
+    print('Armed one bounded owned transport fault; no provider verdict or authorization was fabricated.')
+
+
+def serve_proxy(kind):
+    if not faults_enabled(): raise RuntimeError('Owned transport faults require explicit hosted opt-in')
+    directory, owner = state()
+    profile = next(value for value in json.loads((directory / 'credentials.json').read_text())['profiles'] if value['kind'] == kind)
+    trusted = ssl.create_default_context(cafile=str(directory / 'tls/ca.crt'))
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=trusted))
+    gate = threading.Event(); lock = threading.Lock(); arrivals = 0
+    class Proxy(http.server.BaseHTTPRequestHandler):
+        protocol_version = 'HTTP/1.1'
+        def log_message(self, *_): pass
+        def do_GET(self):
+            self.send_response(405); self.send_header('Content-Length', '0'); self.end_headers()
+        def do_POST(self):
+            nonlocal arrivals
+            try:
+                path = urllib.parse.urlsplit(self.path)
+                if path.query or not re.fullmatch(r'/api/v1/sca/recovery-operations(?:/[A-Za-z0-9/_-]+)?', path.path):
+                    raise RuntimeError('Unsupported proxy route')
+                length = int(self.headers.get('Content-Length', '0'))
+                if length < 0 or length > 65536: raise RuntimeError('Bounded proxy input required')
+                request = urllib.request.Request(backend_origin(profile) + path.path, data=self.rfile.read(length), method='POST',
+                    headers={key: self.headers[key] for key in ('Authorization', 'Content-Type', 'Accept') if key in self.headers})
+                try: response = opener.open(request, timeout=4)
+                except urllib.error.HTTPError as refused: response = refused
+                with response:
+                    payload = response.read(65537)
+                    if len(payload) > 65536: raise RuntimeError('Bounded proxy output required')
+                    status = response.status; content_type = response.headers.get('Content-Type', 'application/json')
+                # Delay two REAL online verifications, each already accepted by real Domain/Core.
+                if path.path.endswith('/authorizations/verify') and status == 200:
+                    marker = directory / ('verify-race-' + kind)
+                    with lock:
+                        participating = marker.exists()
+                        if participating:
+                            arrivals += 1
+                            if arrivals == 2:
+                                marker.rename(marker.with_suffix('.spent')); gate.set()
+                    if participating and not gate.wait(3): raise RuntimeError('Second genuine verification did not arrive')
+                if path.path.endswith('/executions') and status == 204:
+                    marker = directory / ('record-response-loss-' + kind)
+                    with lock:
+                        failed_response = marker.exists()
+                        if failed_response: marker.rename(marker.with_suffix('.spent'))
+                    if failed_response:
+                        status = 503; payload = b'{"error":"owned_transport_response_unavailable"}'; content_type = 'application/json'
+                self.send_response(status); self.send_header('Content-Type', content_type)
+                self.send_header('Cache-Control', 'no-store'); self.send_header('Content-Length', str(len(payload))); self.end_headers()
+                if payload: self.wfile.write(payload)
+            except Exception:
+                try:
+                    self.send_response(503); self.send_header('Content-Length', '0'); self.end_headers()
+                except Exception: pass
+    class OwnedServer(http.server.ThreadingHTTPServer):
+        daemon_threads = True
+        def handle_error(self, *_): pass
+    server = OwnedServer(('127.0.0.1', profile['domain_port']), Proxy)
+    tls_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls_context.load_cert_chain(directory / 'tls/server.crt', directory / 'tls/proxy.key')
+    server.socket = tls_context.wrap_socket(server.socket, server_side=True)
+    server.serve_forever()
+
+
 def snapshot(kind):
     directory, owner = state(); credentials = json.loads((directory / 'credentials.json').read_text())
     profile = next(p for p in credentials['profiles'] if p['kind'] == kind); subject = profile['person']['id']
     if not re.fullmatch(r'[0-9a-f-]{36}', subject): raise RuntimeError('Noncanonical fixture subject')
-    native = psql(directory, owner, f"SELECT coalesce((SELECT json_build_object('locked',locked,'hold',hold,'generation',generation,'bootstrap',bootstrap_attempts,'knowledge',knowledge_attempts,'possession',possession_attempts,'pinActive',(pin_credential_id IS NOT NULL AND pin_revoked_at=0)) FROM ff_native_state WHERE subject='{subject}'),'{{}}'::json)::jsonb || jsonb_build_object('executions',(SELECT count(*) FROM ff_native_execution WHERE subject='{subject}'),'maximumChecksPerReservation',(SELECT coalesce(max(total),0) FROM (SELECT count(*) total FROM ff_native_attestation WHERE subject='{subject}' GROUP BY reservation_id) q));", 'native_kc')
-    core = psql(directory, owner, f"SELECT coalesce(json_agg(json_build_object('generation',lock_generation,'state',state,'attempts',attempt_count,'challenges',challenge_count,'outcome',execution_outcome) ORDER BY created_at),'[]'::json) FROM sca_recovery_operation WHERE target_subject='{subject}';", 'sca_native')
+    native = psql(directory, owner, f"SELECT coalesce((SELECT json_build_object('locked',locked,'hold',hold,'generation',generation,'bootstrap',bootstrap_attempts,'knowledge',knowledge_attempts,'possession',possession_attempts,'pinActive',(pin_credential_id IS NOT NULL AND pin_revoked_at=0)) FROM ff_native_state WHERE subject='{subject}'),'{{}}'::json)::jsonb || jsonb_build_object('executions',(SELECT count(*) FROM ff_native_execution WHERE subject='{subject}'),'executionId',(SELECT id FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'recorded',(SELECT recorded FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'recordAttempts',(SELECT record_attempts FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'maximumChecksPerReservation',(SELECT coalesce(max(total),0) FROM (SELECT count(*) total FROM ff_native_attestation WHERE subject='{subject}' GROUP BY reservation_id) q));", 'native_kc')
+    core = psql(directory, owner, f"SELECT coalesce(json_agg(json_build_object('generation',lock_generation,'state',state,'attempts',attempt_count,'challenges',challenge_count,'outcome',execution_outcome,'executionId',execution_id,'successAudits',(SELECT count(*) FROM sca_recovery_audit a WHERE a.operation_id=sca_recovery_operation.id AND a.event_type='EXECUTION_SUCCEEDED')) ORDER BY created_at),'[]'::json) FROM sca_recovery_operation WHERE target_subject='{subject}';", 'sca_native')
     print(json.dumps({'native': json.loads(native), 'core': json.loads(core)}))
 
 
@@ -272,10 +366,13 @@ def stop():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['prepare', 'start', 'stop', 'restart', 'snapshot'])
+    parser.add_argument('action', choices=['prepare', 'start', 'stop', 'restart', 'snapshot', 'serve_proxy', 'arm_record_loss', 'arm_verify_race'])
     parser.add_argument('--population', choices=['customers', 'workforce'])
     args = parser.parse_args(); require_hosted()
     if args.action == 'snapshot': snapshot(args.population)
+    elif args.action == 'serve_proxy': serve_proxy(args.population)
+    elif args.action == 'arm_record_loss': arm_fault(args.population, 'record-response-loss')
+    elif args.action == 'arm_verify_race': arm_fault(args.population, 'verify-race')
     else: globals()[args.action]()
 
 

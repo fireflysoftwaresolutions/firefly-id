@@ -14,6 +14,10 @@ Actual native/Core/Domain integration is **not yet qualified**. [Run 41254433096
 
 The native-only theme variant, username/email recovery lookup and new packaging guide are successors to those exact passing source heads and require their own checks. Telephone/BPO verification stays closed pending the genuine support case/delegation owner. Long-outage journal reconciliation, every-receiver live-state enforcement, approved banking notifications, retained-database migration, full HA/concurrency acceptance and production rollout remain separate gates.
 
+The successor at `5fd7aaf8417d947fc0f2a59568ba261d280a4a76` passed the native source lane again in [run 41255415143](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41255415143), including the username/email lookup and strengthened installation packager. The complete normal distribution passed [run 41255214192](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41255214192) at `0111e4d8217aeb26f8c748caac6aaf8291a678c7`. Independent source review found no remaining concrete issue in the lookup, opt-in theme links, required provider registrations or operational guides.
+
+[Actual integration run 41255218576](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41255218576) at `0111e4d` successfully started the real native Keycloak provider and separate customer/workforce Core/Domain HTTPS services. Its browser stage failed before the first enrollment assertion completed. Native schema/import and process readiness now have actual evidence; password/TOTP unlock, PIN lifecycle and native visual acceptance remain unqualified. The successor adds bounded subphase/font diagnostics without exposing credentials or browser URLs.
+
 ## Earlier evidence
 
 2026-10-31: Authoritative repository lookup returned 404; explicitly authorized public repository created. New isolated checkout initialized; parent handoff remains read-only. Canonical brand repository located and current Keycloak 26.8.1 release verified through official GitHub metadata. Independent source-contract, brand and deployment workstreams started.

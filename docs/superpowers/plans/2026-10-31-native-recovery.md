@@ -28,35 +28,35 @@
 
 ### Task 1: Core owning reservations, online authorization and durable audit
 
-- [ ] Extend existing Core interfaces/service/controller with reserve/complete/verify-authorization operations and typed records.
-- [ ] Add mapped immutable boundary-audit storage and separately reviewed installer privileges.
-- [ ] Reuse existing reservation/completion transactions, enforce exact proof/receipt bindings and current admission, disable generic response idempotency caching.
-- [ ] Extend meaningful service, real PostgreSQL, receiver and original-producer tests; run hosted qualification with no skipped required reports.
+- [x] Extend existing Core interfaces/service/controller with reserve/complete/verify-authorization operations and typed records.
+- [x] Add mapped immutable boundary-audit storage and separately reviewed installer privileges.
+- [x] Reuse existing reservation/completion transactions, enforce exact proof/receipt bindings and current admission, disable generic response idempotency caching.
+- [x] Extend meaningful service, real PostgreSQL, receiver and original-producer tests; run hosted qualification with no skipped required reports.
 
 ### Task 2: Native Keycloak owner
 
-- [ ] Add `extensions/native-recovery` with explicit Keycloak26.8.1 dependencies, Java21, service registrations, entity indexing and native schema lifecycle.
-- [ ] Implement durable permanent-lock capture, generic administrative bypass refusal, hold/revision invalidation and canonical population admission.
-- [ ] Implement bounded restricted ceremony, native credential attestations, exact Core reservation contract, online receipt verification and generation-atomic journaled execution.
-- [ ] Add separate hashed support-PIN credential lifecycle/verification capability with strong-auth gate and context-limited output.
+- [x] Add `extensions/native-recovery` with explicit Keycloak26.8.1 dependencies, Java21, service registrations, entity indexing and native schema lifecycle.
+- [x] Implement durable permanent-lock capture, generic administrative bypass refusal, hold/revision invalidation and canonical population admission.
+- [x] Implement bounded restricted ceremony, native credential attestations, exact Core reservation contract, online receipt verification and generation-atomic journaled execution.
+- [x] Add separate hashed support-PIN credential lifecycle/verification capability with strong-auth gate and context-limited output.
 - [ ] Test native API contracts, persistence, concurrency, rollback and secure failures on the real pinned provider.
 
 ### Task 3: Actual Domain orchestration and generated SDK
 
-- [ ] Isolate current `domain-common-sca` source without modifying retained consumer checkouts.
-- [ ] Add optional recovery-only receiver/current-policy and orchestration using actual generated `ScaRecoveryApi`; no new business persistence or credential DTOs.
-- [ ] Build the actual Core producer/generator under distinct temporary candidate SDK coordinates and compile Domain against that artifact in hosted CI.
-- [ ] Verify scoped bearer propagation without mutable singleton token state, native execution reconciliation and fail-closed capability/configuration.
+- [x] Isolate current `domain-common-sca` source without modifying retained consumer checkouts.
+- [x] Add optional recovery-only receiver/current-policy and orchestration using actual generated `ScaRecoveryApi`; no new business persistence or credential DTOs.
+- [x] Build the actual Core producer/generator under distinct temporary candidate SDK coordinates and compile Domain against that artifact in hosted CI.
+- [x] Verify scoped bearer propagation without mutable singleton token state, native execution reconciliation and fail-closed capability/configuration.
 
 ### Task 4: Product adapters, branded journeys and full integration
 
-- [ ] Implement actual product native admission/factor/journal adapters and recovery-only policy in separate product integration modules.
-- [ ] Extend generator/build/runtime wiring for owned qualified native artifacts and separate customer/workforce configuration.
-- [ ] Add native English/Spanish recovery/PIN pages using existing Manrope/light/dark theme and accessible generic state handling.
+- [x] Implement actual product native admission/factor/journal adapters and recovery-only policy in separate product integration modules.
+- [x] Extend generator/build/runtime wiring for owned qualified native artifacts and separate customer/workforce configuration.
+- [x] Add native English/Spanish recovery/PIN pages using existing Manrope/light/dark theme and accessible generic state handling.
 - [ ] Run fresh isolated HTTPS/native+Core+Domain/provider browser integration, including hostile substitutions, expiry, restart, concurrent execution, session retirement and support credential cases.
 
 ### Task 5: Review, operational documentation and evidence
 
 - [ ] Independently review security boundaries and actual target-size UI captures; correct material findings.
-- [ ] Expand installation, configuration, recovery/support operations, population policies, upgrade and failure documentation; verify repository metadata readback.
-- [ ] Record exact source/artifacts/tests and external production/assisted-support/delegation gates without turning source proof into release or compliance claims.
+- [x] Expand installation, configuration, recovery/support operations, population policies, upgrade and failure documentation; verify repository metadata readback.
+- [x] Record exact source/artifacts/tests and external production/assisted-support/delegation gates without turning source proof into release or compliance claims.

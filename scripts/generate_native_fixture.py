@@ -80,7 +80,7 @@ def main():
         protected(output / 'secrets' / ('core-' + kind), core_secret)
         protected(output / 'secrets' / ('domain-' + kind), domain_secret)
         profiles.append({'kind': kind, 'population': population, 'realm': realm_name, 'issuer': issuer,
-                         'core': core_origin, 'domain': domain_origin, 'core_port': core_port, 'domain_port': domain_port,
+                         'core': core_origin, 'domain': domain_origin, 'core_port': core_port, 'domain_port': domain_port, 'domain_backend_port': domain_port + 4,
                          'person': person, 'manual': {'id': held['id'], 'username': held['username']},
                          'core_secret_file': str(output / 'secrets' / ('core-' + kind)),
                          'domain_secret_file': str(output / 'secrets' / ('domain-' + kind))})

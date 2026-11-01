@@ -103,6 +103,7 @@ jobs:
           path: |
             .work/native-integration/summary.json
             .work/native-integration/manifest.json
+            .work/native-integration/fonts.json
             .work/native-integration/boot-summary.json
             .work/native-integration/*-complete*.png
             .work/native-integration/customers-pin-*.png
