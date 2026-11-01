@@ -38,4 +38,4 @@ Restrict identity/admin events, logs and recovery journals to authorized operato
 
 An enterprise immutable-audit/SIEM bridge is not supplied. Configure controlled export, custody, retention, alerting and incident ownership for the operating environment. Preserve upstream CSRF/action-token and authenticator behavior when customizing themes; presentation code does not replace server authorization.
 
-Report vulnerabilities privately through the maintainers' established security channel. The repository does not define a separate external mailbox. Use [incident response](observability-incidents.md) for operational handling.
+Report vulnerabilities through the repository's [private vulnerability reporting form](https://github.com/fireflysoftwaresolutions/firefly-id/security/advisories/new). Follow the [security reporting policy](../SECURITY.md) for the information to include and how to remove sensitive data. Use [incident response](observability-incidents.md) for operational handling; a repository report does not replace the institution's incident channel.
