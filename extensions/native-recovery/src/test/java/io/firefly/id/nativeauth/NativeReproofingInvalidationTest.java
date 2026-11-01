@@ -22,7 +22,7 @@ class NativeReproofingInvalidationTest {
             new NativeInvalidationFactoryImpl().create(session).onEvent(event(OperationType.UPDATE), false);
         }
         verify(em).find(UserEntity.class,"customer",LockModeType.PESSIMISTIC_WRITE);
-        assertEquals(1L, state.getClass().getField("invalidationVersion").getLong(state));
+        assertEquals(1L, invalidation(state));
         assertEquals("stable-epoch", state.epoch); assertEquals(2,state.failures);
         verify(em).persist(argThat(value -> value instanceof NativeAudit audit && "REPROOFING_INVALIDATED_ADMINISTRATIVE".equals(audit.eventType)
                 && "original-admin-event".equals(audit.adminEventId) && "admin-subject".equals(audit.actorSubject) && "admin-client".equals(audit.actorClientId)));
@@ -32,10 +32,14 @@ class NativeReproofingInvalidationTest {
     @Test void reproofingOnlyDeletionInvalidatesWithoutRequiringDeletedUserOrClearingBudget() throws Exception {
         var session = session(); var em = em(session); var state = state(em);
         new NativeInvalidationFactoryImpl().create(session).onEvent(event(OperationType.DELETE),false);
-        assertEquals(1L,state.getClass().getField("invalidationVersion").getLong(state));
+        assertEquals(1L,invalidation(state));
         assertEquals("stable-epoch",state.epoch); assertEquals(2,state.failures);
         verify(em,never()).find(eq(UserEntity.class),any(),any(LockModeType.class));
         verify(session.getTransactionManager(),never()).setRollbackOnly();
+    }
+    private long invalidation(ReproofingStateImpl state) throws Exception {
+        try { return state.getClass().getField("invalidationVersion").getLong(state); }
+        catch (NoSuchFieldException missing) { fail("Missing durable recovery invalidation stamp"); return -1; }
     }
     private KeycloakSession session() {
         var session = mock(KeycloakSession.class,RETURNS_DEEP_STUBS); when(session.getContext().getRealm().getId()).thenReturn("realm");
