@@ -86,11 +86,13 @@ try {
       for (const width of [390, 1440]) {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
         for (const scheme of ['light', 'dark']) {
-          phase = `welcome ${scenario.browserLocale} ${width} ${scheme}`;
+          const welcomeStage = `welcome ${scenario.browserLocale} ${width} ${scheme}`;
+          phase = `${welcomeStage} navigation`;
           await page.emulateMedia({ colorScheme: scheme });
           const response = await page.goto(`${base}/`);
           assert.equal(response.status(), 200);
           assert.equal(page.url(), `${base}/`, 'Welcome localization must preserve the requested URL');
+          phase = `${welcomeStage} localized content`;
           await page.waitForFunction(language => document.documentElement.lang === language, scenario.expected);
           const spanish = scenario.expected === 'es';
           assert.equal((await page.locator('h1').innerText()).replace(/\s+/g, ' ').trim(),
@@ -101,6 +103,7 @@ try {
           assert.equal((await page.locator('main > a').innerText()).trim(), spanish ? 'Abrir administración' : 'Open administration');
           assert.equal((await page.locator('footer a').innerText()).trim(), spanish ? 'Con tecnología de Keycloak' : 'Powered by Keycloak');
           assert.equal(await page.locator('select').count(), 0);
+          phase = `${welcomeStage} layout and assets`;
           await page.evaluate(() => document.fonts.ready);
           const measured = await page.evaluate(() => ({
             overflow: document.documentElement.scrollWidth > innerWidth,

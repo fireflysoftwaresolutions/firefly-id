@@ -32,6 +32,8 @@ In the Admin Console, open the target realm's **Realm settings → Themes** and 
 
 Installing the files does not migrate an existing realm's policy or enabled flows. Keep its users, credentials and sessions intact while changing presentation settings.
 
+The Firefly welcome theme explicitly disables the parent's automatic administration redirect. The root URL displays the branded welcome page; the administration link remains available when Keycloak enables that console. Restrict administrative routes at ingress as described in [deployment setup](regulated-deployment.md).
+
 ## Customize the right layer
 
 | Source | Change here |
