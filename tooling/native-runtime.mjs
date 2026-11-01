@@ -8,6 +8,7 @@ import { chromium } from 'playwright';
 import { totpCode } from './extended-runtime.mjs';
 import { reportFailure } from './safe-errors.mjs';
 import { assertIdentityArtworkReady } from './identity-artwork.mjs';
+import { persistNativeFactor } from './native-factor-fixture.mjs';
 
 const directory = resolve(process.env.FIREFLY_NATIVE_STATE || '');
 assert.ok(process.env.GITHUB_ACTIONS === 'true' && directory.includes('/.state/native-'), 'Owned hosted native state required');
@@ -186,7 +187,7 @@ async function authenticate(profile, context, wrong = false, enroll = false, off
     if (await page.locator('#mode-manual').count()) await page.locator('#mode-manual').click();
     const secret = (await page.locator('#kc-totp-secret-key').innerText()).replace(/\s/g, '');
     factors.set(profile.kind, { secret, lastCounter: -1 });
-    await writeFile(`${directory}/secrets/totp-${profile.kind}.json`, JSON.stringify({ secret }), { mode: 0o600, flag: 'wx' });
+    await persistNativeFactor(directory, profile.kind, profile.person.id, secret);
     await page.locator('#totp').fill(await nextCode(profile));
     if (await page.locator('#userLabel').count()) await page.locator('#userLabel').fill('Pre-enrolled native fixture authenticator');
     stage(`${profile.kind}-ordinary-enrollment-save`);
@@ -441,11 +442,13 @@ async function expiredNativeAuthority(originalProfile) {
         await page.locator('#otp').fill(await nextCode(profile)); await submitNativeForm(page, profile, '#ffid-recovery-continue');
         await page.locator('[role="alert"]').waitFor();
         assert.equal(faultStatus(profile.kind).verifyExpirySpent, true, 'Real successful verification must precede expiry injection');
+        assert.equal(faultStatus(profile.kind).verifyExpiryDelivered, true, 'Exact accepted response must reach the transport after expiry within the client deadline');
         const expired = observed();
         assert.equal(expired.native.locked, true); assert.equal(expired.native.executions, 0); assert.equal(expired.native.unlockAudits, 0);
         assert.equal(expired.core.length, 1); assert.equal(expired.core[0].state, 'CONSUMED');
         assert.equal(expired.core[0].attempts, 2); assert.equal(expired.core[0].verifiedKnowledge, 1); assert.equal(expired.core[0].verifiedPossession, 1);
-        assert.equal(expired.core[0].successAudits, 0); assert.equal(expired.core[0].outcome, null);
+        assert.ok(Date.parse(expired.core[0].receiptExpiresAt) < Date.now(), 'Stored original consumed receipt must have actually expired');
+        assert.equal(expired.core[0].successAudits, 0); assert.equal(expired.core[0].outcome, 'PENDING');
         assert.ok(claims.exp * 1000 > Date.now(), 'Actor must remain live to isolate receipt expiry');
         assert.equal((await user(profile)).enabled, false);
         await page.locator('#otp').fill(await nextCode(profile)); await submitNativeForm(page, profile, '#ffid-recovery-continue');

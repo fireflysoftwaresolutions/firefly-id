@@ -312,6 +312,7 @@ def fault_status(kind):
     arrivals = directory / ('verify-race-' + kind + '.arrivals')
     print(json.dumps({'recordLossSpent': (directory / ('record-response-loss-' + kind + '.spent')).is_file(),
                       'verifyExpirySpent': (directory / ('verify-expiry-' + kind + '.spent')).is_file(),
+                      'verifyExpiryDelivered': (directory / ('verify-expiry-' + kind + '.delivered')).is_file(),
                       'verifyRaceSpent': (directory / ('verify-race-' + kind + '.spent')).is_file(),
                       'verifyRaceArrivals': int(arrivals.read_text()) if arrivals.is_file() else 0}))
 
@@ -390,6 +391,8 @@ def serve_proxy(kind):
         def do_GET(self):
             self.send_response(405); self.send_header('Content-Length', '0'); self.end_headers()
         def do_POST(self):
+            began = time.monotonic()
+            expiry_delivery = None
             nonlocal arrivals
             try:
                 path = urllib.parse.urlsplit(self.path)
@@ -427,6 +430,7 @@ def serve_proxy(kind):
                                 raise RuntimeError('Owned expiry mode required')
                             claims = json.loads(base64.urlsafe_b64decode(actor[7:].split('.')[1] + '==='))
                             expiry_delay = receipt_expiry_delay(payload, time.time(), claims['exp'])
+                            expiry_delivery = time.time() + expiry_delay - 0.1
                             expiry_marker.rename(expiry_marker.with_suffix('.spent'))
                     if delay_expiry:
                         # Deliver the exact accepted response after its real expiry; never rewrite authority.
@@ -450,6 +454,14 @@ def serve_proxy(kind):
                 self.send_response(status); self.send_header('Content-Type', content_type)
                 self.send_header('Cache-Control', 'no-store'); self.send_header('Content-Length', str(len(payload))); self.end_headers()
                 if payload: self.wfile.write(payload)
+                self.wfile.flush()
+                if expiry_delivery is not None:
+                    if status != 200 or time.time() <= expiry_delivery or time.monotonic() - began >= 4.5:
+                        raise RuntimeError('Owned expiry response was not delivered within the client deadline')
+                    delivered = directory / ('verify-expiry-' + kind + '.delivered')
+                    with delivered.open('x') as marker:
+                        marker.write('Exact accepted response delivered after expiry within the client deadline.\n')
+                    delivered.chmod(0o600)
             except Exception:
                 try:
                     self.send_response(503); self.send_header('Content-Length', '0'); self.end_headers()
@@ -472,7 +484,7 @@ def snapshot(kind, role='person'):
     profile = next(p for p in credentials['profiles'] if p['kind'] == kind); subject = fixture_subject(profile, role)
     if not re.fullmatch(r'[0-9a-f-]{36}', subject): raise RuntimeError('Noncanonical fixture subject')
     native = psql(directory, owner, f"SELECT coalesce((SELECT json_build_object('locked',locked,'hold',hold,'generation',generation,'bootstrap',bootstrap_attempts,'knowledge',knowledge_attempts,'possession',possession_attempts,'pinActive',(pin_credential_id IS NOT NULL AND pin_revoked_at=0)) FROM ff_native_state WHERE subject='{subject}'),'{{}}'::json)::jsonb || jsonb_build_object('executions',(SELECT count(*) FROM ff_native_execution WHERE subject='{subject}'),'executionId',(SELECT id FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'recorded',(SELECT recorded FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'recordAttempts',(SELECT record_attempts FROM ff_native_execution WHERE subject='{subject}' LIMIT 1),'unlockAudits',(SELECT count(*) FROM ff_native_audit WHERE subject='{subject}' AND event_type='NATIVE_UNLOCK_COMMITTED'),'recordAudits',(SELECT count(*) FROM ff_native_audit WHERE subject='{subject}' AND event_type='NATIVE_EXECUTION_RECORDED'),'attestations',(SELECT count(*) FROM ff_native_attestation WHERE subject='{subject}'),'maximumChecksPerReservation',(SELECT coalesce(max(total),0) FROM (SELECT count(*) total FROM ff_native_attestation WHERE subject='{subject}' GROUP BY reservation_id) q));", 'native_kc')
-    core = psql(directory, owner, f"SELECT coalesce(json_agg(json_build_object('generation',lock_generation,'state',state,'attempts',attempt_count,'challenges',challenge_count,'outcome',execution_outcome,'executionId',execution_id,'verifiedKnowledge',(SELECT count(*) FROM sca_recovery_challenge ch WHERE ch.operation_id=sca_recovery_operation.id AND ch.category='KNOWLEDGE' AND ch.verified),'verifiedPossession',(SELECT count(*) FROM sca_recovery_challenge ch WHERE ch.operation_id=sca_recovery_operation.id AND ch.category='POSSESSION' AND ch.verified),'pendingReservations',(SELECT count(*) FROM sca_recovery_challenge ch WHERE ch.operation_id=sca_recovery_operation.id AND ch.verification_reservation_id IS NOT NULL),'successAudits',(SELECT count(*) FROM sca_recovery_audit a WHERE a.operation_id=sca_recovery_operation.id AND a.event_type='EXECUTION_SUCCEEDED')) ORDER BY created_at),'[]'::json) FROM sca_recovery_operation WHERE target_subject='{subject}';", 'sca_native')
+    core = psql(directory, owner, f"SELECT coalesce(json_agg(json_build_object('generation',lock_generation,'state',state,'receiptExpiresAt',receipt_expires_at,'attempts',attempt_count,'challenges',challenge_count,'outcome',execution_outcome,'executionId',execution_id,'verifiedKnowledge',(SELECT count(*) FROM sca_recovery_challenge ch WHERE ch.operation_id=sca_recovery_operation.id AND ch.category='KNOWLEDGE' AND ch.verified),'verifiedPossession',(SELECT count(*) FROM sca_recovery_challenge ch WHERE ch.operation_id=sca_recovery_operation.id AND ch.category='POSSESSION' AND ch.verified),'pendingReservations',(SELECT count(*) FROM sca_recovery_challenge ch WHERE ch.operation_id=sca_recovery_operation.id AND ch.verification_reservation_id IS NOT NULL),'successAudits',(SELECT count(*) FROM sca_recovery_audit a WHERE a.operation_id=sca_recovery_operation.id AND a.event_type='EXECUTION_SUCCEEDED')) ORDER BY created_at),'[]'::json) FROM sca_recovery_operation WHERE target_subject='{subject}';", 'sca_native')
     print(json.dumps({'native': json.loads(native), 'core': json.loads(core)}))
 
 
