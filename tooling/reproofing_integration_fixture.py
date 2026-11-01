@@ -11,7 +11,9 @@ import http.server
 import json
 import os
 from pathlib import Path
+import re
 import secrets
+import signal
 import socket
 import ssl
 import subprocess
@@ -56,11 +58,14 @@ def prepare():
     owned.save_owner(directory, owner)
     credentials = json.loads((directory / 'credentials.json').read_text())
     values = {key: secrets.token_urlsafe(36) for key in ('native-domain', 'domain-core', 'core-verifier',
-                                                        'fixture-control', 'core-native', 'domain-native')}
+                                                        'fixture-control', 'core-native', 'domain-native',
+                                                        'core-notification', 'notification-monitor')}
     values['native_client'] = 'reproofing-native-caller'
     values['domain_client'] = 'reproofing-domain-caller'
     values['verifier_client'] = 'reproofing-core-verifier'
     values['fixture_client'] = 'reproofing-fixture-controller'
+    values['notification_client'] = 'reproofing-notification-worker'
+    values['monitor_client'] = 'reproofing-notification-monitor'
     for name, value in values.items():
         if not name.endswith('_client'):
             protected(directory / 'secrets' / (name + '.secret'), value)
@@ -88,10 +93,12 @@ def prepare():
              'tenant-attribute': 'tenant_id', 'link-attribute': 'party_id', 'allowed-origin': 'https://id.firefly.test:8443',
              'ttl-seconds': '600', 'core-workload-client-id': 'reproofing-core-owner',
              'domain-workload-client-id': 'reproofing-domain-owner', 'domain-origin': profile['domain'],
+             'notification-workload-client-id': values['notification_client'],
              'domain-client-id': values['native_client'], 'provider-origin': profile['domain']}
     realm['attributes'].update({'firefly.reproofing.' + name: value for name, value in attrs.items()})
     for client_id, secret in [('reproofing-core-owner', values['core-native']),
-                              ('reproofing-domain-owner', values['domain-native'])]:
+                              ('reproofing-domain-owner', values['domain-native']),
+                              (values['notification_client'], values['core-notification'])]:
         realm['clients'].append({'clientId': client_id, 'enabled': True, 'publicClient': False, 'secret': secret,
                                  'standardFlowEnabled': False, 'directAccessGrantsEnabled': False,
                                  'serviceAccountsEnabled': False, 'implicitFlowEnabled': False,
@@ -166,12 +173,16 @@ def start_native(directory, owner, credentials, images):
     owned.wait_https(credentials['profiles'][0]['issuer'] + '/.well-known/openid-configuration', directory)
 
 
-def service(directory, owner, credentials, name, settings, command):
+def service(directory, owner, credentials, name, settings, command, *, resume=False):
     source = ROOT / '.qualification/reproofing-domain'
     if name == 'core':
         source = source / '.qualification/core'
     configuration = directory / (name + '-reproofing.json')
-    protected(configuration, json.dumps(settings))
+    if resume:
+        if not configuration.is_file() or json.loads(configuration.read_text()) != settings:
+            raise RuntimeError('Owned service restart configuration mismatch')
+    else:
+        protected(configuration, json.dumps(settings))
     environment = dict(os.environ, SPRING_APPLICATION_JSON=json.dumps(settings),
                        DB_HOST='127.0.0.1', DB_PORT='5432', DB_NAME='kycb_reproofing',
                        DB_USERNAME='reproofing_runtime', DB_PASSWORD=credentials['core-db'], DB_SSL_MODE='disable')
@@ -231,6 +242,15 @@ def start():
                      'firefly.reproofing.native.base-url': profile['issuer'] + '/firefly-recovery/lost-credentials/rpc',
                      'firefly.reproofing.native.client-id': 'reproofing-core-owner',
                      'firefly.reproofing.native.secret-file': secret('core-native'),
+                     'firefly.reproofing.notifications.enabled': True,
+                     'firefly.reproofing.notifications.client-id': values['notification_client'],
+                     'firefly.reproofing.notifications.secret-file': secret('core-notification'),
+                     'firefly.reproofing.notifications.monitor.client-id': values['monitor_client'],
+                     'firefly.reproofing.notifications.monitor.secret-file': secret('notification-monitor'),
+                     'firefly.reproofing.notifications.poll-interval': 'PT2S',
+                     'firefly.reproofing.notifications.request-timeout': 'PT10S',
+                     'firefly.reproofing.notifications.stale-after': 'PT30S',
+                     'firefly.reproofing.notifications.overdue-after': 'PT10S',
                      'firefly.reproofing.evidence.base-url': profile['domain'] + '/internal/identity-recovery/evidence',
                      'firefly.reproofing.evidence.client-id': values['verifier_client'],
                      'firefly.reproofing.evidence.secret-file': secret('core-verifier')}
@@ -410,10 +430,84 @@ def restart_native():
     print(json.dumps({'restarted': True}))
 
 
+def restart_core():
+    directory, owner = state()
+    active = [process for process in owner['processes'] if process['kind'] == 'core-reproofing']
+    if len(active) != 1:
+        raise RuntimeError('Expected exactly one owned Core process')
+    process = active[0]
+    command = Path('/proc') / str(process['pid']) / 'cmdline'
+    if not command.exists() or process['jar'].encode() not in command.read_bytes():
+        raise RuntimeError('Owned Core process identity mismatch')
+    os.kill(process['pid'], signal.SIGTERM)
+    for _ in range(120):
+        if not command.exists() or not command.read_bytes():
+            break
+        time.sleep(0.25)
+    else:
+        raise RuntimeError('Owned Core shutdown did not finish')
+    owner['processes'].remove(process)
+    owner.setdefault('retired_processes', []).append({**process, 'state': 'stopped'})
+    owned.save_owner(directory, owner)
+    credentials = json.loads((directory / 'credentials.json').read_text())
+    settings = json.loads((directory / 'core-reproofing.json').read_text())
+    core = ROOT / '.qualification/reproofing-domain/.qualification/core'
+    restarted = service(directory, owner, credentials, 'core', settings, ['-jar', str(core / CORE_RELATIVE)], resume=True)
+    owned.wait_https(credentials['profiles'][0]['core'] + '/api/v1/identity-recovery/cases', directory, restarted)
+    print(json.dumps({'restarted': True}))
+
+
+def notification_probes():
+    directory, owner = state()
+    marker = directory / 'notification-probes.applied'
+    if marker.exists():
+        raise RuntimeError('Owned notification probes already applied')
+    owned.inspect_container(owner, owner['project'] + '-postgres')
+    credentials = json.loads((directory / 'credentials.json').read_text())
+    realms = [profile['realm'] for profile in credentials['profiles']]
+    if len(realms) != 2 or not all(re.fullmatch(r'[A-Za-z0-9_-]{1,128}', realm) for realm in realms):
+        raise RuntimeError('Unexpected owned realm identifiers')
+    template = """INSERT INTO ff_reproofing_notification
+      (id,realm_id,subject,destination_encrypted,destination_digest,created_at,next_attempt_at,delivered_at,attempts,status,lease_token)
+      SELECT '{id}',id,'owned-notification-probe','not-a-deliverable-ciphertext','owned-probe',
+      cast(extract(epoch from clock_timestamp())*1000 as bigint)-120000,
+      cast(extract(epoch from clock_timestamp())*1000 as bigint)-120000,0,8,{status},'expired-owned-lease'
+      FROM realm WHERE name='{realm}';"""
+    owned.psql(directory, owner, 'BEGIN;'
+               + template.format(id='fixture-foreign-failure', status="'FAILED'", realm=realms[1])
+               + template.format(id='fixture-expired-delivery', status="'SENDING'", realm=realms[0]) + 'COMMIT;', 'native_kc')
+    count = owned.psql(directory, owner, "SELECT count(*) FROM ff_reproofing_notification WHERE id IN ('fixture-foreign-failure','fixture-expired-delivery');", 'native_kc')
+    if count != '2':
+        raise RuntimeError('Owned aggregate probes were not actually inserted')
+    rejected = []
+    for label, value in [('unknown', "'UNKNOWN'"), ('null', 'NULL')]:
+        try:
+            owned.psql(directory, owner, template.format(id='fixture-invalid-' + label, status=value, realm=realms[0]), 'native_kc')
+        except RuntimeError:
+            rejected.append(label)
+    if rejected != ['unknown', 'null']:
+        raise RuntimeError('Native notification constraints did not reject invalid state')
+    protected(marker, 'owned aggregate and terminal-lease probes\n')
+    print(json.dumps({'foreignRealmFailureRetained': True, 'expiredFinalLeaseCreated': True,
+                      'invalidStatusRejected': True, 'nullStatusRejected': True}))
+
+
+def notification_probe_status():
+    directory, owner = state()
+    result = owned.psql(directory, owner, """SELECT json_build_object(
+      'terminalStatus',(SELECT status FROM ff_reproofing_notification WHERE id='fixture-expired-delivery'),
+      'terminalAttempts',(SELECT attempts FROM ff_reproofing_notification WHERE id='fixture-expired-delivery'),
+      'leaseCleared',(SELECT lease_token IS NULL FROM ff_reproofing_notification WHERE id='fixture-expired-delivery'),
+      'foreignFailureRetained',(SELECT count(*)=1 FROM ff_reproofing_notification WHERE id='fixture-foreign-failure' AND status='FAILED')
+    );""", 'native_kc')
+    print(result)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=['prepare', 'start', 'stop', 'snapshot', 'mail-stop', 'mail-start', 'restart-native',
-                                           'serve-proxy', 'arm-record-loss', 'fault-status'])
+                                           'serve-proxy', 'arm-record-loss', 'fault-status', 'restart-core',
+                                           'notification-probes', 'notification-probe-status'])
     args = parser.parse_args()
     owned.require_hosted()
     try:
@@ -428,6 +522,12 @@ def main():
             snapshot()
         elif args.action == 'restart-native':
             restart_native()
+        elif args.action == 'restart-core':
+            restart_core()
+        elif args.action == 'notification-probes':
+            notification_probes()
+        elif args.action == 'notification-probe-status':
+            notification_probe_status()
         elif args.action == 'serve-proxy':
             serve_proxy()
         elif args.action == 'arm-record-loss':

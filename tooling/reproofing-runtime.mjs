@@ -36,6 +36,55 @@ async function request(url, options = {}) {
 async function jsonPost(url, body, authorization) {
   return request(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(authorization ? { Authorization: authorization } : {}) }, body: JSON.stringify(body) });
 }
+const monitorUrl = `${profile.core}/internal/identity-recovery/notifications`;
+const monitorAuthorization = () => basic(secrets.monitor_client, secrets['notification-monitor']);
+async function notificationMonitor() {
+  const response = await request(monitorUrl, { headers: { Authorization: monitorAuthorization() } });
+  assert.equal(response.status, 200, 'Private notification monitor must be available to its own workload');
+  const snapshot = await response.json();
+  assert.deepEqual(Object.keys(snapshot).sort(), ['state', 'activeCycle', 'lastAttemptAt', 'lastSuccessAt', 'consecutiveFailures', 'queue'].sort());
+  assert.ok(['STARTING', 'HEALTHY', 'DEGRADED', 'UNAVAILABLE', 'STALE'].includes(snapshot.state));
+  if (snapshot.queue !== null) {
+    assert.deepEqual(Object.keys(snapshot.queue).sort(), ['observedAt', 'pending', 'sending', 'retrying', 'delivered', 'failed', 'invalid', 'due', 'oldestDueDelaySeconds'].sort());
+    assert.equal(typeof snapshot.queue.observedAt, 'string');
+    assert.ok(Number.isFinite(Date.parse(snapshot.queue.observedAt)));
+    for (const key of ['pending', 'sending', 'retrying', 'delivered', 'failed', 'invalid', 'due', 'oldestDueDelaySeconds']) {
+      assert.ok(Number.isSafeInteger(snapshot.queue[key]) && snapshot.queue[key] >= 0);
+    }
+    diagnostics.notificationQueue = snapshot.queue;
+  }
+  diagnostics.notificationMonitorState = snapshot.state;
+  return snapshot;
+}
+async function waitNotificationMonitor(predicate, timeout = 90000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const snapshot = await notificationMonitor();
+    if (predicate(snapshot)) return snapshot;
+    await delay(1000);
+  }
+  throw new Error('Owned notification supervision condition timed out');
+}
+async function notificationControls() {
+  for (const authorization of [undefined, basic(secrets.domain_client, secrets['domain-core']), basic(secrets.notification_client, secrets['core-notification'])]) {
+    const response = await request(monitorUrl, { headers: authorization ? { Authorization: authorization } : {} });
+    assert.equal(response.status, 403, 'Only the separate monitor workload may observe the queue');
+  }
+  assert.equal((await jsonPost(monitorUrl, {}, monitorAuthorization())).status, 403);
+  assert.equal((await request(`${monitorUrl}/unexpected`, { headers: { Authorization: monitorAuthorization() } })).status, 403);
+  assert.equal((await jsonPost(`${profile.core}/api/v1/identity-recovery/cases`, {}, monitorAuthorization())).status, 403);
+  const healthy = await waitNotificationMonitor(value => value.state === 'HEALTHY' && value.queue !== null);
+  assert.equal(healthy.queue.pending, 0); assert.equal(healthy.queue.failed, 0);
+  for (const route of ['dispatch', 'notification-status']) {
+    for (const authorization of [basic('reproofing-core-owner', secrets['core-native']), basic('reproofing-domain-owner', secrets['domain-native'])]) {
+      assert.equal((await jsonPost(`${root}/rpc/${route}`, {}, authorization)).status, 403);
+    }
+  }
+  for (const route of ['prepare', 'admit', 'journal']) {
+    assert.equal((await jsonPost(`${root}/rpc/${route}`, {}, basic(secrets.notification_client, secrets['core-notification']))).status, 403);
+  }
+  passed('private-notification-monitor-and-dedicated-worker-cannot-acquire-case-or-ceremony-authority');
+}
 async function admin(suffix, options = {}, selected = profile) {
   const response = await request(`${origin}/realms/master/protocol/openid-connect/token`, { method: 'POST', body: new URLSearchParams({
     client_id: 'admin-cli', grant_type: 'password', username: 'native-bootstrap', password: credentials.admin }) });
@@ -226,7 +275,7 @@ async function receiverControls() {
   }
   const verifier = await jsonPost(`${profile.domain}/internal/identity-recovery/evidence`, {}, basic(secrets.native_client, secrets['native-domain']));
   assert.equal(verifier.status, 403, 'Native workload cannot verify its own evidence');
-  for (const route of ['prepare', 'admit', 'journal', 'dispatch']) {
+  for (const route of ['prepare', 'admit', 'journal', 'dispatch', 'notification-status']) {
     const response = await jsonPost(`${root}/rpc/${route}`, {}); assert.equal(response.status, 403);
   }
   const staff = credentials.profiles[1];
@@ -234,6 +283,7 @@ async function receiverControls() {
   assert.equal(response.status, 400, 'Customer authority must not recover workforce');
   passed('receiving-services-and-native-rpc-deny-missing-or-wrong-purpose-workload');
   passed('customer-proofing-authority-does-not-recover-workforce');
+  await notificationControls();
 }
 async function csrfControls() {
   const context = await browser.newContext(); const page = await context.newPage();
@@ -355,6 +405,8 @@ try {
   const newPassword = randomBytes(30).toString('base64url') + 'aA9!';
   const currentOnline = await refresh(initial.tokens.refresh_token); assert.equal(currentOnline.status, 200); initial.tokens.refresh_token = currentOnline.refreshToken;
   const currentOffline = await refresh(offline.tokens.refresh_token); assert.equal(currentOffline.status, 200); offline.tokens.refresh_token = currentOffline.refreshToken;
+  diagnostics.notificationPhase = 'stop-owned-transport-before-replacement';
+  fixture('mail-stop');
   fixture('arm-record-loss');
   const enrollmentCode = await replace(recovery, profile.person, newSecret, newPassword);
   assert.equal(fixture('fault-status').recordResponseDropped, true, 'Actual committed Domain/Core response loss required');
@@ -374,6 +426,24 @@ try {
   await authenticate(profile.person, enrollmentReplayContext, { password: newPassword, secret: newSecret, exactOtp: enrollmentCode, refuseOtp: true });
   passed('native-enrollment-code-cannot-authenticate-again');
   await enrollmentReplayContext.close();
+  diagnostics.notificationPhase = 'observe-automatic-failed-delivery';
+  await waitNotificationMonitor(value => value.state === 'DEGRADED' && value.queue?.retrying > 0, 30000);
+  const beforeWorkerRestart = fixture('snapshot');
+  assert.equal(beforeWorkerRestart.native.notifications.length, 1, 'One real replacement notice must precede worker restart');
+  assert.ok(beforeWorkerRestart.native.notifications.some(value => value.status === 'PENDING' && value.attempts >= 1));
+  diagnostics.notificationPhase = 'restart-only-owned-core-poller';
+  const restartedAt = Date.now();
+  fixture('restart-core');
+  const reobserved = await waitNotificationMonitor(value => value.state === 'DEGRADED' && value.queue?.retrying > 0
+    && typeof value.lastSuccessAt === 'string' && Date.parse(value.lastSuccessAt) >= restartedAt - 1000, 45000);
+  assert.ok(Date.parse(reobserved.queue.observedAt) >= restartedAt - 1000);
+  const afterWorkerRestart = fixture('snapshot');
+  assert.equal(afterWorkerRestart.native.notifications.length, 1);
+  assert.equal(afterWorkerRestart.native.executions, beforeWorkerRestart.native.executions);
+  for (const field of ['cases', 'grants', 'verifiedGrantTotal', 'consumedAudits', 'executedAudits']) assert.deepEqual(afterWorkerRestart.core[field], beforeWorkerRestart.core[field]);
+  assert.ok(afterWorkerRestart.native.notifications.some(value => value.attempts >= beforeWorkerRestart.native.notifications[0].attempts));
+  passed('automatic-poller-failure-and-core-restart-preserve-native-queue-attempts-and-original-recovery');
+  fixture('mail-start');
   const freshSignIn = async () => {
     const context = await browser.newContext();
     await authenticate(profile.person, context, { password: newPassword, secret: newSecret });
@@ -390,31 +460,17 @@ try {
   await capture(recovery.page, 'replacement-en-complete');
   await translated(recovery.page, 'es'); await capture(recovery.page, 'replacement-es-complete');
   phase = 'native-notification-dispatch';
-  diagnostics.notificationPhase = 'stop-owned-transport';
-  fixture('mail-stop');
-  diagnostics.notificationPhase = 'dispatch-unavailable-transport';
-  const failedDelivery = await jsonPost(`${root}/rpc/dispatch`, {}, basic('reproofing-core-owner', secrets['core-native']));
-  diagnostics.notificationHttpStatus = failedDelivery.status;
-  assert.equal(failedDelivery.status, 200); assert.ok((await failedDelivery.json()).processed >= 1);
-  const pendingDelivery = fixture('snapshot').native.notifications;
-  diagnostics.notificationStates = pendingDelivery;
-  assert.ok(pendingDelivery.some(value => value.status === 'PENDING' && value.attempts === 1), 'SMTP failure must retain a durable pending delivery');
-  fixture('mail-start');
-  diagnostics.notificationPhase = 'durable-backoff';
-  await delay(61000);
-  diagnostics.notificationPhase = 'dispatch-restored-transport';
-  const dispatched = await jsonPost(`${root}/rpc/dispatch`, {}, basic('reproofing-core-owner', secrets['core-native']));
-  diagnostics.notificationHttpStatus = dispatched.status;
+  diagnostics.notificationPhase = 'await-automatic-backoff-delivery';
+  await waitNotificationMonitor(value => value.state === 'HEALTHY' && value.queue?.delivered >= 1 && value.queue.retrying === 0, 180000);
   diagnostics.notificationStates = fixture('snapshot').native.notifications;
-  assert.equal(dispatched.status, 200); assert.ok((await dispatched.json()).processed >= 1);
   const messages = await request('http://127.0.0.1:8025/api/v1/messages'); assert.equal(messages.status, 200);
   const mail = await messages.json();
   diagnostics.notificationPhase = 'confirm-previous-verified-destination';
   diagnostics.notificationMessageCount = mail.messages.length;
   assert.ok(mail.messages.some(message => message.To?.some(to => to.Address === profile.person.email)), 'Actual replacement notice must reach previous verified destination');
   assert.ok(fixture('snapshot').native.notifications.some(value => value.status === 'DELIVERED' && value.attempts >= 2));
-  passed('notification-transport-failure-retains-outbox-and-retries-without-new-recovery');
-  passed('durable-native-notification-dispatch-delivers-to-previous-verified-channel');
+  passed('automatic-notification-poller-retries-transport-failure-without-manual-dispatch-or-new-recovery');
+  passed('supervised-poller-delivers-to-previous-verified-channel-and-reports-healthy');
   phase = 'permanently-locked-account-credential-loss';
   const lockedPerson = profile.locked;
   const lockedContext = await browser.newContext(); await authenticate(lockedPerson, lockedContext, { enroll: true });
@@ -526,6 +582,18 @@ try {
   for (const field of ['cases', 'grants', 'verifiedGrantTotal', 'consumedAudits', 'executedAudits']) assert.deepEqual(afterReload.core[field], beforeReload.core[field]);
   await recovery.context.close(); await onlineContext.close(); await offlineContext.close();
   passed('committed-response-loss-restart-and-natural-receipt-expiry-reconcile-only-original-execution');
+  phase = 'notification-database-aggregation-and-terminal-supervision';
+  await waitNotificationMonitor(value => value.state === 'HEALTHY' && value.queue?.pending === 0 && value.queue.sending === 0);
+  const messagesBeforeProbe = await (await request('http://127.0.0.1:8025/api/v1/messages')).json();
+  const probe = fixture('notification-probes');
+  assert.ok(probe.foreignRealmFailureRetained && probe.expiredFinalLeaseCreated && probe.invalidStatusRejected && probe.nullStatusRejected);
+  const terminal = await waitNotificationMonitor(value => value.state === 'DEGRADED' && value.queue?.failed === 1 && value.queue.invalid === 0 && value.queue.due === 0, 30000);
+  assert.equal(terminal.queue.sending, 0);
+  const retained = fixture('notification-probe-status');
+  assert.deepEqual(retained, { terminalStatus: 'FAILED', terminalAttempts: 8, leaseCleared: true, foreignFailureRetained: true });
+  const messagesAfterProbe = await (await request('http://127.0.0.1:8025/api/v1/messages')).json();
+  assert.equal(messagesAfterProbe.messages.length, messagesBeforeProbe.messages.length, 'Expired final lease cannot trigger a ninth send');
+  passed('actual-database-realm-scoping-state-constraints-and-expired-eighth-lease-remain-supervised-without-send');
   await writeFile(`${output}/summary.json`, JSON.stringify({ scope: 'Actual native/Core/customer Domain with test-only proofing adapter; real provider, workforce recovery, receiver-wide JWT revocation and production acceptance excluded', gates, failed: [], fontMeasurements: fonts.length }, null, 2));
 } catch (error) {
   await writeFile(`${output}/summary.json`, JSON.stringify({ scope: 'Incomplete actual native/customer proofing qualification', gates, failed: [{ phase, kind: error instanceof assert.AssertionError ? 'assertion' : 'runtime', diagnostics }] }, null, 2));
