@@ -19,6 +19,7 @@ const pending = new Map();
 const results = [];
 const failedGates = [];
 const accountEvidence = {};
+const sessionEvidence = {};
 const factors = new Map();
 const privateProofs = new Map();
 const accountAssertions = new Map();
@@ -32,6 +33,7 @@ let lastNativeSubmission;
 let activePopulation;
 let accountAssetStatuses = {};
 let accountErrorKinds = [];
+let accountNavigations = [];
 let lastAccountInventory;
 let lastPinProtection;
 const stage = value => { currentStage = value; };
@@ -45,6 +47,10 @@ const nativeTool = (action, population, input) => execFileSync('python3', ['tool
   stdio: [input ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
 const snapshot = population => JSON.parse(nativeTool('snapshot', population));
 const faultStatus = population => JSON.parse(nativeTool('fault_status', population));
+const pinDiagnostics = () => {
+  try { return JSON.parse(nativeTool('pin_diagnostics')); }
+  catch { return { unavailable: true }; }
+};
 async function request(url, options = {}) {
   const headers = new Headers(options.headers); headers.set('Connection', 'close');
   return fetch(url, { ...options, headers, signal: AbortSignal.timeout(20000) });
@@ -62,6 +68,49 @@ async function admin(profile, suffix, options = {}) {
 async function user(profile, manual = false) {
   const response = await admin(profile, `users/${manual ? profile.manual.id : profile.person.id}`);
   assert.equal(response.status, 200, 'Owned user state unavailable'); return response.json();
+}
+async function cookieMetadata(context, profile) {
+  const cookies = await context.cookies([`${profile.issuer}/account/`, `${profile.issuer}/firefly-recovery/support-pin`]);
+  const names = ['KEYCLOAK_IDENTITY', 'KEYCLOAK_SESSION', 'KEYCLOAK_IDENTITY_LEGACY', 'KEYCLOAK_SESSION_LEGACY',
+    'AUTH_SESSION_ID', 'KC_RESTART', 'FF_NATIVE_RECOVERY', 'FF_NATIVE_PIN'];
+  return Object.fromEntries(names.map(name => {
+    const cookie = cookies.find(value => value.name === name);
+    return [name, cookie ? { present: true, secure: cookie.secure, httpOnly: cookie.httpOnly,
+      sameSite: ['Strict', 'Lax', 'None'].includes(cookie.sameSite) ? cookie.sameSite : 'other',
+      expiry: cookie.expires === -1 ? 'session' : cookie.expires > Date.now() / 1000 ? 'future' : 'expired',
+      realmPath: cookie.path.startsWith(`/realms/${profile.realm}`) } : { present: false }];
+  }));
+}
+async function sessionAuthority(profile) {
+  const evidence = {};
+  try {
+    evidence.enabled = (await user(profile)).enabled === true;
+    const sessions = await admin(profile, `users/${profile.person.id}/sessions`);
+    if (sessions.status === 200) evidence.onlineSessionCount = (await sessions.json()).length;
+    for (const [clientId, key] of [['account', 'accountRoles'], ['realm-management', 'realmManagementRoles']]) {
+      const clients = await admin(profile, `clients?clientId=${clientId}`);
+      if (clients.status !== 200) continue;
+      const entries = await clients.json(); if (entries.length !== 1) continue;
+      const roles = await admin(profile, `users/${profile.person.id}/role-mappings/clients/${entries[0].id}/composite`);
+      if (roles.status !== 200) continue;
+      const assigned = await roles.json();
+      evidence[key] = key === 'accountRoles' ? { manageAccount: assigned.some(role => role.name === 'manage-account'),
+        viewProfile: assigned.some(role => role.name === 'view-profile') } : { present: assigned.length > 0 };
+    }
+  } catch { evidence.incomplete = true; }
+  return evidence;
+}
+function navigationClass(value, profile) {
+  const url = new URL(value);
+  if (url.origin === new URL(callback).origin && url.pathname === '/oidc/callback') return 'owned-callback';
+  if (url.origin !== origin) return 'other-origin';
+  if (url.pathname === `/realms/${profile.realm}/account` || url.pathname.startsWith(`/realms/${profile.realm}/account/`)) return 'account';
+  if (url.pathname.includes('/protocol/openid-connect/auth')) return 'oidc-authorize';
+  if (url.pathname.includes('/login-actions/')) return 'login-action';
+  if (url.pathname.includes('/firefly-recovery/support-pin')) return 'native-pin';
+  if (url.pathname.endsWith('/firefly-recovery/complete')) return 'native-completion';
+  if (url.pathname.endsWith('/firefly-recovery')) return 'native-recovery';
+  return 'other';
 }
 async function nextCode(profile) {
   const factor = factors.get(profile.kind); assert.ok(factor, 'Previously enrolled native TOTP required');
@@ -151,6 +200,8 @@ async function authenticate(profile, context, wrong = false, enroll = false) {
   const token = await request(`${profile.issuer}/protocol/openid-connect/token`, { method: 'POST', body: new URLSearchParams({
     client_id: 'native-browser', grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: callback }) });
   assert.equal(token.status, 200, 'Genuine ordinary sign-in token exchange failed');
+  sessionEvidence[profile.kind] = { loginPhase: enroll ? 'initial-enrollment' : 'fresh-after-unlock',
+    beforeAuthenticationPageClose: await cookieMetadata(context, profile) };
   await page.close(); return token.json();
 }
 async function recovery(profile, context, username, password) {
@@ -216,6 +267,11 @@ async function accountInventory(page) {
     const footer = document.getElementById('ffid-copyright');
     const link = document.getElementById('ffid-support-pin-link');
     return { bodyPageId: document.body?.dataset.pageId === 'account' ? 'account' : 'other',
+      bodyPageClass: ['account', 'login-login', 'login-error', 'login-login-totp', 'login-login-config-totp'].includes(document.body?.dataset.pageId)
+        ? document.body.dataset.pageId : 'other',
+      hasLoginForm: Boolean(document.querySelector('#kc-form-login')), hasUsernameInput: Boolean(document.querySelector('#username')),
+      hasPasswordInput: Boolean(document.querySelector('#password')), hasErrorContainer: Boolean(document.querySelector('#kc-error-message')),
+      hasAccountApp: Boolean(document.querySelector('#app')), hasAccountPage: Boolean(document.querySelector('.pf-v5-c-page')),
       footerCount: document.querySelectorAll('#ffid-copyright').length,
       linkCount: document.querySelectorAll('#ffid-support-pin-link').length,
       linkVisible: Boolean(link?.getClientRects().length),
@@ -226,7 +282,8 @@ async function accountInventory(page) {
       scripts: Object.fromEntries(['copyright.js', 'presentation-policy.js', 'native-account-links.js'].map(name =>
         [name, [...document.scripts].some(script => new URL(script.src || location.href).pathname.endsWith('/' + name))])) };
   });
-  return { ...inventory, assetStatuses: accountAssetStatuses, errorKinds: accountErrorKinds };
+  return { ...inventory, assetStatuses: accountAssetStatuses, errorKinds: accountErrorKinds,
+    navigation: accountNavigations.slice(-12) };
 }
 async function assertTranslation(page, language, key) {
   assert.ok((await page.locator('html').getAttribute('lang')).startsWith(language));
@@ -636,9 +693,11 @@ try {
     const retiredOffline = await admin(profile, offlinePath); assert.equal(retiredOffline.status, 200); assert.equal((await retiredOffline.json()).length, 0);
     passed(`${profile.kind}-old-refresh-online-and-real-offline-sessions-retired`);
     const fresh = await browser.newContext(); await authenticate(profile, fresh);
+    sessionEvidence[profile.kind].afterAuthenticationPageClose = await cookieMetadata(fresh, profile);
+    sessionEvidence[profile.kind].authorityBeforeAccount = await sessionAuthority(profile);
     passed(`${profile.kind}-fresh-password-and-pre-enrolled-mfa-required-after-unlock`);
     stage(`${profile.kind}-native-account-navigation`);
-    const account = await fresh.newPage(); lastPage = account; accountAssetStatuses = {}; accountErrorKinds = [];
+    const account = await fresh.newPage(); lastPage = account; accountAssetStatuses = {}; accountErrorKinds = []; accountNavigations = [];
     account.on('pageerror', error => {
       const kind = ['TypeError', 'ReferenceError', 'SyntaxError', 'Error'].includes(error.name) ? error.name : 'Error';
       if (accountErrorKinds.length < 5) accountErrorKinds.push(kind);
@@ -646,6 +705,10 @@ try {
     account.on('response', async response => {
       try {
         const url = new URL(response.url());
+        if (response.request().isNavigationRequest() && response.request().frame() === account.mainFrame()) {
+          accountNavigations.push({ method: response.request().method() === 'POST' ? 'POST' : 'GET',
+            status: response.status(), pageClass: navigationClass(response.url(), profile) });
+        }
         for (const name of ['copyright.js', 'presentation-policy.js', 'native-account-links.js', 'firefly-console.css']) {
           if (url.pathname.endsWith('/' + name)) accountAssetStatuses[name] = response.status();
         }
@@ -660,6 +723,7 @@ try {
     lastHttpStatus = (await account.goto(`${profile.issuer}/account/`)).status();
     await account.locator('main').waitFor();
     lastAccountInventory = await accountInventory(account);
+    sessionEvidence[profile.kind].afterAccountNavigation = await cookieMetadata(fresh, profile);
     accountEvidence[profile.kind] = lastAccountInventory;
     const pinLink = account.locator(`a[href="${profile.issuer}/firefly-recovery/support-pin"]`);
     if (profile.population === 'HUMAN') {
@@ -669,6 +733,8 @@ try {
       catch {
         entryAvailable = false;
         lastAccountInventory = await accountInventory(account); accountEvidence[profile.kind] = lastAccountInventory;
+        sessionEvidence[profile.kind].afterAccountEntryWait = await cookieMetadata(fresh, profile);
+        sessionEvidence[profile.kind].authorityAfterAccount = await sessionAuthority(profile);
         failed('customers-native-account-pin-entry', 'strict-native-account-pin-link-unavailable');
       }
       if (entryAvailable) await pinLink.click();
@@ -710,7 +776,8 @@ try {
     passed(`${profile.kind}-explicit-fixture-user-deletion-preserves-native-tombstone-and-core-evidence`);
   }
   await writeFile(`${output}/summary.json`, JSON.stringify({ status: failedGates.length ? 'FAILED' : 'PASSED', passed: results,
-    failures: failedGates, accountInventory: accountEvidence, pinProtection: lastPinProtection,
+    failures: failedGates, accountInventory: accountEvidence, sessionEvidence, pinProtection: lastPinProtection,
+    ...(failedGates.length ? { pinGuards: pinDiagnostics() } : {}),
     pending: [...(transportFaults ? [] : ['true simultaneous native execution requests', 'post-commit network response-loss injection', 'natural server ceremony expiry and swapped private attestation references']),
       'admitted actor JWT and consumed authorization receipt expiry in native runtime',
       'support PIN BPO/case/delegation owner acceptance', 'production/regulatory approval'],
@@ -759,7 +826,8 @@ try {
   await writeFile(`${output}/summary.json`, JSON.stringify({ status: 'FAILED', passed: results, failures: failedGates, lastCompleted: phase,
     currentStage, errorKind: allowedNames.has(error?.name) ? error.name : 'Error', sourceFrames: frames,
     networkCauseCode: allowedNetworkCodes.has(error?.cause?.code) ? error.cause.code : 'unclassified',
-    lastHttpStatus, lastNativeSubmission, inventory, lastAccountInventory, accountInventory: accountEvidence, lastPinProtection, counters,
+    lastHttpStatus, lastNativeSubmission, inventory, lastAccountInventory, accountInventory: accountEvidence, sessionEvidence,
+    pinGuards: pinDiagnostics(), lastPinProtection, counters,
     scope: 'Partial native integration; uncompleted stages are not qualified.' }, null, 2));
   process.exitCode = 1;
 } finally {

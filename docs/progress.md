@@ -1,6 +1,24 @@
 # Implementation evidence
 
-## Current native integration checkpoint — October 31, 2026
+## Current qualification — October 31, 2026
+
+**Customer known-password unlock has actual native/Core/Domain acceptance at the stated scope. The full PIN/workforce run and forgotten-credential recovery are not complete.** Production rollout is not admitted.
+
+- Native source: [39 tests, zero failures/errors/skips](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41263900768) at `c1c85af3e7b1588bd7429b5e4b90604c8304c797`, including privileged PIN revocation, original-expiry boundaries and candidate notices.
+- Actual customer unlock: [17 real gates passed](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41261037446) at `376e20782ea1ef72be293acf522498911e376a55`. This includes native password/TOTP, permanent lock retention, exact private proof refusal, CSRF/Origin, replay, retirement of prior online/offline sessions, and committed-record response loss followed by restart and reconciliation. The run stopped at the account-console PIN entry before PIN or workforce execution.
+- Normal themes/provider: [complete normal distribution passed](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41259584415) at `30be9cad305808f93b23700144dfc7f554535435`. This evidence is separate from optional native extension qualification.
+- Owning services: [Core draft PR 2](https://github.com/fireflysoftwaresolutions/core-common-sca-mgmt/pull/2) has 84 source tests at `c91880ac092eec11ec4640a65a599a8a1d9d5c2a`; [Domain draft PR 1](https://github.com/fireflysoftwaresolutions/domain-common-sca/pull/1) passed the full reactor and 23 required tests at `d32ecca07e3dfd3a2330c201e555e95b89476c89`. Neither candidate is a release or production adoption.
+- Latest full attempt: [41264845299](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41264845299), at `cb105acc2f581c4794b04be707dfe5d4e7b86517`, repeated all 17 customer gates and all 39 native source tests. It then failed at the missing account-console PIN link; independent direct PIN status also returned 403. All four account brand assets returned 200, but the final document lacked the account body marker and scripts. PIN and workforce execution remain unqualified. The prior owned-relay startup failure did not recur; its cause remains unknown.
+
+The public repository description, 18 topics and README now describe customer/workforce identity, OpenPlatform, independent Jafly and integration/operations paths. Dedicated guides cover [access recovery](access-recovery.md), [native installation and unlock](native-recovery.md), [support PIN](support-pin.md) and [per-service zero trust](zero-trust.md).
+
+Actual native empty-password and Spanish TOTP/completion screens have safe 1440/390-pixel light/dark review, with measured Manrope loading and canonical font hash. Native PIN screens still need direct review after a successful lifecycle run. Visual acceptance does not establish authentication or authorization acceptance.
+
+Forgotten-password plus locked-account recovery and lost-factor re-enrollment need genuine alternative evidence or an identity-proofing owner; the existing KYC APIs do not provide that authority. BPO verification similarly remains closed without a genuine case/delegation contract. Approved banking notifications, retained-database migration, full HA/concurrency, every-receiver current-state enforcement and production acceptance remain separate gates. See the guides above for exact boundaries.
+
+## Native qualification history
+
+The entries below record evidence and pending work **at each historical checkpoint**. The current qualification above supersedes their then-pending status; failed attempts are retained rather than rewritten as successful evidence.
 
 The repository description and 18 topics now explain customer/workforce identity, OpenPlatform integration, independent Jafly, authentication and authorization. The README provides distinct evaluation, integration and operations reading paths. Native installation, retry handling, support PIN lifecycle/key rotation and per-service zero trust have dedicated guides.
 
@@ -83,3 +101,12 @@ Hosted [41248049445](https://github.com/fireflysoftwaresolutions/firefly-id/acti
 Direct review of the packaged theme confirms readable light/dark console surfaces, a consistent masthead, full-width welcome text and aligned actions. Actual branded administration captures and numeric bounds cover 320, 390, 768 and 1440 pixels in both modes. Authentication, account and administration include desktop/mobile light/dark captures; English/Spanish login, refusal, logout, recovery and protocol-error captures include both mobile modes. Short mobile journeys now start at the same header origin, and logout separates its instruction from its action. These are Chromium viewport checks and direct screenshot review, not physical-device or cross-browser acceptance. Canonical JSON, design documentation and live CSS now agree on Manrope 450/650 title/label weights and the ink dark surface; all 19 recorded brand asset hashes were checked.
 
 This qualification covers a fresh, isolated synthetic provider. Strong native recovery/unlock, lost-factor proofing, retained-realm migration, restart/concurrency/timing behavior, permanent administrator MFA/bootstrap removal, immediate enforcement by every receiver and production acceptance remain separate gates. No regulatory certification, published release or automatic secure unlock is claimed.
+
+## Native integration follow-up at cb105ac
+
+[Run 41264845299](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41264845299) used the same Core `c91880ac` and Domain `d32ecca` pins and unchanged native product code. Actual TLS relay/native/service startup passed; the earlier run's transient startup failure remains unexplained. Native compilation/tests passed 39/0/0/0 with candidate notices intact. All 17 customer unlock gates passed again, with one native execution, one native unlock audit, one recording audit, two recording reservations, one Core success audit, no pending factor reservations and the original operation in CONSUMED/SUCCEEDED.
+
+The account PIN entry was absent. Its bounded inventory recorded a non-account final body, no footer or declared brand scripts, while all four requested account assets returned HTTP 200 and no JavaScript exception was observed. The independent native PIN status request returned 403. This does not identify whether the native refusal occurred at SSO-cookie validation or later status rendering. No fallback bearer or relaxed authentication is introduced; exact navigation, cookie and native admission evidence is needed before a correction. PIN lifecycle and workforce gates had not executed.
+
+
+The next diagnostic successor records only fixed native PIN phases and REFUSED/ERROR categories at DEBUG level, plus bounded browser navigation classes, cookie metadata without values, and read-only session/role booleans in the owned fixture. Public errors, strict native cookie authentication and all factor/authorization gates remain unchanged. Its native source build and actual integration must pass independently; diagnostic instrumentation is not a product fix.

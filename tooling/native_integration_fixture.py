@@ -184,6 +184,7 @@ def start():
                '--env', 'KC_DB_USERNAME=native_kc', '--env', 'KC_BOOTSTRAP_ADMIN_USERNAME=native-bootstrap', '--env', 'KC_HTTP_ENABLED=false',
                '--env', 'KC_HTTP_HOST=127.0.0.1', '--env', 'KC_HTTPS_PORT=8443', '--env', 'KC_HOSTNAME=https://id.firefly.test:8443',
                '--env', 'KC_HOSTNAME_STRICT=true', '--env', 'KC_HTTPS_CERTIFICATE_FILE=/run/native/server.crt', '--env', 'KC_HTTPS_CERTIFICATE_KEY_FILE=/run/native/server.key',
+               '--env', 'KC_LOG_LEVEL=warn,io.firefly.id.nativeauth.NativePinResource:debug',
                '--env', 'JAVA_OPTS_KC_HEAP=-Xms128m -Xmx768m', '--env', 'FIREFLY_SUPPORT_PIN_KEYS_DIR=/run/pepper', '--env', 'FIREFLY_SUPPORT_PIN_ACTIVE_KEY=v1',
                '--env', f'JAVA_OPTS_APPEND=-Djavax.net.ssl.trustStore=/run/native/trust.p12 -Djavax.net.ssl.trustStorePassword={credentials["store"]}',
                '--volume', str(directory / 'providers') + ':/opt/keycloak/providers:ro', '--volume', str(directory / 'realms') + ':/opt/keycloak/data/import:ro',
@@ -329,6 +330,18 @@ def private_credential_exists(kind):
     print(json.dumps({'stored': int(stored)}))
 
 
+def pin_diagnostics():
+    directory, owner = state()
+    container = owner['project'] + '-keycloak'; inspect_container(owner, container)
+    logs = subprocess.run(['docker', 'logs', '--tail', '500', container], capture_output=True)
+    if logs.returncode: raise RuntimeError('Owned native diagnostic log unavailable')
+    phases = ('TRANSPORT', 'POPULATION', 'IDENTITY_COOKIE', 'ENABLED_HUMAN', 'STATUS_FEEDBACK', 'CEREMONY_CREATE',
+              'STATUS_READ', 'FORM_RENDER', 'ORIGIN', 'CEREMONY_CONSUME', 'MUTATION', 'FEEDBACK')
+    pattern = r'FIREFLY_NATIVE_PIN_REFUSAL phase=(' + '|'.join(phases) + r') kind=(REFUSED|ERROR)(?:\s|$)'
+    markers = re.findall(pattern, (logs.stdout + logs.stderr).decode(errors='replace'))[-12:]
+    print(json.dumps({'markers': [{'phase': phase, 'kind': kind} for phase, kind in markers]}))
+
+
 def serve_proxy(kind):
     global PHASE
     PHASE = 'relay-initialization'
@@ -441,7 +454,7 @@ def stop():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['prepare', 'start', 'stop', 'restart', 'snapshot', 'serve_proxy', 'arm_record_loss', 'arm_verify_race', 'fault_status', 'private_proof', 'ceremony_state', 'private_pin', 'private_credential_exists'])
+    parser.add_argument('action', choices=['prepare', 'start', 'stop', 'restart', 'snapshot', 'serve_proxy', 'arm_record_loss', 'arm_verify_race', 'fault_status', 'private_proof', 'ceremony_state', 'private_pin', 'private_credential_exists', 'pin_diagnostics'])
     parser.add_argument('--population', choices=['customers', 'workforce'])
     args = parser.parse_args(); require_hosted()
     if args.action == 'snapshot': snapshot(args.population)
@@ -453,6 +466,7 @@ def main():
     elif args.action == 'ceremony_state': ceremony_state(args.population)
     elif args.action == 'private_pin': private_pin(args.population)
     elif args.action == 'private_credential_exists': private_credential_exists(args.population)
+    elif args.action == 'pin_diagnostics': pin_diagnostics()
     else: globals()[args.action]()
 
 
