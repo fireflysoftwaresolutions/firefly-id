@@ -37,7 +37,20 @@ async function jsonPost(url, body, authorization) {
   return request(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(authorization ? { Authorization: authorization } : {}) }, body: JSON.stringify(body) });
 }
 const monitorUrl = `${profile.core}/internal/identity-recovery/notifications`;
+const notificationMetricsUrl = `${monitorUrl}/metrics`;
 const monitorAuthorization = () => basic(secrets.monitor_client, secrets['notification-monitor']);
+async function notificationMetrics() {
+  const response = await request(notificationMetricsUrl, { headers: { Authorization: monitorAuthorization() } });
+  assert.equal(response.status, 200, 'Notification metrics require the private monitor receiver');
+  assert.match(response.headers.get('content-type') || '', /text\/plain|application\/openmetrics-text/);
+  const metrics = await response.text();
+  const samples = metrics.split('\n').filter(line => line.trim() && !line.startsWith('#'));
+  assert.ok(samples.length > 0 && samples.every(line => line.startsWith('firefly_reproofing_notifications_')),
+    'The notification monitor must not acquire unrelated application metrics');
+  assert.doesNotMatch(metrics, /(?:subject|email|case_id|execution_id|nonce|tenant_id)\s*=/);
+  diagnostics.notificationMetricSamples = samples.length;
+  return metrics;
+}
 async function notificationMonitor() {
   const response = await request(monitorUrl, { headers: { Authorization: monitorAuthorization() } });
   assert.equal(response.status, 200, 'Private notification monitor must be available to its own workload');
@@ -67,14 +80,26 @@ async function waitNotificationMonitor(predicate, timeout = 90000) {
 }
 async function notificationControls() {
   for (const authorization of [undefined, basic(secrets.domain_client, secrets['domain-core']), basic(secrets.notification_client, secrets['core-notification'])]) {
-    const response = await request(monitorUrl, { headers: authorization ? { Authorization: authorization } : {} });
-    assert.equal(response.status, 403, 'Only the separate monitor workload may observe the queue');
+    for (const url of [monitorUrl, notificationMetricsUrl]) {
+      const response = await request(url, { headers: authorization ? { Authorization: authorization } : {} });
+      assert.equal(response.status, 403, 'Only the separate monitor workload may observe the queue or its metrics');
+    }
   }
   assert.equal((await jsonPost(monitorUrl, {}, monitorAuthorization())).status, 403);
+  assert.equal((await jsonPost(notificationMetricsUrl, {}, monitorAuthorization())).status, 403);
   assert.equal((await request(`${monitorUrl}/unexpected`, { headers: { Authorization: monitorAuthorization() } })).status, 403);
   assert.equal((await jsonPost(`${profile.core}/api/v1/identity-recovery/cases`, {}, monitorAuthorization())).status, 403);
   const healthy = await waitNotificationMonitor(value => value.state === 'HEALTHY' && value.queue !== null);
   assert.equal(healthy.queue.pending, 0); assert.equal(healthy.queue.failed, 0);
+  await notificationMetrics();
+  const globalMetrics = await request(`${profile.core}/actuator/prometheus`);
+  if (globalMetrics.status === 200) {
+    assert.doesNotMatch(await globalMetrics.text(), /firefly_reproofing_notifications_/,
+      'Private notification series must not leak through the pre-existing global registry');
+  } else {
+    assert.ok([401, 403, 404].includes(globalMetrics.status));
+  }
+  passed('notification-metrics-remain-private-and-absent-from-the-global-registry');
   for (const route of ['dispatch', 'notification-status']) {
     for (const authorization of [basic('reproofing-core-owner', secrets['core-native']), basic('reproofing-domain-owner', secrets['domain-native'])]) {
       assert.equal((await jsonPost(`${root}/rpc/${route}`, {}, authorization)).status, 403);
@@ -589,6 +614,9 @@ try {
   assert.ok(probe.foreignRealmFailureRetained && probe.expiredFinalLeaseCreated && probe.invalidStatusRejected && probe.nullStatusRejected);
   const terminal = await waitNotificationMonitor(value => value.state === 'DEGRADED' && value.queue?.failed === 1 && value.queue.invalid === 0 && value.queue.due === 0, 30000);
   assert.equal(terminal.queue.sending, 0);
+  const terminalMetrics = await notificationMetrics();
+  const failedGauge = terminalMetrics.match(/^firefly_reproofing_notifications_queue\{[^}]*kind="failed"[^}]*\}\s+(\S+)/m);
+  assert.ok(failedGauge && Number(failedGauge[1]) === 1, 'Private metric must report the actual retained terminal failure');
   const retained = fixture('notification-probe-status');
   assert.deepEqual(retained, { terminalStatus: 'FAILED', terminalAttempts: 8, leaseCleared: true, foreignFailureRetained: true });
   const messagesAfterProbe = await (await request('http://127.0.0.1:8025/api/v1/messages')).json();
