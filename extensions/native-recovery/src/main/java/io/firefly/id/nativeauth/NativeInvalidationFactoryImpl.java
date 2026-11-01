@@ -1,6 +1,8 @@
 package io.firefly.id.nativeauth;
 
 import org.keycloak.Config;
+import io.firefly.id.nativeauth.impl.ReproofingStateImpl;
+import jakarta.persistence.LockModeType;
 import org.keycloak.events.*;
 import org.keycloak.events.admin.AdminEvent;
 import org.keycloak.events.admin.OperationType;
@@ -40,19 +42,25 @@ public final class NativeInvalidationFactoryImpl implements EventListenerProvide
         session.getTransactionManager().setRollbackOnly();
     }
     @Override public EventListenerProvider create(KeycloakSession session) { return new EventListenerProvider() {
-        private void invalidate(String subject, boolean admin, boolean deleted, AdminEvent event) {
-            if (subject == null || session.getContext().getRealm().getAttribute("firefly.native-recovery.population") == null) return;
+        private void invalidate(String subject, boolean admin, boolean deleted, AdminEvent event, String selfEventId) {
+            if (subject == null) return;
             try {
                 NativeStoreImpl store = new NativeStoreImpl(session);
                 String stateId = digest(session.getContext().getRealm().getId() + "\n" + subject);
-                if (store.em.find(NativeState.class, stateId) == null) return;
+                boolean nativeTracked = store.em.find(NativeState.class, stateId) != null;
+                boolean reproofingTracked = store.em.find(ReproofingStateImpl.class, stateId) != null;
+                if (!nativeTracked && !reproofingTracked) return;
                 if (deleted) {
+                    if (reproofingTracked) invalidateReproofing(store, stateId, subject, admin, event, selfEventId);
+                    if (!nativeTracked) return;
                     NativeState removed = store.state(subject, false);
                     removed.hold = true; removed.pinHeld = true; removed.pinRevokedAt = System.currentTimeMillis();
                     store.audit(subject, "IDENTITY_REMOVED", removed.generation);
                     return;
                 }
                 var user = store.local(subject, false);
+                if (reproofingTracked) invalidateReproofing(store, stateId, subject, admin, event, selfEventId);
+                if (!nativeTracked) return;
                 NativeState state;
                 try { state = store.state(subject, false); } catch (NativeRefusal missing) { return; }
                 if (admin && state.locked && user.isEnabled()) { veto(session); return; }
@@ -64,14 +72,20 @@ public final class NativeInvalidationFactoryImpl implements EventListenerProvide
                 if (state.pinCredentialId != null) { state.pinHeld = true; store.audit(subject, "PIN_INVALIDATED", state.pinGeneration); }
             } catch (Exception error) { veto(session); }
         }
+        private void invalidateReproofing(NativeStoreImpl store, String stateId, String subject, boolean admin, AdminEvent event, String selfEventId) {
+            var state = store.em.find(ReproofingStateImpl.class, stateId, LockModeType.PESSIMISTIC_WRITE); require(state != null);
+            state.invalidationVersion = Math.addExact(state.invalidationVersion, 1L);
+            if (admin) store.auditAdmin(subject, "REPROOFING_INVALIDATED_ADMINISTRATIVE", state.epoch, event);
+            else store.audit(subject, "REPROOFING_INVALIDATED_SELF_SERVICE", selfEventId == null ? state.epoch : selfEventId);
+        }
         @Override public void onEvent(Event event) {
-            if (event.getError() == null && Set.of("UPDATE_PROFILE", "UPDATE_CREDENTIAL", "REMOVE_CREDENTIAL", "UPDATE_PASSWORD", "UPDATE_TOTP", "REMOVE_TOTP", "DELETE_ACCOUNT").contains(event.getType().name())) invalidate(event.getUserId(), false, event.getType() == EventType.DELETE_ACCOUNT, null);
+            if (event.getError() == null && Set.of("UPDATE_PROFILE", "UPDATE_CREDENTIAL", "REMOVE_CREDENTIAL", "UPDATE_PASSWORD", "UPDATE_TOTP", "REMOVE_TOTP", "DELETE_ACCOUNT").contains(event.getType().name())) invalidate(event.getUserId(), false, event.getType() == EventType.DELETE_ACCOUNT, null, event.getId());
         }
         @Override public void onEvent(AdminEvent event, boolean includeRepresentation) {
             if (event.getError() != null || event.getResourcePath() == null) return;
             String[] path = event.getResourcePath().split("/");
             if (path.length >= 2 && "users".equals(path[0])) invalidate(path[1], true,
-                    path.length == 2 && event.getOperationType() == OperationType.DELETE, event);
+                    path.length == 2 && event.getOperationType() == OperationType.DELETE, event, null);
             else if (session.getContext().getRealm().getAttribute("firefly.native-recovery.population") != null
                     && event.getResourcePath().startsWith("attack-detection/brute-force")) veto(session);
         }

@@ -33,6 +33,8 @@ class ReproofingSnapshotTest {
         stored.setSecretData("replacement-history-hash"); assertNotEquals(original,store.revision(user,state)); stored.setSecretData("old-hash");
         state.pinGeneration = "new-pin-epoch"; assertNotEquals(original,store.revision(user,state)); state.pinGeneration = "pin-epoch";
         assertEquals(original,store.revision(user,state));
+        var recovery = new ReproofingStateImpl(); when(em.find(eq(ReproofingStateImpl.class),anyString(),eq(LockModeType.PESSIMISTIC_WRITE))).thenReturn(recovery);
+        assertEquals(original,store.revision(user,state)); recovery.invalidationVersion = 1; assertNotEquals(original,store.revision(user,state));
         when(user.credentialManager().getStoredCredentialsStream()).thenAnswer(call -> Stream.empty()); assertNotEquals(original,store.revision(user,state));
     }
 }

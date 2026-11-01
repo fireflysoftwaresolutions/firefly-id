@@ -60,7 +60,8 @@ final class ReproofingStoreImpl {
             credentials.add(Arrays.asList(value.getId(), value.getType(), value.getCreatedDate(), value.getCredentialData(), value.getSecretData(), value.getUserLabel()));
         }
         var otp = config.realm.getOTPPolicy();
-        return digest(ReproofingWireImpl.json(Arrays.asList(credentials, user.getEmail(), user.isEmailVerified(), user.isEnabled(),
+        var recovery = em.find(ReproofingStateImpl.class, digest(config.realm.getId() + "\n" + user.getId()), LockModeType.PESSIMISTIC_WRITE);
+        return digest(ReproofingWireImpl.json(Arrays.asList(recovery == null ? 0L : recovery.invalidationVersion, credentials, user.getEmail(), user.isEmailVerified(), user.isEnabled(),
                 user.getFirstAttribute(UserModel.DISABLED_REASON), single(user, config.value("tenant-attribute")), single(user, config.value("link-attribute")),
                 user.getRoleMappingsStream().map(RoleModel::getId).sorted().toList(), session.users().getNotBeforeOfUser(config.realm, user),
                 nativeState == null ? null : Arrays.asList(nativeState.hold, nativeState.locked, nativeState.generation, nativeState.pinCredentialId, nativeState.pinKeyVersion, nativeState.pinGeneration, nativeState.pinHeld, nativeState.pinRevokedAt, nativeState.pinCreatedAt, nativeState.pinReplacedAt, nativeState.pinFailures, nativeState.pinReserved),

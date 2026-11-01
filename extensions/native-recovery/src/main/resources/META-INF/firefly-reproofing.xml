@@ -79,4 +79,7 @@
     <sql>ALTER TABLE ff_reproofing_notification ADD CONSTRAINT ff_reproofing_delivery_bound CHECK (attempts BETWEEN 0 AND 8 AND status IN ('PENDING','SENDING','DELIVERED','FAILED'))</sql>
     <sql>ALTER TABLE ff_reproofing_ceremony ADD CONSTRAINT ff_reproofing_stage CHECK (stage IN ('IDENTIFY','VERIFY','ENROLL','COMPLETE'))</sql>
   </changeSet>
+  <changeSet id="firefly-independent-reproofing-invalidation-1" author="firefly-id">
+    <addColumn tableName="ff_reproofing_state"><column name="invalidation_version" type="BIGINT" defaultValueNumeric="0"><constraints nullable="false"/></column></addColumn>
+  </changeSet>
 </databaseChangeLog>

@@ -16,5 +16,7 @@ public class ReproofingStateImpl {
     public String epoch;
     @Column(name="failures")
     public int failures;
+    @Column(name="invalidation_version")
+    public long invalidationVersion;
     @Override public String toString() { return "ReproofingStateImpl[REDACTED]"; }
 }
