@@ -2,6 +2,8 @@
 
 Firefly Identity supplies an optional, version-specific Keycloak extension for recovery from a permanent authentication lock. It verifies an existing password and an already enrolled TOTP credential inside Keycloak. It does not send those secrets to application services, create a login session, replace a forgotten password, enroll a new factor or restore an administrative hold.
 
+Its user-facing name is **Unlock your account**, not general access recovery. Someone who forgot that password cannot use this flow. The [access journey guide](access-recovery.md) separates remembered-credential unlock, forgotten credentials and assisted identity reproofing, including the missing owner contract for combined replacement and unlock.
+
 The native implementation, Core SCA owner and Domain orchestration are separate artifacts. Their source tests and actual integrated runtime have separate acceptance gates. Read [current evidence](progress.md) before treating this candidate as deployable. Production realm generation remains closed; this guide describes the explicit integration contract rather than a production provisioning command.
 
 ## Components and prerequisites

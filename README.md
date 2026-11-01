@@ -51,6 +51,8 @@ English and Spanish authentication journeys follow native Keycloak locale negoti
 
 ## Authentication, recovery and support are different operations
 
+Start with the [access journey guide](docs/access-recovery.md): **Unlock your account** requires remembered credentials; forgotten passwords, lost authenticators and assisted identity reproofing have different proof and ownership requirements. The native unlock form is not a general forgotten-credential recovery service.
+
 The selected default permanently blocks ordinary authentication after three recorded failures. Waiting or changing a password does not unlock that account. Public failures do not identify the incorrect factor, expose whether the account exists or reveal a remaining-attempt counter.
 
 Secure unlock requires a separate recovery transaction bound to the actual current lock, previously enrolled independent knowledge and possession factors, one-time authorization and an atomic native state transition. It finishes with fresh sign-in rather than restoring old sessions. Accounts with a lost factor, an administrative/fraud/employment hold or an unqualified external credential store require their separately approved assisted process. [Permanent recovery](docs/permanent-recovery.md) explains ownership, native behavior and the implementation/qualification boundary.
@@ -90,6 +92,7 @@ The [integration matrix](docs/integration-contract.md) records actual public sou
 | [Themes](docs/themes.md) | Flow coverage, packaging, accessibility, customization |
 | [Security](docs/security.md) | Identity proof, protected claims, grants, proxy and secrets |
 | [Authentication policies](docs/authentication-policies.md) | Separate customer/employee requirements, three-failure lock, passwords and EU applicability |
+| [Access journeys](docs/access-recovery.md) | Known-credential unlock versus forgotten username/password, lost factors and assisted reproofing |
 | [Native recovery](docs/native-recovery.md) | Optional provider installation, exact owner protocol, durable retry and acceptance gates |
 | [Support PIN](docs/support-pin.md) | Customer lifecycle, pepper rotation and fail-closed telephone/BPO verification boundary |
 | [Zero trust](docs/zero-trust.md) | Per-service authentication/authorization, framework independence and workforce delegation |

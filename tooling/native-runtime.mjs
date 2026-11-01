@@ -25,6 +25,7 @@ let phase = 'owned-native-runtime-ready';
 let currentStage = 'initialization';
 let lastPage;
 let lastHttpStatus;
+let lastNativeSubmission;
 const stage = value => { currentStage = value; };
 let browser;
 let server;
@@ -118,7 +119,18 @@ async function recovery(profile, context, username, password) {
   if (known) await captureEmptyNativeForm(page, `${profile.kind}-recovery-password-es`);
   stage(`${profile.kind}-native-password-submit`);
   await page.locator('#username').fill(username); await page.locator('#password').fill(password);
+  const submitted = page.waitForResponse(response => response.request().method() === 'POST'
+    && response.url() === `${profile.issuer}/firefly-recovery`);
   await page.locator('#ffid-recovery-continue').click();
+  const response = await submitted; lastHttpStatus = response.status();
+  const headers = await response.request().allHeaders();
+  const form = new URLSearchParams(response.request().postData() || '');
+  lastNativeSubmission = { status: response.status(),
+    originClass: headers.origin === origin ? 'same' : headers.origin === 'null' ? 'null' : headers.origin ? 'other' : 'absent',
+    nativeCookiePresent: /(?:^|;\s*)FF_NATIVE_RECOVERY=/.test(headers.cookie || ''), csrfPresent: Boolean(form.get('csrf')) };
+  try { lastNativeSubmission.ceremony = JSON.parse(nativeTool('ceremony_state', profile.kind)); }
+  catch { lastNativeSubmission.ceremony = { stage: 'unavailable' }; }
+  assert.equal(response.status(), 200, 'Actual browser native password POST must retain the generic factor stage');
   await page.locator('#otp').waitFor();
   await assertNativeFont(page, `${profile.kind}-masked-native-factor-form`);
   if (known) {
@@ -541,7 +553,7 @@ try {
   await writeFile(`${output}/summary.json`, JSON.stringify({ status: 'FAILED', passed: results, lastCompleted: phase,
     currentStage, errorKind: allowedNames.has(error?.name) ? error.name : 'Error', sourceFrames: frames,
     networkCauseCode: allowedNetworkCodes.has(error?.cause?.code) ? error.cause.code : 'unclassified',
-    lastHttpStatus, inventory, scope: 'Partial native integration; uncompleted stages are not qualified.' }, null, 2));
+    lastHttpStatus, lastNativeSubmission, inventory, scope: 'Partial native integration; uncompleted stages are not qualified.' }, null, 2));
   process.exitCode = 1;
 } finally {
   pending.clear(); privateProofs.clear(); if (browser) await browser.close(); if (server) await new Promise(ok => server.close(ok));

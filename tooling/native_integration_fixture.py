@@ -293,6 +293,15 @@ def private_proof(kind):
     print(json.dumps(value))
 
 
+def ceremony_state(kind):
+    if kind not in ('customers', 'workforce'): raise RuntimeError('Owned population required')
+    directory, owner = state()
+    value = json.loads(psql(directory, owner, f"SELECT json_build_object('stage',c.stage,'hasSubject',c.subject IS NOT NULL,'hasBinding',c.binding_json IS NOT NULL,'hasOperation',c.operation_id IS NOT NULL,'bootstrapRejected',(SELECT count(*) FROM ff_native_audit a WHERE a.reference_id=c.id AND a.event_type='BOOTSTRAP_REJECTED'),'bootstrapReserved',(SELECT count(*) FROM ff_native_audit a WHERE a.reference_id=c.id AND a.event_type='BOOTSTRAP_RESERVED'),'bootstrapAdmitted',(SELECT count(*) FROM ff_native_audit a WHERE a.reference_id=c.id AND a.event_type='BOOTSTRAP_ADMITTED')) FROM ff_native_ceremony c WHERE c.realm_id=(SELECT id FROM realm WHERE name='native-{kind}') ORDER BY c.expires_at DESC,c.id DESC LIMIT 1;", 'native_kc'))
+    if value['stage'] not in ('PASSWORD', 'TOTP', 'ADMITTED', 'PROCESSING', 'COMPLETE', 'PIN_SET', 'PIN_REVOKE', 'USED'):
+        value['stage'] = 'other'
+    print(json.dumps(value))
+
+
 def serve_proxy(kind):
     if not faults_enabled(): raise RuntimeError('Owned transport faults require explicit hosted opt-in')
     directory, owner = state()
@@ -400,7 +409,7 @@ def stop():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['prepare', 'start', 'stop', 'restart', 'snapshot', 'serve_proxy', 'arm_record_loss', 'arm_verify_race', 'fault_status', 'private_proof'])
+    parser.add_argument('action', choices=['prepare', 'start', 'stop', 'restart', 'snapshot', 'serve_proxy', 'arm_record_loss', 'arm_verify_race', 'fault_status', 'private_proof', 'ceremony_state'])
     parser.add_argument('--population', choices=['customers', 'workforce'])
     args = parser.parse_args(); require_hosted()
     if args.action == 'snapshot': snapshot(args.population)
@@ -409,6 +418,7 @@ def main():
     elif args.action == 'arm_verify_race': arm_fault(args.population, 'verify-race')
     elif args.action == 'fault_status': fault_status(args.population)
     elif args.action == 'private_proof': private_proof(args.population)
+    elif args.action == 'ceremony_state': ceremony_state(args.population)
     else: globals()[args.action]()
 
 

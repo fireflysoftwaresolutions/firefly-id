@@ -40,6 +40,7 @@
           </#if>
           <button id="ffid-recovery-continue" class="${properties.kcButtonClass!} ${properties.kcButtonPrimaryClass!} ${properties.kcButtonBlockClass!}" type="submit">${msg("doContinue")}</button>
         </form>
+        <a class="ffid-journey-return" href="${signInUrl}">${msg("ffidRecoveryBackToSignIn")}</a>
       </#if>
     </div>
   </#if>
