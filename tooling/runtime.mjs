@@ -82,6 +82,10 @@ async function assertConsoleContrast(target, surface, dark) {
 }
 
 async function assertWelcomeLayout(target) {
+  const spanish = (await target.locator('html').getAttribute('lang')).toLowerCase().startsWith('es');
+  assert.equal((await target.getByTestId('welcomeTitle').innerText()).trim(), spanish
+    ? 'Te damos la bienvenida a Firefly Identity' : 'Welcome to Firefly Identity',
+  'Administration must present the Firefly Identity welcome heading');
   const layout = await target.evaluate(() => {
     const description = document.querySelector('.keycloak__dashboard_welcome_tab');
     const section = description?.closest('.pf-v5-c-page__main-section');

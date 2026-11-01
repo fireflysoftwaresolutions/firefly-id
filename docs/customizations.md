@@ -8,6 +8,8 @@ The standard `firefly-id` theme covers login, logout, required actions, account 
 
 Light/dark appearance and English/Spanish copy are shared across the main journeys. Password fields remain masked without a reveal control. Authentication and recovery refusals use generic messages that do not disclose account existence or remaining attempts. Supported server-generated form actions, action tokens, CSRF and authenticators continue to control the journey.
 
+The Administration Console uses the Firefly Identity logo, welcome heading and introductory copy in English and Spanish. Native realm information, bootstrap-account warnings and administrative actions remain visible. The footer retains the Keycloak attribution.
+
 Configure realm themes after installing the packaged theme. For visual changes, edit the theme resources, rebuild and exercise the affected server pages. See [theme installation](themes.md), [language settings](localization.md), [tokens and icons](design-tokens.md) and [brand usage](brand.md).
 
 ## Population policies
