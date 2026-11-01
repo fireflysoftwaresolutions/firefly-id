@@ -29,6 +29,19 @@ class Document(HTMLParser):
             self.references.extend(item.strip().split()[0] for item in attrs['srcset'].split(','))
 
 
+def local_path(site, page, target, base_path='/firefly-id/'):
+    decoded = unquote(target)
+    if decoded.startswith('/'):
+        if not decoded.startswith(base_path):
+            raise ValueError('Absolute reference is outside the project')
+        resolved = (site / decoded[len(base_path):]).resolve()
+    else:
+        resolved = (page.parent / decoded).resolve() if decoded else page
+    if not resolved.is_relative_to(site):
+        raise ValueError('Reference escapes site')
+    return resolved
+
+
 def validate(site):
     pages = {path.resolve(): Document(path.read_text()) for path in site.rglob('*.html')}
     failures = []
@@ -38,9 +51,9 @@ def validate(site):
             url = urlsplit(target)
             if url.scheme or url.netloc:
                 continue
-            resolved = ((site / unquote(url.path).lstrip('/')) if url.path.startswith('/')
-                        else path.parent / unquote(url.path)).resolve() if url.path else path
-            if not resolved.is_relative_to(site):
+            try:
+                resolved = local_path(site, path, url.path)
+            except ValueError:
                 failures.append('Link escapes site: ' + path.relative_to(site).as_posix())
                 continue
             if resolved.is_dir():

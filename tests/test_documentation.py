@@ -3,6 +3,7 @@ import importlib.util
 import json
 from pathlib import Path
 import unittest
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -79,3 +80,19 @@ class DocumentationTest(unittest.TestCase):
             self.fail('An environment revision can still mislabel the source checkout')
         with self.assertRaises(ValueError):
             self.support.source_provenance('a' * 40, 'b' * 40, False)
+
+    def test_published_404_project_absolute_links_resolve_inside_the_site(self):
+        spec = importlib.util.spec_from_file_location('documentation_output', ROOT / 'tooling/validate_documentation.py')
+        output = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(output)
+        if not hasattr(output, 'local_path'):
+            self.fail('Actual output validator cannot resolve GitHub Pages project-absolute 404 links')
+        with tempfile.TemporaryDirectory() as directory:
+            site = Path(directory).resolve()
+            page = site / '404.html'
+            self.assertEqual(site / 'assets/logo.svg', output.local_path(site, page, '/firefly-id/assets/logo.svg'))
+            self.assertEqual(site / 'assets/logo.svg', output.local_path(site, site / 'guide/index.html', '../assets/logo.svg'))
+            with self.assertRaises(ValueError):
+                output.local_path(site, page, '/another-project/assets/logo.svg')
+            with self.assertRaises(ValueError):
+                output.local_path(site, page, '/firefly-id/%2e%2e/private.json')

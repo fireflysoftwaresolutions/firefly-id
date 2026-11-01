@@ -48,6 +48,7 @@ jobs:
                       'hostname-strict': 'true', 'hostname-backchannel-dynamic': 'false',
                       'https-protocols': 'TLSv1.3,TLSv1.2', 'tls-hostname-verifier': 'DEFAULT',
                       'legacy-observability-interface': 'false'}
+          stage = 'IMAGE_PULL'
           try:
               subprocess.run(['docker', 'pull', image], check=True, timeout=240,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -59,8 +60,10 @@ jobs:
                                  'FIREFLY_ID_ADMIN_URL': 'https://admin.example.net',
                                  'FIREFLY_ID_PROXY_CIDRS': '10.24.0.0/24'}.items():
                   command.extend(['--env', key + '=' + value])
-              command.extend([image, '--config-file=/opt/keycloak/conf/candidate.conf', 'show-config', '--all'])
+              command.extend([image, '--config-file=/opt/keycloak/conf/candidate.conf', 'show-config', 'all'])
+              stage = 'SHOW_CONFIG'
               parsed = subprocess.run(command, capture_output=True, text=True, timeout=120, check=True)
+              stage = 'EXPECTED_OPTIONS'
               for key, value in expected.items():
                   if not re.search(r'(?m)^\s*kc\.' + re.escape(key) + r'\s*=\s*' + re.escape(value) + r'(?:\s|$)', parsed.stdout):
                       result['failures'].append(key)
@@ -68,6 +71,7 @@ jobs:
                       result['verified'].append(key)
           except (subprocess.SubprocessError, OSError):
               result['failures'].append('PINNED_CONFIGURATION_PARSE')
+              result['failure_stage'] = stage
           (output / 'summary.json').write_text(json.dumps(result, indent=2) + '\n')
           print(json.dumps(result))
           raise SystemExit(1 if result['failures'] else 0)
