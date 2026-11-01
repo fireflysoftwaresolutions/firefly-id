@@ -12,13 +12,13 @@ import static io.firefly.id.nativeauth.NativeContracts.*;
 import static io.firefly.id.nativeauth.NativeSecurity.*;
 
 /** PIN is a native knowledge credential. It never authorizes login, recovery or business operations. */
-final class NativePinEngine {
+final class NativePinEngineImpl {
     private static final String TYPE = "firefly-support-pin";
     private final KeycloakSession request;
-    NativePinEngine(KeycloakSession request) { this.request = request; }
+    NativePinEngineImpl(KeycloakSession request) { this.request = request; }
     PinStatus status(String subject) {
         return NativePhases.run(request, session -> {
-            NativeStore store = new NativeStore(session); var user = store.local(subject, true); store.requireSelfService(user);
+            NativeStoreImpl store = new NativeStoreImpl(session); var user = store.local(subject, true); store.requireSelfService(user);
             require(user.isEnabled() && "HUMAN".equals(NativeProfile.of(session.getContext().getRealm()).population()));
             NativeState state;
             try { state = store.state(subject, false); } catch (NativeRefusal absent) { return new PinStatus("ABSENT", null, null, null); }
@@ -29,14 +29,14 @@ final class NativePinEngine {
     boolean replace(String subject, String password, String otp, String pin, String confirmation, boolean revoke) {
         if (!revoke) { requirePin(pin); require(pin.equals(confirmation)); }
         return NativePhases.run(request, session -> {
-            NativeStore store = new NativeStore(session); var user = store.local(subject, true); store.requireSelfService(user);
+            NativeStoreImpl store = new NativeStoreImpl(session); var user = store.local(subject, true); store.requireSelfService(user);
             require(user.isEnabled() && "HUMAN".equals(NativeProfile.of(session.getContext().getRealm()).population()));
             NativeState state = store.state(subject, true);
             require(!state.locked && !state.hold && !session.getContext().getRealm().getOTPPolicy().isCodeReusable());
             CredentialModel totp = user.credentialManager().getStoredCredentialsByTypeStream(OTPCredentialModel.TYPE)
                     .filter(c -> OTPCredentialModel.TOTP.equals(OTPCredentialModel.createFromCredentialModel(c).getOTPCredentialData().getSubType()))
                     .findFirst().orElseThrow(NativeRefusal::new);
-            boolean valid = NativeEngine.passwordValid(session, user, password)
+            boolean valid = NativeEngineImpl.passwordValid(session, user, password)
                     && otp != null && NativeCredentials.totp(session, user, totp.getId(), otp);
             if (!valid) {
                 session.getProvider(BruteForceProtector.class).failedLogin(session.getContext().getRealm(), user,

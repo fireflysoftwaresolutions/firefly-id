@@ -43,7 +43,7 @@ final class NativeActor {
                 && profile.population().equals(claims.get("principal_kind")) && !claims.containsKey("roles") && !claims.containsKey("authorities"));
         require(!claims.containsKey("HUMAN".equals(profile.population()) ? "staff_actor_id" : "party_id"));
         Object ceremonyId = claims.get("recovery_ceremony_id"); require(ceremonyId instanceof String);
-        NativeCeremony ceremony = new NativeStore(session).ceremony((String) ceremonyId);
+        NativeCeremony ceremony = new NativeStoreImpl(session).ceremony((String) ceremonyId);
         require(token.getExp() == ceremony.expiresAt / 1000 && token.getIat() >= token.getExp() - profile.ttlSeconds()
                 && token.getId().equals(ceremony.id) && token.getSubject().equals(ceremony.subject)
                 && ceremony.generation.equals(claims.get("recovery_lock_generation"))

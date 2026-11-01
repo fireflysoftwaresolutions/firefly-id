@@ -8,12 +8,12 @@ import java.util.ServiceLoader;
 import static io.firefly.id.nativeauth.NativeSecurity.*;
 
 /** Native-only entry point. It has no public HTTP route until the real support owner is qualified. */
-public final class NativeSupportPinService {
+public final class NativeSupportPinServiceImpl {
     public record VerificationReference(String reference, Instant expiresAt) {
         @Override public String toString() { return "SupportVerificationReference[REDACTED]"; }
     }
     private final KeycloakSession request;
-    public NativeSupportPinService(KeycloakSession request) { this.request = request; }
+    public NativeSupportPinServiceImpl(KeycloakSession request) { this.request = request; }
     public VerificationReference verify(String signedSupportContext, String pin) {
         requirePin(pin); require(signedSupportContext != null && signedSupportContext.length() <= 16384);
         var factories = ServiceLoader.load(NativeSupportAuthorization.Factory.class, getClass().getClassLoader()).stream()
@@ -30,7 +30,7 @@ public final class NativeSupportPinService {
         String proofId = NativePhases.run(request, session -> {
             NativeProfile profile = NativeProfile.of(session.getContext().getRealm());
             require("HUMAN".equals(profile.population()) && profile.issuer().equals(grant.targetIssuer()) && session.getContext().getRealm().getName().equals(grant.realm()));
-            NativeStore store = new NativeStore(session); var user = store.local(grant.subject(), true); store.requireSelfService(user); var state = store.state(grant.subject(), false);
+            NativeStoreImpl store = new NativeStoreImpl(session); var user = store.local(grant.subject(), true); store.requireSelfService(user); var state = store.state(grant.subject(), false);
             require(user.isEnabled() && profile.tenant(user).equals(grant.tenant()) && profile.link(user).equals(grant.customerLink())
                     && !state.locked && !state.hold && !state.pinHeld && state.pinCredentialId != null && state.pinFailures + state.pinReserved < 3 && state.pinRevokedAt == 0);
             NativeSupportProof proof = new NativeSupportProof(); proof.id = randomToken(); proof.grantDigest = digest(NativeActor.json(grant));
@@ -40,7 +40,7 @@ public final class NativeSupportPinService {
         });
         require(grant.equals(authority.authorize(signedSupportContext)));
         boolean valid = NativePhases.run(request, session -> {
-            NativeStore store = new NativeStore(session); var user = store.local(grant.subject(), true); store.requireSelfService(user); var state = store.state(grant.subject(), false);
+            NativeStoreImpl store = new NativeStoreImpl(session); var user = store.local(grant.subject(), true); store.requireSelfService(user); var state = store.state(grant.subject(), false);
             var proof = store.em.find(NativeSupportProof.class, proofId);
             NativeProfile profile = NativeProfile.of(session.getContext().getRealm());
             require(user.isEnabled() && !state.locked && !state.hold && profile.tenant(user).equals(grant.tenant())

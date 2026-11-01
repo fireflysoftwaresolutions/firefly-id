@@ -12,7 +12,7 @@ import static io.firefly.id.nativeauth.NativeSecurity.digest;
 import static io.firefly.id.nativeauth.NativeSecurity.require;
 
 /** Mandatory global listener; native material checks remain necessary for eventless internal writes. */
-public final class NativeInvalidationFactory implements EventListenerProviderFactory {
+public final class NativeInvalidationFactoryImpl implements EventListenerProviderFactory {
     @Override public String getId() { return "firefly-native-recovery-invalidation"; }
     static boolean revokePin(NativeState state, AdminEvent event, long now) {
         if (event == null || event.getResourcePath() == null || event.getOperationType() != OperationType.ACTION || state.pinCredentialId == null) return false;
@@ -20,8 +20,8 @@ public final class NativeInvalidationFactory implements EventListenerProviderFac
         if (path.length != 4 || !"users".equals(path[0]) || !"credentials".equals(path[2])
                 || !path[1].equals(state.subject) || !path[3].equals(state.pinCredentialId)) return false;
         var actor = event.getAuthDetails(); require(actor != null);
-        NativeStore.auditValue(actor.getRealmId()); NativeStore.auditValue(actor.getUserId());
-        NativeStore.auditValue(actor.getClientId()); NativeStore.auditValue(event.getId());
+        NativeStoreImpl.auditValue(actor.getRealmId()); NativeStoreImpl.auditValue(actor.getUserId());
+        NativeStoreImpl.auditValue(actor.getClientId()); NativeStoreImpl.auditValue(event.getId());
         state.pinCredentialId = null; state.pinRevokedAt = now; state.pinHeld = true; state.pinGeneration = UUID.randomUUID().toString();
         return true;
     }
@@ -43,7 +43,7 @@ public final class NativeInvalidationFactory implements EventListenerProviderFac
         private void invalidate(String subject, boolean admin, boolean deleted, AdminEvent event) {
             if (subject == null || session.getContext().getRealm().getAttribute("firefly.native-recovery.population") == null) return;
             try {
-                NativeStore store = new NativeStore(session);
+                NativeStoreImpl store = new NativeStoreImpl(session);
                 String stateId = digest(session.getContext().getRealm().getId() + "\n" + subject);
                 if (store.em.find(NativeState.class, stateId) == null) return;
                 if (deleted) {

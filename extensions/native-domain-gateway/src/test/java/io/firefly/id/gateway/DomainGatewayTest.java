@@ -39,7 +39,7 @@ class DomainGatewayTest {
     private HttpsServer server;
     private HttpClient client;
     private ExecutorService executor;
-    private DomainGateway gateway;
+    private DomainGatewayImpl gateway;
     private final AtomicReference<Reply> reply = new AtomicReference<>();
     private final CopyOnWriteArrayList<Observed> requests = new CopyOnWriteArrayList<>();
     private record Reply(int status, byte[] body, String redirect) { }
@@ -85,7 +85,7 @@ class DomainGatewayTest {
         });
         server.start();
         client = HttpClient.newBuilder().sslContext(clientTls).followRedirects(HttpClient.Redirect.NEVER).build();
-        gateway = new DomainGateway(URI.create("https://localhost:" + server.getAddress().getPort()), client);
+        gateway = new DomainGatewayImpl(URI.create("https://localhost:" + server.getAddress().getPort()), client);
     }
 
     @AfterEach void stop() { if (server != null) server.stop(0); if (client != null) client.close(); if (executor != null) executor.shutdownNow(); }
@@ -93,10 +93,10 @@ class DomainGatewayTest {
     @Test void refusesUnsafeEndpointsAndRedirectFollowingClients() {
         for (String address : new String[]{"http://localhost", "https://user:secret@localhost", "https://localhost/path",
                 "https://localhost?token=value", "https://localhost#fragment"}) {
-            assertThrows(IllegalStateException.class, () -> new DomainGateway(URI.create(address)));
+            assertThrows(IllegalStateException.class, () -> new DomainGatewayImpl(URI.create(address)));
         }
         try (var redirected = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).build()) {
-            assertThrows(IllegalStateException.class, () -> new DomainGateway(URI.create("https://localhost"), redirected));
+            assertThrows(IllegalStateException.class, () -> new DomainGatewayImpl(URI.create("https://localhost"), redirected));
         }
     }
 

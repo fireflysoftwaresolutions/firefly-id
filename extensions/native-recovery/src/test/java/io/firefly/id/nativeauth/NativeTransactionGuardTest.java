@@ -14,14 +14,14 @@ class NativeTransactionGuardTest {
         var lookup = mock(JtaTransactionManagerLookup.class); var actual = mock(TransactionManager.class);
         when(session.getTransactionManager()).thenReturn(outer); when(session.getProvider(JtaTransactionManagerLookup.class)).thenReturn(lookup);
         when(lookup.getTransactionManager()).thenReturn(actual);
-        NativeInvalidationFactory.veto(session);
+        NativeInvalidationFactoryImpl.veto(session);
         // Admin UserResource explicitly commits: the actual JTA marker must survive ignoring outer flag.
         outer.commit(); verify(actual).setRollbackOnly(); verify(outer).setRollbackOnly();
     }
     @Test void absentJtaLookupInstallsMandatoryPrepareFailureRatherThanTrustingListenerThrow() {
         var session = mock(KeycloakSession.class); var outer = mock(KeycloakTransactionManager.class);
         when(session.getTransactionManager()).thenReturn(outer);
-        NativeInvalidationFactory.veto(session);
+        NativeInvalidationFactoryImpl.veto(session);
         var guard = ArgumentCaptor.forClass(KeycloakTransaction.class); verify(outer).enlistPrepare(guard.capture());
         guard.getValue().begin(); assertThrows(NativeRefusal.class, () -> guard.getValue().commit());
     }

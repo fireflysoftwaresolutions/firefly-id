@@ -22,7 +22,7 @@ class NativeCredentialSnapshotTest {
         UserEntity owner = new UserEntity(); owner.setId("subject");
         CredentialEntity current = new CredentialEntity(); current.setId("credential"); current.setUser(owner); current.setType("password"); current.setSecretData("current"); current.setCredentialData("algorithm");
         when(em.find(CredentialEntity.class, "credential", LockModeType.PESSIMISTIC_WRITE)).thenReturn(current);
-        String revision = new NativeStore(session).revision(user, true);
+        String revision = new NativeStoreImpl(session).revision(user, true);
         verify(em).refresh(current, LockModeType.PESSIMISTIC_WRITE);
         assertEquals(NativeSecurity.digest("credential\npassword\nnull\nalgorithm\ncurrent\n"), revision);
     }
@@ -34,7 +34,7 @@ class NativeCredentialSnapshotTest {
         CredentialModel model = new CredentialModel(); model.setId("credential"); model.setType("password"); when(manager.getStoredCredentialsStream()).thenReturn(Stream.of(model));
         UserEntity owner = new UserEntity(); owner.setId("subject"); CredentialEntity entity = new CredentialEntity(); entity.setUser(owner); entity.setId("credential"); entity.setType("password"); entity.setSecretData("pending-change");
         when(em.find(CredentialEntity.class, "credential", LockModeType.PESSIMISTIC_WRITE)).thenReturn(entity);
-        new NativeStore(session).revision(user, false);
+        new NativeStoreImpl(session).revision(user, false);
         verify(em, never()).refresh(any(), any(LockModeType.class));
     }
 }

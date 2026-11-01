@@ -10,7 +10,7 @@ import jakarta.ws.rs.core.UriInfo;
 import java.util.Set;
 
 /** Version-pinned internal SPI. Admission locks the existing local user row before native failure state. */
-public final class NativeBruteForceFactory implements BruteForceProtectorFactory {
+public final class NativeBruteForceFactoryImpl implements BruteForceProtectorFactory {
     private final DefaultBruteForceProtectorFactory fallbackFactory = new DefaultBruteForceProtectorFactory();
     @Override public String getId() { return "firefly-native-recovery"; }
     @Override public BruteForceProtector create(KeycloakSession session) {
@@ -18,11 +18,11 @@ public final class NativeBruteForceFactory implements BruteForceProtectorFactory
         BruteForceProtector managedProtector = new DefaultBruteForceProtector(session.getKeycloakSessionFactory()) {
             private boolean managed(RealmModel realm) { return realm.getAttribute("firefly.native-recovery.population") != null; }
             @Override protected UserLoginFailureModel getUserFailureModel(KeycloakSession current, RealmModel realm, String subject) {
-                if (managed(realm)) { NativeProfile.of(realm); new NativeStore(current).local(subject, false); }
+                if (managed(realm)) { NativeProfile.of(realm); new NativeStoreImpl(current).local(subject, false); }
                 return super.getUserFailureModel(current, realm, subject);
             }
             @Override public boolean isPermanentlyLockedOut(KeycloakSession current, RealmModel realm, UserModel user) {
-                if (managed(realm) && !new NativeStore(current).local(user.getId(), true).isEnabled()) return true;
+                if (managed(realm) && !new NativeStoreImpl(current).local(user.getId(), true).isEnabled()) return true;
                 return super.isPermanentlyLockedOut(current, realm, user);
             }
             @Override protected void processLogin(RealmModel realm, UserModel user, ClientConnection connection, UriInfo uri, boolean success, Set<String> categories) {
@@ -31,14 +31,14 @@ public final class NativeBruteForceFactory implements BruteForceProtectorFactory
             }
             @Override public void failure(KeycloakSession current, RealmModel realm, String subject, String address, long time, Set<String> categories) {
                 if (managed(realm)) {
-                    var user = new NativeStore(current).local(subject, false);
+                    var user = new NativeStoreImpl(current).local(subject, false);
                     current.setAttribute(NativeLockCapture.TRANSITION + subject, user.isEnabled());
                     if (!user.isEnabled()) return;
                 }
                 super.failure(current, realm, subject, address, time, categories);
             }
             @Override protected void success(KeycloakSession current, RealmModel realm, String subject, Set<String> categories) {
-                if (managed(realm) && !new NativeStore(current).local(subject, false).isEnabled()) return;
+                if (managed(realm) && !new NativeStoreImpl(current).local(subject, false).isEnabled()) return;
                 super.success(current, realm, subject, categories);
             }
             @Override protected void sendEvent(KeycloakSession current, RealmModel realm, UserLoginFailureModel failure, EventType type) {
@@ -50,7 +50,7 @@ public final class NativeBruteForceFactory implements BruteForceProtectorFactory
             private BruteForceProtector selected(RealmModel realm, UserModel user) {
                 return realm.getAttribute("firefly.native-recovery.population") != null
                         && org.keycloak.storage.StorageId.isLocalStorage(user.getId()) && !user.isFederated() && !user.isServiceAccount()
-                        && !new NativeStore(session).isAdministrator(user)
+                        && !new NativeStoreImpl(session).isAdministrator(user)
                         ? managedProtector : fallback;
             }
             @Override public void failedLogin(RealmModel realm, UserModel user, ClientConnection connection, UriInfo uri, Set<String> categories) { selected(realm, user).failedLogin(realm, user, connection, uri, categories); }

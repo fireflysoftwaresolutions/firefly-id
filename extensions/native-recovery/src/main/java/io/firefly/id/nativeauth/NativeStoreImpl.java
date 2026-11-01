@@ -15,10 +15,10 @@ import java.util.Comparator;
 import java.util.UUID;
 import static io.firefly.id.nativeauth.NativeSecurity.*;
 
-final class NativeStore {
+final class NativeStoreImpl {
     final KeycloakSession session;
     final EntityManager em;
-    NativeStore(KeycloakSession session) { this.session = session; this.em = session.getProvider(JpaConnectionProvider.class).getEntityManager(); }
+    NativeStoreImpl(KeycloakSession session) { this.session = session; this.em = session.getProvider(JpaConnectionProvider.class).getEntityManager(); }
     UserModel local(String subject, boolean refresh) {
         require(subject != null && StorageId.isLocalStorage(subject));
         var realm = session.getContext().getRealm();

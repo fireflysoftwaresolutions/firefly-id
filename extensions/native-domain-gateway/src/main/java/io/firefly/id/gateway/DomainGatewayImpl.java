@@ -29,7 +29,7 @@ import java.util.concurrent.TimeoutException;
 import static io.firefly.id.nativeauth.NativeContracts.*;
 
 /** Server-side transport to the actual Domain owner; no credential is sent through this gateway. */
-public final class DomainGateway implements NativeCeremonyGateway {
+public final class DomainGatewayImpl implements NativeCeremonyGateway {
     private static final String ROOT = "/api/v1/sca/recovery-operations";
     private static final int MAX_RESPONSE = 65_536;
     private static final ObjectMapper JSON = JsonSerialization.mapper.copy()
@@ -38,12 +38,12 @@ public final class DomainGateway implements NativeCeremonyGateway {
     private final URI origin;
     private final HttpClient client;
 
-    public DomainGateway(URI origin) {
+    public DomainGatewayImpl(URI origin) {
         this(origin, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3))
                 .followRedirects(HttpClient.Redirect.NEVER).build());
     }
 
-    DomainGateway(URI origin, HttpClient client) {
+    DomainGatewayImpl(URI origin, HttpClient client) {
         if (origin == null || !"https".equals(origin.getScheme()) || origin.getHost() == null
                 || origin.getUserInfo() != null || origin.getQuery() != null || origin.getFragment() != null
                 || !(origin.getPath().isEmpty() || "/".equals(origin.getPath()))
@@ -113,7 +113,7 @@ public final class DomainGateway implements NativeCeremonyGateway {
             HttpRequest call = HttpRequest.newBuilder(origin.resolve(path)).timeout(Duration.ofSeconds(5))
                     .header("Authorization", "Bearer " + actor).header("Content-Type", "application/json")
                     .header("Accept", "application/json").POST(HttpRequest.BodyPublishers.ofByteArray(body)).build();
-            exchange = client.sendAsync(call, info -> new BoundedBody());
+            exchange = client.sendAsync(call, info -> new BoundedBodyImpl());
             HttpResponse<byte[]> response = exchange.get(5, TimeUnit.SECONDS);
             byte[] bytes = response.body();
             require(response.statusCode() == expectedStatus);
@@ -147,7 +147,7 @@ public final class DomainGateway implements NativeCeremonyGateway {
     private static IllegalStateException unavailable() { return new IllegalStateException("Recovery owner transport unavailable"); }
     private record Acknowledgement(UUID operationId, String status) { }
 
-    private static final class BoundedBody implements HttpResponse.BodySubscriber<byte[]> {
+    private static final class BoundedBodyImpl implements HttpResponse.BodySubscriber<byte[]> {
         private final CompletableFuture<byte[]> result = new CompletableFuture<>();
         private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         private Flow.Subscription subscription;

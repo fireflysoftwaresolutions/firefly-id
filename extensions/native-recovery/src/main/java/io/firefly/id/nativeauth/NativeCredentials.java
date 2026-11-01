@@ -21,7 +21,7 @@ final class NativeCredentials {
         try {
             Mac mac = Mac.getInstance("HmacSHA256"); mac.init(new SecretKeySpec(key, "HmacSHA256"));
             String id = Base64.getUrlEncoder().withoutPadding().encodeToString(mac.doFinal((credentialId + ":" + code).getBytes(StandardCharsets.UTF_8)));
-            NativeStore store = new NativeStore(session); NativeTotpReplay replay = store.em.find(NativeTotpReplay.class, id);
+            NativeStoreImpl store = new NativeStoreImpl(session); NativeTotpReplay replay = store.em.find(NativeTotpReplay.class, id);
             long now = System.currentTimeMillis();
             if (replay != null && replay.expiresAt > now) return false;
             if (replay == null) { replay = new NativeTotpReplay(); replay.id = id; store.em.persist(replay); }

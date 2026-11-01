@@ -54,26 +54,26 @@ class NativeExecutionReconciliationTest {
                 new Authorization(receipt.operationId(), receipt.executionId(), binding, receipt.expiresAt().plusNanos(1))));
     }
     @Test void reloadOrLanguageChangePreservesAdmittedProgressWithoutStartingAnotherOperation() {
-        assertEquals(NativeEngine.TOTP, NativeEngine.resumedStage("ADMITTED", true, false));
-        assertEquals(NativeEngine.TOTP, NativeEngine.resumedStage("PROCESSING", true, false));
-        assertEquals(NativeEngine.TOTP, NativeEngine.resumedStage("TOTP", true, false));
-        assertEquals(NativeEngine.PASSWORD, NativeEngine.resumedStage("PASSWORD", false, false));
+        assertEquals(NativeEngineImpl.TOTP, NativeEngineImpl.resumedStage("ADMITTED", true, false));
+        assertEquals(NativeEngineImpl.TOTP, NativeEngineImpl.resumedStage("PROCESSING", true, false));
+        assertEquals(NativeEngineImpl.TOTP, NativeEngineImpl.resumedStage("TOTP", true, false));
+        assertEquals(NativeEngineImpl.PASSWORD, NativeEngineImpl.resumedStage("PASSWORD", false, false));
     }
     @Test void committedJournalAlwaysResumesCompleteEvenAfterInterruptedCallbackPost() {
-        assertEquals(NativeEngine.COMPLETE, NativeEngine.resumedStage("PROCESSING", true, true));
-        assertEquals(NativeEngine.COMPLETE, NativeEngine.resumedStage("TOTP", true, true));
-        assertEquals(NativeEngine.COMPLETE, NativeEngine.resumedStage("COMPLETE", true, true));
+        assertEquals(NativeEngineImpl.COMPLETE, NativeEngineImpl.resumedStage("PROCESSING", true, true));
+        assertEquals(NativeEngineImpl.COMPLETE, NativeEngineImpl.resumedStage("TOTP", true, true));
+        assertEquals(NativeEngineImpl.COMPLETE, NativeEngineImpl.resumedStage("COMPLETE", true, true));
     }
     @Test void expiredUncommittedCeremonyCannotAdvanceThroughFeedback() {
         var c = ceremony(); c.expiresAt = System.currentTimeMillis() - 1; c.stage = "PROCESSING";
-        assertThrows(NativeRefusal.class, () -> NativeEngine.stage(c, null, NativeEngine.TOTP, true, System.currentTimeMillis()));
+        assertThrows(NativeRefusal.class, () -> NativeEngineImpl.stage(c, null, NativeEngineImpl.TOTP, true, System.currentTimeMillis()));
         assertEquals("PROCESSING", c.stage); assertFalse(c.failed);
     }
     @Test void expiryAfterCommitAllowsResultPresentationWithoutRenewingAuditAuthority() {
         var c = ceremony(); var committed = NativeExecution.committed(c, receipt, "SUCCEEDED", System.currentTimeMillis());
         c.expiresAt = System.currentTimeMillis() - 1; long originalExpiry = c.expiresAt;
-        NativeEngine.stage(c, committed, NativeEngine.COMPLETE, true, System.currentTimeMillis());
-        assertEquals(NativeEngine.COMPLETE, c.stage); assertTrue(c.failed); assertEquals(originalExpiry, c.expiresAt);
+        NativeEngineImpl.stage(c, committed, NativeEngineImpl.COMPLETE, true, System.currentTimeMillis());
+        assertEquals(NativeEngineImpl.COMPLETE, c.stage); assertTrue(c.failed); assertEquals(originalExpiry, c.expiresAt);
         assertEquals(receipt, committed.authorization(c));
         assertThrows(NativeRefusal.class, () -> committed.reserveRecording(c, System.currentTimeMillis()));
         assertEquals(0, committed.recordAttempts);
@@ -81,7 +81,7 @@ class NativeExecutionReconciliationTest {
     @Test void expiredFeedbackRequiresTheOriginalCanonicalExecution() {
         var c = ceremony(); c.expiresAt = System.currentTimeMillis() - 1; c.stage = "PROCESSING";
         var committed = journal(); committed.ceremonyId = "different-ceremony";
-        assertThrows(NativeRefusal.class, () -> NativeEngine.stage(c, committed, NativeEngine.COMPLETE, true, System.currentTimeMillis()));
+        assertThrows(NativeRefusal.class, () -> NativeEngineImpl.stage(c, committed, NativeEngineImpl.COMPLETE, true, System.currentTimeMillis()));
         assertEquals("PROCESSING", c.stage); assertFalse(c.failed);
     }
     @Test void expiredPinFeedbackIsLimitedToTheSameOwnerAndConsumedCeremony() {

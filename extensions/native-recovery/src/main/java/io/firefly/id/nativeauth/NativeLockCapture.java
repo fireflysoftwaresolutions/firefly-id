@@ -9,7 +9,7 @@ final class NativeLockCapture {
     static void capture(KeycloakSession session, String subject) {
         NativeProfile.of(session.getContext().getRealm());
         if (!Boolean.TRUE.equals(session.getAttribute(TRANSITION + subject))) return;
-        NativeStore store = new NativeStore(session);
+        NativeStoreImpl store = new NativeStoreImpl(session);
         var user = store.local(subject, false);
         require(!user.isEnabled() && "permanentLockout".equals(user.getFirstAttribute(org.keycloak.models.UserModel.DISABLED_REASON)));
         NativeState state = store.state(subject, true);

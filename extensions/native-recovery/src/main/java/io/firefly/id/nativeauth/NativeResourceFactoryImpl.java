@@ -4,7 +4,7 @@ import org.keycloak.Config;
 import org.keycloak.models.*;
 import org.keycloak.services.resource.*;
 
-public final class NativeResourceFactory implements RealmResourceProviderFactory {
+public final class NativeResourceFactoryImpl implements RealmResourceProviderFactory {
     @Override public String getId() { return NativeContracts.EXTENSION; }
     @Override public RealmResourceProvider create(KeycloakSession session) { return new RealmResourceProvider() {
         @Override public Object getResource() { return new NativeResource(session); }

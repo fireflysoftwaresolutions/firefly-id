@@ -19,7 +19,7 @@ class NativeInvalidationDeletionTest {
     @Test void untrackedServiceOrFederatedUpdatesDoNotRequireALocalUser() {
         KeycloakSession session = session(); EntityManager em = em(session);
         AdminEvent event = new AdminEvent(); event.setResourcePath("users/service-or-federated"); event.setOperationType(OperationType.UPDATE);
-        new NativeInvalidationFactory().create(session).onEvent(event, false);
+        new NativeInvalidationFactoryImpl().create(session).onEvent(event, false);
         verify(em, never()).find(eq(UserEntity.class), any(), any(LockModeType.class));
         verify(session.getTransactionManager(), never()).setRollbackOnly();
     }
@@ -27,14 +27,14 @@ class NativeInvalidationDeletionTest {
     @Test void adminDeletionTombstonesTrackedStateWithoutResurrectingOrVetoingUser() {
         KeycloakSession session = session(); NativeState state = tracked(session);
         AdminEvent event = new AdminEvent(); event.setResourcePath("users/deleted"); event.setOperationType(OperationType.DELETE);
-        new NativeInvalidationFactory().create(session).onEvent(event, false);
+        new NativeInvalidationFactoryImpl().create(session).onEvent(event, false);
         removed(session, state);
     }
 
     @Test void accountDeletionTombstonesTrackedStateWithoutSurvivingUserEntity() {
         KeycloakSession session = session(); NativeState state = tracked(session);
         Event event = new Event(); event.setType(EventType.DELETE_ACCOUNT); event.setUserId("deleted");
-        new NativeInvalidationFactory().create(session).onEvent(event);
+        new NativeInvalidationFactoryImpl().create(session).onEvent(event);
         removed(session, state);
     }
 

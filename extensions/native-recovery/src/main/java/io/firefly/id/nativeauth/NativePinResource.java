@@ -45,19 +45,19 @@ public final class NativePinResource {
             var cookie = session.getContext().getRequestHeaders().getCookies().get(COOKIE); require(cookie != null);
             phase = Phase.CEREMONY_CONSUME;
             boolean revoke = NativePhases.run(session, child -> {
-                NativeStore store = new NativeStore(child); NativeCeremony ceremony = store.ceremony(cookie.getValue());
+                NativeStoreImpl store = new NativeStoreImpl(child); NativeCeremony ceremony = store.ceremony(cookie.getValue());
                 require(subject.equals(ceremony.subject) && matches(csrf, ceremony.csrfDigest)
                         && ("PIN_SET".equals(ceremony.stage) || "PIN_REVOKE".equals(ceremony.stage)));
                 boolean result = "PIN_REVOKE".equals(ceremony.stage); ceremony.csrfDigest = null; ceremony.stage = "USED"; return result;
             });
             boolean success;
             phase = Phase.MUTATION;
-            try { success = new NativePinEngine(session).replace(subject, password, otp, pin, confirmation, revoke); }
+            try { success = new NativePinEngineImpl(session).replace(subject, password, otp, pin, confirmation, revoke); }
             catch (Exception unavailable) { diagnostic(unavailable); success = false; }
             boolean failed = !success;
             phase = Phase.FEEDBACK;
             NativePhases.run(session, child -> {
-                NativeCeremony ceremony = new NativeStore(child).storedCeremony(cookie.getValue());
+                NativeCeremony ceremony = new NativeStoreImpl(child).storedCeremony(cookie.getValue());
                 setFeedback(ceremony, subject, failed); return null;
             });
             return Response.seeOther(java.net.URI.create(profile.issuer() + "/" + NativeContracts.EXTENSION + "/support-pin"))
@@ -72,7 +72,7 @@ public final class NativePinResource {
         if (cookie == null) return false;
         try {
             return NativePhases.run(session, child -> {
-                NativeCeremony ceremony = new NativeStore(child).ceremony(cookie.getValue());
+                NativeCeremony ceremony = new NativeStoreImpl(child).ceremony(cookie.getValue());
                 return subject.equals(ceremony.subject) && "USED".equals(ceremony.stage) && ceremony.failed;
             });
         } catch (NativeRefusal expired) { return false; }
@@ -81,13 +81,13 @@ public final class NativePinResource {
         phase = Phase.CEREMONY_CREATE;
         String csrf = "STATUS".equals(stage) ? "" : randomToken();
         String ceremonyId = "STATUS".equals(stage) ? null : NativePhases.run(session, child -> {
-            NativeStore store = new NativeStore(child); var user = store.local(subject, true); require(user.isEnabled());
+            NativeStoreImpl store = new NativeStoreImpl(child); var user = store.local(subject, true); require(user.isEnabled());
             NativeCeremony c = new NativeCeremony(); c.id = randomToken(); c.realmId = child.getContext().getRealm().getId(); c.subject = subject;
             c.csrfDigest = digest(csrf); c.stage = "REVOKE".equals(stage) ? "PIN_REVOKE" : "PIN_SET";
             c.expiresAt = System.currentTimeMillis() + 120000; store.em.persist(c); return c.id;
         });
         phase = Phase.STATUS_READ;
-        NativeContracts.PinStatus status = new NativePinEngine(session).status(subject);
+        NativeContracts.PinStatus status = new NativePinEngineImpl(session).status(subject);
         var lastChanged = status.revokedAt() != null ? status.revokedAt()
                 : status.replacedAt() != null ? status.replacedAt() : status.createdAt();
         NativeProfile profile = NativeProfile.of(session.getContext().getRealm()); String base = profile.issuer() + "/" + NativeContracts.EXTENSION + "/support-pin";

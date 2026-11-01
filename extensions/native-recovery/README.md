@@ -41,7 +41,7 @@ PIN SET/REVOKE requires an enabled ordinary native identity cookie, the same HUM
 
 Supply `FIREFLY_SUPPORT_PIN_KEYS_DIR` as an external secret mount, `FIREFLY_SUPPORT_PIN_ACTIVE_KEY` as the active file/version name, and at least 32 random key bytes in that owner-readable file. No group/other read/write permissions or symlink key files are accepted. Approved old verification versions additionally require `FIREFLY_SUPPORT_PIN_VERIFY_UNTIL_<version>` with an explicit future RFC3339 deadline. Missing/revoked keys deny verification. Replacement after strong authentication upgrades the active version; no plaintext retrieval or background PIN reconstruction exists.
 
-`NativeSupportPinService` is intentionally not an HTTP business API. It requires exactly one qualified `NativeSupportAuthorization.Factory` that resolves the genuine STAFF actor, customer, case/call, tenant, approval and narrow purpose. No implementation is supplied here. Until the owning support/delegation contract is qualified, BPO verification remains unavailable. A PIN reference is knowledge evidence only and cannot authorize login, unlock, payment or staff impersonation.
+`NativeSupportPinServiceImpl` is intentionally not an HTTP business API. It requires exactly one qualified `NativeSupportAuthorization.Factory` that resolves the genuine STAFF actor, customer, case/call, tenant, approval and narrow purpose. No implementation is supplied here. Until the owning support/delegation contract is qualified, BPO verification remains unavailable. A PIN reference is knowledge evidence only and cannot authorize login, unlock, payment or staff impersonation.
 
 ## Validation state
 

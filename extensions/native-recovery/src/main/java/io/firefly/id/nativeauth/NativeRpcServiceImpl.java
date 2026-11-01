@@ -10,9 +10,9 @@ import java.util.UUID;
 import static io.firefly.id.nativeauth.NativeContracts.*;
 import static io.firefly.id.nativeauth.NativeSecurity.*;
 
-final class NativeRpcService {
+final class NativeRpcServiceImpl {
     private final KeycloakSession request;
-    NativeRpcService(KeycloakSession request) { this.request = request; }
+    NativeRpcServiceImpl(KeycloakSession request) { this.request = request; }
     Object call(String route, Rpc rpc) {
         require(rpc != null && (rpc.actorAssertion() == null || rpc.actorAssertion().length() <= 16384)
                 && (rpc.action() == null || rpc.action().length() <= 64) && (rpc.attestation() == null || rpc.attestation().length() <= 128));
@@ -23,7 +23,7 @@ final class NativeRpcService {
             workload(session, profile, header, route);
             if ("audit".equals(route)) {
                 require(Set.of("DOMAIN_BOUNDARY_ADMITTED", "DOMAIN_BOUNDARY_REFUSED").contains(rpc.action()));
-                NativeStore auditStore = new NativeStore(session); String subject = null; String reference = null;
+                NativeStoreImpl auditStore = new NativeStoreImpl(session); String subject = null; String reference = null;
                 String event = "DOMAIN_BOUNDARY_REFUSED";
                 try {
                     var token = session.tokens().decode(rpc.actorAssertion(), org.keycloak.representations.AccessToken.class);
@@ -43,11 +43,11 @@ final class NativeRpcService {
             String workloadId = basicClientId(header);
             require(domain == workloadId.equals(profile.domainWorkloadClientId()) || !"admit".equals(route));
             NativeCeremony ceremony = NativeActor.verify(session, rpc.actorAssertion(), rpc.binding());
-            NativeStore store = new NativeStore(session); var user = store.local(ceremony.subject, true);
+            NativeStoreImpl store = new NativeStoreImpl(session); var user = store.local(ceremony.subject, true);
             NativeState state = store.state(ceremony.subject, false);
             boolean recording = "RECORD_EXECUTION".equals(action);
             if (recording) require(hasJournal(store, ceremony, rpc.binding(), domain ? rpc.operationId() : null, domain));
-            else { store.eligible(state, user); NativeEngine.currentOwner(session, ceremony, user); require(state.generation.equals(ceremony.generation)); }
+            else { store.eligible(state, user); NativeEngineImpl.currentOwner(session, ceremony, user); require(state.generation.equals(ceremony.generation)); }
             return switch (route) {
                 case "admit" -> {
                     require((domain ? Set.of("CREATE", "ISSUE_CHALLENGE", "RESERVE_VERIFICATION", "COMPLETE_VERIFICATION", "CONSUME", "VERIFY_AUTHORIZATION", "RECORD_EXECUTION") : Set.of("CREATE", "ISSUE_CHALLENGE", "VERIFY_CHALLENGE", "RESERVE_VERIFICATION", "COMPLETE_VERIFICATION", "CONSUME", "VERIFY_AUTHORIZATION", "RECORD_EXECUTION")).contains(action));
@@ -61,7 +61,7 @@ final class NativeRpcService {
                     var existing = store.em.createQuery("select i from NativeIssuedChallenge i where i.reservationId = :reservation", NativeIssuedChallenge.class)
                             .setParameter("reservation", rpc.reservationId().toString()).getResultList();
                     NativeIssuedChallenge issued;
-                    var credential = "KNOWLEDGE".equals(rpc.category()) ? NativeEngine.password(user) : NativeEngine.enrolledTotp(user, state);
+                    var credential = "KNOWLEDGE".equals(rpc.category()) ? NativeEngineImpl.password(user) : NativeEngineImpl.enrolledTotp(user, state);
                     if (!existing.isEmpty()) {
                         issued = existing.get(0); require(issued.ceremonyId.equals(ceremony.id) && issued.operationId.equals(rpc.operationId().toString()) && issued.category.equals(rpc.category()) && issued.credentialId.equals(credential.getId()));
                     } else {
@@ -110,7 +110,7 @@ final class NativeRpcService {
         try { String value = new String(Base64.getDecoder().decode(header.substring(6)), StandardCharsets.UTF_8); return value.substring(0, value.indexOf(':')); }
         catch (Exception error) { throw new NativeRefusal(); }
     }
-    private static boolean hasJournal(NativeStore store, NativeCeremony ceremony, Binding binding, UUID operationId, boolean exactOperation) {
+    private static boolean hasJournal(NativeStoreImpl store, NativeCeremony ceremony, Binding binding, UUID operationId, boolean exactOperation) {
         if (exactOperation) require(operationId != null);
         return store.em.createQuery("select e from NativeExecution e where e.realmId = :realm and e.subject = :subject and e.generation = :generation and e.bindingDigest = :binding", NativeExecution.class)
                 .setParameter("realm", ceremony.realmId).setParameter("subject", ceremony.subject).setParameter("generation", ceremony.generation)
