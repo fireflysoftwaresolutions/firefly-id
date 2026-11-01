@@ -15,6 +15,7 @@
       <#else>
         <p><#if stage == "VERIFY">${msg("ffidLostVerifyInstruction")}<#elseif stage == "ENROLL">${msg("ffidLostEnrollInstruction")}<#else>${msg("ffidLostIdentifyInstruction")}</#if></p>
       </#if>
+      <#if stage != "COMPLETE" || recordPending!false>
       <form id="ffid-lost-credentials" class="${properties.kcFormClass!}" action="${actionUrl}" method="post">
         <input type="hidden" name="csrf" value="${csrf}" />
         <#if stage == "IDENTIFY">
@@ -46,6 +47,7 @@
         </#if>
         <button id="ffid-lost-continue" class="${properties.kcButtonClass!} <#if stage == 'COMPLETE'>${properties.kcButtonSecondaryClass!}<#else>${properties.kcButtonPrimaryClass!}</#if> ${properties.kcButtonBlockClass!}" type="submit"><#if stage == "VERIFY">${msg("ffidLostVerifyContinue")}<#elseif stage == "ENROLL">${msg("ffidLostReplace")}<#else>${msg("doContinue")}</#if></button>
       </form>
+      </#if>
       <#if stage != "COMPLETE"><a class="ffid-journey-return" href="${signInUrl}">${msg("ffidRecoveryBackToSignIn")}</a></#if>
     </div>
   </#if>

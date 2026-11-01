@@ -12,7 +12,7 @@ import java.util.*;
 import static io.firefly.id.nativeauth.NativeSecurity.*;
 
 final class ReproofingEngineImpl {
-    record View(String id, String csrf, String stage, String verificationUrl, String secret, boolean failed) { @Override public String toString() { return "ReproofingView[REDACTED]"; } }
+    record View(String id, String csrf, String stage, String verificationUrl, String secret, boolean failed, boolean recordPending) { @Override public String toString() { return "ReproofingView[REDACTED]"; } }
     private final KeycloakSession request;
     ReproofingEngineImpl(KeycloakSession request) { this.request = request; }
     View create() {
@@ -20,7 +20,7 @@ final class ReproofingEngineImpl {
         return NativePhases.run(request, child -> {
             var store = new ReproofingStoreImpl(child); var c = new ReproofingCeremonyImpl(); c.id = randomToken(); c.realmId = store.config.realm.getId();
             String csrf = randomToken(); c.csrfDigest = digest(csrf); c.stage = "IDENTIFY"; c.expiresAt = store.now() + store.config.ttl() * 1000L;
-            store.em.persist(c); return new View(c.id, csrf, c.stage, null, null, false);
+            store.em.persist(c); return new View(c.id, csrf, c.stage, null, null, false, false);
         });
     }
     View resume(String id) {
@@ -29,7 +29,7 @@ final class ReproofingEngineImpl {
             if (journal != null) c.stage = "COMPLETE"; else require(c.expiresAt > store.now());
             String csrf = randomToken(); c.csrfDigest = digest(csrf); String secret = null;
             if ("ENROLL".equals(c.stage)) { var user = store.local(c.subject); store.current(c, user); require(authorization(c).expiresAt().toEpochMilli() > store.now()); secret = open(c.id, c.encryptedTotp); }
-            return new View(c.id, csrf, c.stage, c.verificationUrl, secret, c.failed);
+            return new View(c.id, csrf, c.stage, c.verificationUrl, secret, c.failed, journal != null && !journal.recorded && journal.recordAttempts < 8);
         });
     }
     String csrf(String id, String token) {
