@@ -48,7 +48,7 @@ class NativeReproofingInvalidationTest {
     }
     private EntityManager em(KeycloakSession session) { return session.getProvider(JpaConnectionProvider.class).getEntityManager(); }
     private ReproofingStateImpl state(EntityManager em) {
-        var state = new ReproofingStateImpl(); state.id=NativeSecurity.digest("realm\ncustomer"); state.subject="customer"; state.realmId="realm"; state.epoch="stable-epoch"; state.failures=2;
+        var state = new ReproofingStateImpl(); state.id=NativeSecurityImpl.digest("realm\ncustomer"); state.subject="customer"; state.realmId="realm"; state.epoch="stable-epoch"; state.failures=2;
         when(em.find(ReproofingStateImpl.class,state.id)).thenReturn(state); when(em.find(ReproofingStateImpl.class,state.id,LockModeType.PESSIMISTIC_WRITE)).thenReturn(state); return state;
     }
     private AdminEvent event(OperationType type) {

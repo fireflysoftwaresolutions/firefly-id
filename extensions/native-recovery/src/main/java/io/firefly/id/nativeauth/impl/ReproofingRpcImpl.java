@@ -1,6 +1,6 @@
 package io.firefly.id.nativeauth.impl;
 
-import io.firefly.id.nativeauth.NativePhases;
+import io.firefly.id.nativeauth.NativePhasesImpl;
 import io.firefly.id.nativeauth.ReproofingContracts.*;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.ClientModel;
@@ -10,7 +10,7 @@ import org.keycloak.protocol.oidc.OIDCConfigAttributes;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
 final class ReproofingRpcImpl {
     private final KeycloakSession request;
@@ -18,8 +18,8 @@ final class ReproofingRpcImpl {
     Object call(String route, NativeRequest value) {
         require(Set.of("prepare", "admit", "journal").contains(route));
         String header = request.getContext().getRequestHeaders().getHeaderString("Authorization");
-        NativePhases.run(request, child -> { authenticate(child, header, route); return null; });
-        return NativePhases.run(request, child -> {
+        NativePhasesImpl.run(request, child -> { authenticate(child, header, route); return null; });
+        return NativePhasesImpl.run(request, child -> {
             var store = new ReproofingStoreImpl(child);
             require(value != null && value.binding() != null); Binding b = value.binding();
             require(b.nonce() != null && b.nonce().length() <= 128 && "CREDENTIAL_REPLACEMENT".equals(b.purpose()) && "HUMAN".equals(b.population()));

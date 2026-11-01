@@ -10,7 +10,7 @@ import java.nio.ByteBuffer;
 import java.io.ByteArrayOutputStream;
 import java.util.*;
 import java.util.concurrent.*;
-import static io.firefly.id.nativeauth.NativeSecurity.require;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.require;
 
 /** A credential-free, bounded private transport to the independent Domain owner. */
 final class ReproofingGatewayImpl {

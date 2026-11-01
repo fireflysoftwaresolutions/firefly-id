@@ -1,6 +1,6 @@
 package io.firefly.id.nativeauth.impl;
 
-import io.firefly.id.nativeauth.NativePhases;
+import io.firefly.id.nativeauth.NativePhasesImpl;
 import jakarta.enterprise.context.ContextNotActiveException;
 import jakarta.persistence.*;
 import org.junit.jupiter.api.Test;
@@ -40,8 +40,8 @@ class ReproofingEmailDispatchTest {
         });
         var transport = mock(EmailSenderProvider.class); when(session.getProvider(EmailSenderProvider.class)).thenReturn(transport); when(realm.getSmtpConfig()).thenReturn(Map.of("host","smtp.example.test"));
         var email = new FixtureEmailProviderImpl(session,theme); when(session.getProvider(EmailTemplateProvider.class)).thenReturn(email);
-        try (var phases=mockStatic(NativePhases.class); var rpc=mockStatic(ReproofingRpcImpl.class); var crypto=mockStatic(ReproofingEngineImpl.class)) {
-            phases.when(() -> NativePhases.run(eq(session),any())).thenAnswer(call -> ((Function<KeycloakSession,Object>)call.getArgument(1)).apply(session));
+        try (var phases=mockStatic(NativePhasesImpl.class); var rpc=mockStatic(ReproofingRpcImpl.class); var crypto=mockStatic(ReproofingEngineImpl.class)) {
+            phases.when(() -> NativePhasesImpl.run(eq(session),any())).thenAnswer(call -> ((Function<KeycloakSession,Object>)call.getArgument(1)).apply(session));
             crypto.when(() -> ReproofingEngineImpl.open("notification:execution","encrypted-prior-destination")).thenReturn("prior@example.test");
             assertEquals(1,new ReproofingDispatcherImpl(session).dispatch());
         }

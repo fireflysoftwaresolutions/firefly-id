@@ -4,7 +4,7 @@ import jakarta.persistence.*;
 import org.keycloak.connections.jpa.JpaConnectionProvider;
 import org.keycloak.models.*;
 import org.keycloak.models.jpa.entities.*;
-import static io.firefly.id.nativeauth.NativeSecurity.require;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.require;
 
 /** Handled AdminREST commits and native recovery share this database fence. */
 public final class ReproofingRealmPolicyImpl {

@@ -13,7 +13,7 @@ import org.keycloak.storage.StorageId;
 import org.keycloak.storage.UserStoragePrivateUtil;
 import java.util.Comparator;
 import java.util.UUID;
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
 final class NativeStoreImpl {
     final KeycloakSession session;

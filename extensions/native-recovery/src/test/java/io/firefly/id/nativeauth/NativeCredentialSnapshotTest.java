@@ -24,7 +24,7 @@ class NativeCredentialSnapshotTest {
         when(em.find(CredentialEntity.class, "credential", LockModeType.PESSIMISTIC_WRITE)).thenReturn(current);
         String revision = new NativeStoreImpl(session).revision(user, true);
         verify(em).refresh(current, LockModeType.PESSIMISTIC_WRITE);
-        assertEquals(NativeSecurity.digest("credential\npassword\nnull\nalgorithm\ncurrent\n"), revision);
+        assertEquals(NativeSecurityImpl.digest("credential\npassword\nnull\nalgorithm\ncurrent\n"), revision);
     }
     @Test void administrativeSnapshotDoesNotRefreshAwayPendingCredentialChanges() {
         KeycloakSession session = mock(KeycloakSession.class); EntityManager em = mock(EntityManager.class);

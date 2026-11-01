@@ -3,11 +3,11 @@ package io.firefly.id.nativeauth;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.utils.KeycloakModelUtils;
 import java.util.function.Function;
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
 /** A completed Keycloak transaction manager cannot be restarted; each phase owns a fresh session. */
-public final class NativePhases {
-    private NativePhases() { }
+public final class NativePhasesImpl {
+    private NativePhasesImpl() { }
     /** Reuses the original unlock snapshot inside an already locked native transaction. */
     public static String credentialRevision(KeycloakSession session, org.keycloak.models.UserModel user) {
         require(session.getTransactionManager().isActive() && !session.getTransactionManager().getRollbackOnly());

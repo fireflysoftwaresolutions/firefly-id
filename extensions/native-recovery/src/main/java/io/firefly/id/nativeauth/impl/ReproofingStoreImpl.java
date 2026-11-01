@@ -12,7 +12,7 @@ import io.firefly.id.nativeauth.ReproofingContracts.*;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
 final class ReproofingStoreImpl {
     final KeycloakSession session;

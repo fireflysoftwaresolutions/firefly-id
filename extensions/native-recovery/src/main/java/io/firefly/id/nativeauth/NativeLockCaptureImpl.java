@@ -2,9 +2,9 @@ package io.firefly.id.nativeauth;
 
 import org.keycloak.models.KeycloakSession;
 import java.util.UUID;
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
-final class NativeLockCapture {
+final class NativeLockCaptureImpl {
     static final String TRANSITION = "firefly.native.enabled-before-failure.";
     static void capture(KeycloakSession session, String subject) {
         NativeProfile.of(session.getContext().getRealm());

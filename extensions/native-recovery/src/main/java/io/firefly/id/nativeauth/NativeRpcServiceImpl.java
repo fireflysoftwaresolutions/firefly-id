@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import static io.firefly.id.nativeauth.NativeContracts.*;
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
 final class NativeRpcServiceImpl {
     private final KeycloakSession request;
@@ -18,7 +18,7 @@ final class NativeRpcServiceImpl {
                 && (rpc.action() == null || rpc.action().length() <= 64) && (rpc.attestation() == null || rpc.attestation().length() <= 128));
         String header = request.getContext().getRequestHeaders().getHeaderString("Authorization");
         require("https".equals(request.getContext().getUri().getBaseUri().getScheme()));
-        Object committed = NativePhases.run(request, session -> {
+        Object committed = NativePhasesImpl.run(request, session -> {
             NativeProfile profile = NativeProfile.of(session.getContext().getRealm());
             workload(session, profile, header, route);
             if ("audit".equals(route)) {
@@ -29,7 +29,7 @@ final class NativeRpcServiceImpl {
                     var token = session.tokens().decode(rpc.actorAssertion(), org.keycloak.representations.AccessToken.class);
                     if (token != null && token.getOtherClaims().get("recovery_ceremony_id") instanceof String id) {
                         var known = auditStore.ceremony(id);
-                        NativeActor.verify(session, rpc.actorAssertion(), NativeActor.binding(known));
+                        NativeActorImpl.verify(session, rpc.actorAssertion(), NativeActorImpl.binding(known));
                         subject = digest(known.subject); reference = digest(known.id); event = rpc.action();
                     }
                 } catch (Exception invalid) { /* Unknown actors receive a durable anonymous refusal. */ }
@@ -42,7 +42,7 @@ final class NativeRpcServiceImpl {
             String action = domain ? rpc.action().substring(7) : rpc.action();
             String workloadId = basicClientId(header);
             require(domain == workloadId.equals(profile.domainWorkloadClientId()) || !"admit".equals(route));
-            NativeCeremony ceremony = NativeActor.verify(session, rpc.actorAssertion(), rpc.binding());
+            NativeCeremony ceremony = NativeActorImpl.verify(session, rpc.actorAssertion(), rpc.binding());
             NativeStoreImpl store = new NativeStoreImpl(session); var user = store.local(ceremony.subject, true);
             NativeState state = store.state(ceremony.subject, false);
             boolean recording = "RECORD_EXECUTION".equals(action);
@@ -92,7 +92,7 @@ final class NativeRpcServiceImpl {
                     require(recording && rpc.executionId() != null);
                     var journal = store.em.find(NativeExecution.class, rpc.executionId().toString());
                     require(journal != null && journal.subject.equals(ceremony.subject) && journal.realmId.equals(ceremony.realmId)
-                            && journal.generation.equals(ceremony.generation) && (!domain || rpc.operationId() != null && journal.operationId.equals(rpc.operationId().toString())) && journal.bindingDigest.equals(digest(NativeActor.json(rpc.binding()))));
+                            && journal.generation.equals(ceremony.generation) && (!domain || rpc.operationId() != null && journal.operationId.equals(rpc.operationId().toString())) && journal.bindingDigest.equals(digest(NativeActorImpl.json(rpc.binding()))));
                     yield new Execution(rpc.binding(), rpc.executionId(), journal.outcome);
                 }
                 case "reject" -> {
@@ -114,7 +114,7 @@ final class NativeRpcServiceImpl {
         if (exactOperation) require(operationId != null);
         return store.em.createQuery("select e from NativeExecution e where e.realmId = :realm and e.subject = :subject and e.generation = :generation and e.bindingDigest = :binding", NativeExecution.class)
                 .setParameter("realm", ceremony.realmId).setParameter("subject", ceremony.subject).setParameter("generation", ceremony.generation)
-                .setParameter("binding", digest(NativeActor.json(binding))).getResultList().stream()
+                .setParameter("binding", digest(NativeActorImpl.json(binding))).getResultList().stream()
                 .anyMatch(journal -> !exactOperation || journal.operationId.equals(operationId.toString()));
     }
     private static String independence(NativeCeremony ceremony, String category, String credential) {

@@ -1,9 +1,9 @@
 package io.firefly.id.nativeauth;
 
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
 /** A committed reservation never permits a second native secret check, including after a crash. */
-final class NativeReservationFence {
+final class NativeReservationFenceImpl {
     record Prepared(String attestationId, boolean verify) { }
     static Prepared reuse(NativeAttestation proof, NativeCeremony ceremony, NativeState state,
             NativeContracts.Reservation reservation, String credentialId) {

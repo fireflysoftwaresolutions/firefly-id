@@ -5,7 +5,7 @@ import org.keycloak.util.JsonSerialization;
 import java.time.Instant;
 import java.util.UUID;
 import static io.firefly.id.nativeauth.NativeContracts.*;
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
 @Entity
 @Table(name="ff_native_execution")
@@ -38,11 +38,11 @@ public class NativeExecution {
     @Column(name="completed_at")
     public long completedAt;
     static NativeExecution committed(NativeCeremony ceremony, Authorization authorization, String outcome, long now) {
-        require(authorization != null && authorization.binding().equals(NativeActor.binding(ceremony))
+        require(authorization != null && authorization.binding().equals(NativeActorImpl.binding(ceremony))
                 && authorization.operationId().toString().equals(ceremony.operationId));
         NativeExecution journal = new NativeExecution(); journal.id = authorization.executionId().toString();
         journal.realmId = ceremony.realmId; journal.subject = ceremony.subject; journal.generation = ceremony.generation;
-        journal.ceremonyId = ceremony.id; journal.operationId = ceremony.operationId; journal.bindingJson = NativeActor.json(authorization.binding());
+        journal.ceremonyId = ceremony.id; journal.operationId = ceremony.operationId; journal.bindingJson = NativeActorImpl.json(authorization.binding());
         journal.bindingDigest = digest(journal.bindingJson); journal.authorizationExpiresAt = authorization.expiresAt().toString();
         journal.outcome = outcome; journal.completedAt = now; return journal;
     }
@@ -52,7 +52,7 @@ public class NativeExecution {
                 && bindingJson != null && bindingDigest.equals(digest(bindingJson)) && "SUCCEEDED".equals(outcome));
         try {
             Binding binding = JsonSerialization.readValue(bindingJson, Binding.class);
-            require(binding.equals(NativeActor.binding(ceremony)));
+            require(binding.equals(NativeActorImpl.binding(ceremony)));
             return new Authorization(UUID.fromString(operationId), UUID.fromString(id), binding, Instant.parse(authorizationExpiresAt));
         } catch (Exception invalidJournal) { throw new NativeRefusal(); }
     }

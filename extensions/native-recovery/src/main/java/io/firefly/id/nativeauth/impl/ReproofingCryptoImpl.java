@@ -13,7 +13,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.*;
-import static io.firefly.id.nativeauth.NativeSecurity.require;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.require;
 
 public final class ReproofingCryptoImpl {
     private static final SecureRandom RANDOM = new SecureRandom();

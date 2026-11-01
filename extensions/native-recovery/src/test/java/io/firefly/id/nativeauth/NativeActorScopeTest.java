@@ -32,10 +32,10 @@ class NativeActorScopeTest {
         });
         NativeCeremony ceremony = new NativeCeremony(); ceremony.id = "ceremony"; ceremony.subject = "subject";
         ceremony.generation = "generation"; ceremony.ownerLink = "owner"; ceremony.expiresAt = System.currentTimeMillis() + 120000;
-        ceremony.bindingJson = NativeActor.json(new NativeContracts.Binding("https://identity.test/realms/customers", "opaque",
+        ceremony.bindingJson = NativeActorImpl.json(new NativeContracts.Binding("https://identity.test/realms/customers", "opaque",
                 "recovery", null, "subject", "https://identity.test/realms/customers", "customers", "subject", "HUMAN",
                 NativeContracts.PURPOSE, "generation"));
-        AccessToken decoded = JsonSerialization.readValue(NativeActor.sign(session, ceremony), AccessToken.class);
+        AccessToken decoded = JsonSerialization.readValue(NativeActorImpl.sign(session, ceremony), AccessToken.class);
         assertEquals("firefly.recovery", decoded.getScope());
         assertFalse(decoded.getOtherClaims().containsKey("scope"));
         assertEquals("firefly-restricted-recovery", decoded.getType());

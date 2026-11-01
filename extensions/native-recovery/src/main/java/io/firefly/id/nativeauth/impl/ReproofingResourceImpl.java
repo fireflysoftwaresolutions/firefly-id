@@ -9,7 +9,7 @@ import org.keycloak.services.util.LocaleUtil;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
 public final class ReproofingResourceImpl {
     private static final String COOKIE = "FF_REPROOFING";

@@ -8,9 +8,9 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Base64;
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
-final class NativeCredentials {
+final class NativeCredentialsImpl {
     static boolean totp(KeycloakSession session, UserModel user, String credentialId, String code) {
         require(code != null && code.matches("[0-9]{6,8}") && !session.getContext().getRealm().getOTPPolicy().isCodeReusable());
         CredentialModel credential = user.credentialManager().getStoredCredentialById(credentialId); require(credential != null);

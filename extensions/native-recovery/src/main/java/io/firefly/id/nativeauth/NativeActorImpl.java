@@ -7,9 +7,9 @@ import java.time.Instant;
 import java.util.Arrays;
 import java.util.Set;
 import static io.firefly.id.nativeauth.NativeContracts.*;
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
-final class NativeActor {
+final class NativeActorImpl {
     static String sign(KeycloakSession session, NativeCeremony ceremony) {
         NativeProfile profile = NativeProfile.of(session.getContext().getRealm());
         Binding binding = binding(ceremony);

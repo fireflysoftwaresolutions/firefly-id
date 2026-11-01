@@ -2,7 +2,7 @@ package io.firefly.id.nativeauth.impl;
 
 import org.keycloak.models.RealmModel;
 import java.net.URI;
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
 final class ReproofingConfigImpl {
     final RealmModel realm;

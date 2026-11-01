@@ -11,8 +11,8 @@ import org.keycloak.models.*;
 import org.keycloak.transaction.JtaTransactionManagerLookup;
 import java.util.Set;
 import java.util.UUID;
-import static io.firefly.id.nativeauth.NativeSecurity.digest;
-import static io.firefly.id.nativeauth.NativeSecurity.require;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.digest;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.require;
 
 /** Mandatory global listener; native material checks remain necessary for eventless internal writes. */
 public final class NativeInvalidationFactoryImpl implements EventListenerProviderFactory {

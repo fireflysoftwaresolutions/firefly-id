@@ -3,7 +3,7 @@ package io.firefly.id.nativeauth.impl;
 import java.nio.file.*;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.Arrays;
-import static io.firefly.id.nativeauth.NativeSecurity.require;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.require;
 
 /** Active encryption version plus explicitly retained decrypt-only mounted versions. */
 public final class ReproofingKeyringImpl {

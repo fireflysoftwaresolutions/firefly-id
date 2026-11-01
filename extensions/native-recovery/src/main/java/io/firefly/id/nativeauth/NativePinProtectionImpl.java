@@ -7,10 +7,10 @@ import java.nio.file.*;
 import java.nio.file.attribute.PosixFilePermission;
 import java.time.Instant;
 import java.util.*;
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
 /** External versioned pepper is never persisted in the identity database or credential metadata. */
-final class NativePinProtection {
+final class NativePinProtectionImpl {
     static String activeVersion() { String version = System.getenv("FIREFLY_SUPPORT_PIN_ACTIVE_KEY"); require(version != null && version.matches("[A-Za-z0-9_-]{1,64}")); return version; }
     static String keyed(String realm, String subject, String pin, String version) {
         requirePin(pin); require(version != null && version.matches("[A-Za-z0-9_-]{1,64}"));

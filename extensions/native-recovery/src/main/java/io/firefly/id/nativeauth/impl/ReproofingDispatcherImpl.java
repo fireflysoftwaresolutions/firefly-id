@@ -1,11 +1,11 @@
 package io.firefly.id.nativeauth.impl;
 
-import io.firefly.id.nativeauth.NativePhases;
+import io.firefly.id.nativeauth.NativePhasesImpl;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.email.EmailTemplateProvider;
 import jakarta.persistence.LockModeType;
 import java.util.HashMap;
-import static io.firefly.id.nativeauth.NativeSecurity.require;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.require;
 
 /** Explicit bounded worker; durable leases survive process death without retaining request sessions. */
 final class ReproofingDispatcherImpl {
@@ -19,10 +19,10 @@ final class ReproofingDispatcherImpl {
     }
     int dispatch() {
         String header = request.getContext().getRequestHeaders().getHeaderString("Authorization");
-        NativePhases.run(request, child -> { ReproofingRpcImpl.authenticate(child, header, "dispatch"); return null; });
+        NativePhasesImpl.run(request, child -> { ReproofingRpcImpl.authenticate(child, header, "dispatch"); return null; });
         int processed = 0;
         for (int n = 0; n < 10; n++) {
-            Lease lease = NativePhases.run(request, child -> {
+            Lease lease = NativePhasesImpl.run(request, child -> {
                 var store = new ReproofingStoreImpl(child); long now = store.now();
                 var rows = store.em.createQuery("select n from ReproofingNotificationImpl n where n.realmId = :realm and n.status in ('PENDING','SENDING') and n.nextAttemptAt <= :now and (n.attempts < 8 or (n.status = 'SENDING' and n.attempts = 8)) order by n.nextAttemptAt", ReproofingNotificationImpl.class)
                         .setParameter("realm", store.config.realm.getId()).setParameter("now", now).setLockMode(LockModeType.PESSIMISTIC_WRITE).setMaxResults(1).getResultList();
@@ -35,7 +35,7 @@ final class ReproofingDispatcherImpl {
             String id = lease.id();
             boolean delivered;
             try {
-                NativePhases.run(request, child -> {
+                NativePhasesImpl.run(request, child -> {
                     var store = new ReproofingStoreImpl(child); var notification = store.em.find(ReproofingNotificationImpl.class, id);
                     require(notification != null && notification.realmId.equals(store.config.realm.getId()));
                     var user = child.users().getUserById(store.config.realm, notification.subject); require(user != null);
@@ -48,7 +48,7 @@ final class ReproofingDispatcherImpl {
                 delivered = true;
             } catch (Exception unavailable) { delivered = false; }
             final boolean success = delivered;
-            NativePhases.run(request, child -> {
+            NativePhasesImpl.run(request, child -> {
                 var store = new ReproofingStoreImpl(child); var notification = store.em.find(ReproofingNotificationImpl.class, id, LockModeType.PESSIMISTIC_WRITE);
                 if (!owns(notification, lease.token())) return null;
                 if (success) { notification.status = "DELIVERED"; notification.deliveredAt = store.now(); }
