@@ -41,12 +41,12 @@ class ReproofingBoundaryTest {
         assertFalse(view.toString().contains("private"));
         assertFalse(new Journey(null, "private-provider").toString().contains("private"));
     }
-    @Test void formRejectsOversizeDuplicateAndUnexpectedFieldsBeforeParsingCredentials() {
-        java.util.function.Function<String, java.io.InputStream> input = text -> new java.io.ByteArrayInputStream(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        assertEquals("a+b c", ReproofingResourceImpl.form(input.apply("csrf=a%2Bb+c")).get("csrf"));
-        assertThrows(RuntimeException.class, () -> ReproofingResourceImpl.form(input.apply("csrf=a&csrf=b")));
-        assertThrows(RuntimeException.class, () -> ReproofingResourceImpl.form(input.apply("approved=true")));
-        assertThrows(RuntimeException.class, () -> ReproofingResourceImpl.form(input.apply("password=" + "x".repeat(16384))));
+    @Test void boundedFrameworkDecodedFormPreservesValuesAndRefusesDuplicatesOrUnexpectedFields() {
+        var fields = new jakarta.ws.rs.core.MultivaluedHashMap<String, String>(); fields.add("csrf", "a+b c");
+        assertEquals("a+b c", ReproofingResourceImpl.form(fields, 128).get("csrf"));
+        fields.add("csrf", "duplicate"); assertThrows(RuntimeException.class, () -> ReproofingResourceImpl.form(fields, 128)); fields.remove("csrf");
+        fields.add("approved", "true"); assertThrows(RuntimeException.class, () -> ReproofingResourceImpl.form(fields, 128)); fields.remove("approved");
+        fields.add("password", "x".repeat(16384)); assertThrows(RuntimeException.class, () -> ReproofingResourceImpl.form(fields, 16384));
     }
     @Test void privateDeviceGrantClientIsRejected() { grantAttributeRefused("oauth2.device.authorization.grant.enabled"); }
     @Test void privateCibaGrantClientIsRejected() { grantAttributeRefused("oidc.ciba.grant.enabled"); }

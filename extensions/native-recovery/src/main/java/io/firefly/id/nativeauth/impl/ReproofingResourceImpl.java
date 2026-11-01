@@ -24,13 +24,13 @@ public final class ReproofingResourceImpl {
         } catch (Exception refused) { return unavailable(); }
     }
     @POST @Consumes(MediaType.APPLICATION_FORM_URLENCODED) @Produces(MediaType.TEXT_HTML)
-    public Response submit(InputStream body) {
+    public Response submit() {
         String id = null;
         try {
             secure(); var config = new ReproofingConfigImpl(session.getContext().getRealm());
             requireOrigin(session.getContext().getRequestHeaders().getHeaderString("Origin"), config.value("allowed-origin"));
             var cookie = session.getContext().getRequestHeaders().getCookies().get(COOKIE); require(cookie != null); id = cookie.getValue();
-            var fields = form(body);
+            var fields = form(session.getContext().getHttpRequest().getDecodedFormParameters(), session.getContext().getRequestHeaders().getLength());
             var engine = new ReproofingEngineImpl(session); String stage = engine.csrf(id, fields.get("csrf"));
             try {
                 switch (stage) {
@@ -53,17 +53,18 @@ public final class ReproofingResourceImpl {
             return Response.ok(ReproofingWireImpl.json(result)).header("Cache-Control", "no-store").build();
         } catch (Exception refused) { return Response.status(403).entity(Map.of("error", "recovery_unavailable")).header("Cache-Control", "no-store").build(); }
     }
-    static Map<String, String> form(InputStream body) {
-        try {
-            byte[] bytes = body.readNBytes(16385); require(bytes.length <= 16384);
-            Map<String, String> fields = new java.util.HashMap<>();
-            for (String pair : new String(bytes, StandardCharsets.UTF_8).split("&", -1)) {
-                String[] parts = pair.split("=", 2); require(parts.length == 2 && fields.size() < 5);
-                String name = java.net.URLDecoder.decode(parts[0], StandardCharsets.UTF_8), value = java.net.URLDecoder.decode(parts[1], StandardCharsets.UTF_8);
-                require(java.util.Set.of("csrf", "username", "password", "passwordConfirm", "otp").contains(name) && fields.putIfAbsent(name, value) == null);
-            }
-            return fields;
-        } catch (Exception refused) { throw new IllegalStateException("Recovery unavailable"); }
+    static Map<String, String> form(MultivaluedMap<String, String> decoded, int contentLength) {
+        require(contentLength >= 0 && contentLength <= 16384 && decoded != null && !decoded.isEmpty() && decoded.size() <= 5);
+        Map<String, String> fields = new java.util.HashMap<>(); int bytes = 0;
+        for (var entry : decoded.entrySet()) {
+            String name = entry.getKey(); var values = entry.getValue();
+            require(java.util.Set.of("csrf", "username", "password", "passwordConfirm", "otp").contains(name)
+                    && values != null && values.size() == 1 && values.get(0) != null);
+            String value = values.get(0); require(value.length() <= 16384);
+            bytes = Math.addExact(bytes, name.getBytes(StandardCharsets.UTF_8).length + value.getBytes(StandardCharsets.UTF_8).length + 1);
+            require(bytes <= 16384); fields.put(name, value);
+        }
+        return fields;
     }
     private void secure() { require("https".equals(session.getContext().getUri().getBaseUri().getScheme())); new ReproofingConfigImpl(session.getContext().getRealm()); }
     private Response render(ReproofingEngineImpl.View view, boolean cookie) {
