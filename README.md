@@ -39,6 +39,8 @@ Generation creates separate synthetic populations and random local credentials a
 
 The ordinary distribution provides the Firefly themes, identity policies and application integration. Native recovery is optional and adds local existing-factor unlock, customer support-PIN lifecycle and password/TOTP replacement after independent identity verification.
 
+The native extension also supplies an opt-in [privileged administration profile](docs/workforce-administration.md) for named accounts with a password and a pre-enrolled WebAuthn key with user verification. Prepare its offline candidate and supervise enrollment and cutover before activating it on real administrators.
+
 Existing-factor unlock uses the native provider/gateway and separate Domain/Core SCA services. Credential-loss recovery uses Core KYCB as the system of record and a customer Domain adapter for the selected third-party verifier. Configure those backend services before selecting the native theme. Telephone/BPO PIN verification also requires an authorized case/call integration. [Components](docs/solution-overview.md) and [recovery](docs/access-recovery.md) explain the setup.
 
 ## Security and deployment

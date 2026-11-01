@@ -9,7 +9,7 @@ Use separate authentication policies for customers, employees, institutional use
 | Customers | 16–128 characters | Previous 5 excluded | Password; MFA is optional in the sandbox |
 | Workforce | 20–128 characters | Previous 10 excluded | Password and enrolled OTP on fresh authentication |
 | Institutional humans | 16–128 characters | Previous 5 excluded | Password; MFA is optional in the sandbox |
-| Administrators | 20–128 characters | Previous 10 excluded | Operator-configured privileged flow; use phishing-resistant MFA |
+| Administrators | 20–128 characters | Previous 10 excluded | Opt-in password and pre-enrolled WebAuthn key, with user verification required |
 
 All profiles select Argon2, reject a password equal to the whole username or email, and use `passwordBlacklist(firefly-baseline.txt)`. Spaces and passphrases are supported. There is no arbitrary digit/uppercase/symbol recipe or scheduled expiry in the base policy. `notUsername` and `notEmail` compare the whole value case-insensitively, rather than excluding every substring. Enforce the maximum at the server without truncating input.
 
@@ -17,7 +17,7 @@ The exact policy IDs are `length`, `maxLength`, `notUsername`, `notEmail`, `pass
 
 Workforce uses `firefly-workforce-browser`: an eligible existing SSO session can be reused; fresh authentication requires both password and OTP. A user without OTP must enroll before the application receives an authorization code. TOTP uses HmacSHA1, six digits, a 30-second period, a one-step validation window and nonreusable codes. TOTP is not phishing resistant. Configure [passkeys/security keys](extended-flows.md#configure-passkeys) and stronger step-up separately where required.
 
-The administrator catalogue entry records MFA intent; it does not create a permanent MFA flow or enroll administrators. Follow [workforce and administration](workforce-administration.md) to establish named privileged access and remove bootstrap administration.
+The administrator catalogue alone does not install a factor flow or enroll a key. The opt-in privileged profile adds a guarded WebAuthn execution that refuses missing keys instead of offering registration during privileged sign-in. Prepare and review the candidate configuration, supervise enrollment, and qualify it on the deployed Keycloak version before activation. Follow [workforce and administration](workforce-administration.md) for named privileged access, separate emergency custody and removal of bootstrap administration.
 
 ## Sessions and token lifetime
 

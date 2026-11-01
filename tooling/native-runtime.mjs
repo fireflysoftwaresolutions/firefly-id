@@ -9,6 +9,7 @@ import { totpCode } from './extended-runtime.mjs';
 import { reportFailure } from './safe-errors.mjs';
 import { assertIdentityArtworkReady } from './identity-artwork.mjs';
 import { persistNativeFactor } from './native-factor-fixture.mjs';
+import { qualifyPrivilegedAdministration } from './privileged-runtime.mjs';
 
 const directory = resolve(process.env.FIREFLY_NATIVE_STATE || '');
 assert.ok(process.env.GITHUB_ACTIONS === 'true' && directory.includes('/.state/native-'), 'Owned hosted native state required');
@@ -22,6 +23,7 @@ const results = [];
 const failedGates = [];
 const accountEvidence = {};
 const expiryEvidence = [];
+let privilegedEvidence;
 const sessionEvidence = {};
 const factors = new Map();
 const privateProofs = new Map();
@@ -915,7 +917,11 @@ try {
     assert.equal(tombstone.core[0].state, 'CONSUMED');
     passed(`${profile.kind}-explicit-fixture-user-deletion-preserves-native-tombstone-and-core-evidence`);
   }
+  if (!authorityExpiry) privilegedEvidence = await qualifyPrivilegedAdministration({
+    browser, origin, callback, request, adminToken, pending, passed, stage,
+  });
   await writeFile(`${output}/summary.json`, JSON.stringify({ status: failedGates.length ? 'FAILED' : 'PASSED', passed: results,
+    privilegedEvidence,
     failures: failedGates, expiryEvidence, accountInventory: accountEvidence, sessionEvidence, pinProtection: lastPinProtection,
     ...(failedGates.length ? { pinGuards: pinDiagnostics() } : {}),
     pending: [...(transportFaults ? [] : ['true simultaneous native execution requests', 'post-commit network response-loss injection', 'natural server ceremony expiry and swapped private attestation references']),
@@ -930,8 +936,8 @@ try {
   const allowedNetworkCodes = new Set(['ECONNRESET', 'ECONNREFUSED', 'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT',
     'CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'ERR_TLS_CERT_ALTNAME_INVALID']);
   const frames = String(error?.stack || '').split('\n').flatMap(line => {
-    const match = line.match(/tooling\/native-runtime\.mjs:(\d+):(\d+)/);
-    return match ? [`native-runtime.mjs:${match[1]}:${match[2]}`] : [];
+    const match = line.match(/tooling\/(native-runtime|privileged-runtime)\.mjs:(\d+):(\d+)/);
+    return match ? [`${match[1]}.mjs:${match[2]}:${match[3]}`] : [];
   }).slice(0, 6);
   let inventory = {};
   let counters = {};
@@ -965,6 +971,7 @@ try {
     } catch { inventory = {}; }
   }
   await writeFile(`${output}/summary.json`, JSON.stringify({ status: 'FAILED', passed: results, failures: failedGates, lastCompleted: phase,
+    privilegedEvidence,
     currentStage, errorKind: allowedNames.has(error?.name) ? error.name : 'Error', sourceFrames: frames,
     networkCauseCode: allowedNetworkCodes.has(error?.cause?.code) ? error.cause.code : 'unclassified',
     lastHttpStatus, lastNativeSubmission, inventory, lastAccountInventory, accountInventory: accountEvidence, sessionEvidence,

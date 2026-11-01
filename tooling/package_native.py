@@ -15,6 +15,7 @@ REQUIRED = {
         "META-INF/services/org.keycloak.connections.jpa.entityprovider.JpaEntityProviderFactory",
         "META-INF/services/org.keycloak.services.managers.BruteForceProtectorFactory",
         "META-INF/services/org.keycloak.events.EventListenerProviderFactory",
+        "META-INF/services/org.keycloak.authentication.AuthenticatorFactory",
         "META-INF/firefly-native-recovery.xml",
         "META-INF/firefly-reproofing.xml",
         "META-INF/orm.xml",
@@ -29,6 +30,8 @@ REQUIRED = {
 
 def inspect(path: Path, module: str) -> dict:
     with zipfile.ZipFile(path) as archive:
+        if "META-INF/services/io.firefly.id.nativeauth.NativeSupportAuthorization$Factory" in archive.namelist():
+            raise ValueError("The default distribution must not activate a support authorization owner")
         for name in REQUIRED[module]:
             if not archive.read(name):
                 raise ValueError(f"Empty required resource: {name}")

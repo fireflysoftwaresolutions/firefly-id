@@ -3,9 +3,9 @@ name: Native extension qualification
 on:
   workflow_dispatch:
   push:
-    paths: ['extensions/**', 'themes/**', 'assets/**', 'deploy/Containerfile.native', 'deploy/images.lock.json', 'config/password-blacklist.txt', 'tooling/build_theme.py', 'tooling/summarize_native_build.py', 'tooling/package_native.py', '.github/workflows/native-source-qualification.yml']
+    paths: ['extensions/**', 'themes/**', 'assets/**', 'deploy/Containerfile.native', 'deploy/images.lock.json', 'config/password-blacklist.txt', 'tooling/build_theme.py', 'tooling/summarize_native_build.py', 'tooling/package_native.py', 'tooling/support_storage_qualification.py', 'tests/test_native_packaging.py', 'tests/test_support_storage_qualification.py', '.github/workflows/native-source-qualification.yml']
   pull_request:
-    paths: ['extensions/**', 'themes/**', 'assets/**', 'deploy/Containerfile.native', 'deploy/images.lock.json', 'config/password-blacklist.txt', 'tooling/build_theme.py', 'tooling/summarize_native_build.py', 'tooling/package_native.py', '.github/workflows/native-source-qualification.yml']
+    paths: ['extensions/**', 'themes/**', 'assets/**', 'deploy/Containerfile.native', 'deploy/images.lock.json', 'config/password-blacklist.txt', 'tooling/build_theme.py', 'tooling/summarize_native_build.py', 'tooling/package_native.py', 'tooling/support_storage_qualification.py', 'tests/test_native_packaging.py', 'tests/test_support_storage_qualification.py', '.github/workflows/native-source-qualification.yml']
 
 permissions:
   contents: read
@@ -162,6 +162,9 @@ jobs:
                       return response.status==200 and json.loads(response.read(16384))['status']=='UP'
               phase='READINESS'
               ready(healthy,120)
+              phase='SUPPORT_STORAGE'
+              from tooling.support_storage_qualification import qualify
+              summary['support_storage']=qualify(db,label,run)
               summary.update(result='passed',default_command_started=True,packaged_artifacts_verified=True,native_image_ready=True)
           except Exception as error:
               summary['failed_phase']=phase

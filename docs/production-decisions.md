@@ -81,7 +81,7 @@ These choices are not an assertion that every option provides the assurance need
 
 For workforce, choose local authentication or a corporate credential owner. The supplied workforce flow requires password/TOTP on fresh authentication and can reuse eligible SSO. It is not a phishing-resistant privileged flow. Decide which workforce actions require stronger factors or fresh step-up, and prove that the selected application checks enforce them.
 
-For administrators, configure named least-privileged identities, phishing-resistant MFA and private access. Choose the emergency procedure and its independent approval/custody requirements. A separate emergency account can reduce dependency on the ordinary administrator's factors but adds credential custody, monitoring and periodic exercise obligations. The catalogue's MFA intent does not create or enroll this flow.
+The selected administrator baseline is named least-privileged accounts with a password and a pre-enrolled FIDO2/WebAuthn key with user verification required, through private access. Emergency access uses separate named accounts with the same factor requirement and independent custody. The institution still selects physical keys, attestation requirements, custodians and supervised enrollment/replacement procedures. A separate emergency account can reduce dependency on the ordinary administrator's factors but adds credential custody, monitoring and periodic exercise obligations. Preparing a configuration does not enroll hardware or activate this profile on real accounts.
 
 **Conservative default:** keep public administration closed and deny privileged actions without the approved factor and current role. Do not retain bootstrap access as the emergency procedure. Establish and verify permanent and emergency access before removing temporary bootstrap accounts and secret injection.
 
@@ -212,15 +212,17 @@ Offline validation improves independence from the issuer but permits an already 
 
 ## Support and BPO mandate
 
-**Owner:** support/business authorization and outsourcing management, with workforce security, privacy and the customer-service owner.
+**Owner to appoint:** the service accountable for support cases and current authorizations, with outsourcing management, workforce security, privacy and the customer-service owner. The owner has not yet been selected.
 
 **Inputs:** genuine staff/BPO operator, employer and current employment/delegation, customer, tenant, real case/call, purpose, action/resource, expiry, approvals, independent possession evidence and a private customer input channel.
 
-Decide which actions support may perform and which require separate approval. Viewing information, changing account data and initiating a financial action are different permissions. In-house support and an outsourced BPO both need current authority; outsourcing adds provider personnel, revocation, contract and data-access responsibilities. An employee session or support PIN cannot establish that authority.
+The initial scope is consultation and support. Account changes, financial actions, impersonation and customer token handoff are outside that scope. Define the exact read operations and resources; a broad “support” role is not a permission model. In-house support and an outsourced BPO both need current authority; outsourcing adds provider personnel, revocation, contract and data-access responsibilities. An employee session or support PIN cannot establish that authority.
 
 **Conservative default:** telephone/BPO PIN verification remains unavailable. The customer PIN lifecycle exists, but no production support authorization owner or public verification HTTP endpoint is supplied. A decision record cannot activate this missing integration. Do not impersonate the customer or give operators customer refresh tokens.
 
-**Acceptance before enabling any future integration:** authenticate the actual operator and service, bind short-lived one-time authority to the exact case/customer/action and reject replay, expiry, wrong tenant/customer/action and revoked delegation. Preserve employee attribution at every hop and fulfill approvals before mutation. Prove that operators/recordings/logs cannot capture the PIN, and that PIN evidence does not clear locks or grant financial permission. See [support PIN](support-pin.md#integrating-a-future-support-channel).
+**Required decisions before activation:** name the case/authorization service and accountable team; define the consultation resources and tenant/delegation rules; select the private PIN input channel and independent possession evidence; assign audit custody and outage reconciliation.
+
+**Acceptance before enabling any future integration:** authenticate the actual operator and service, bind short-lived one-time authority to the exact case/customer/action and reject replay, expiry, wrong tenant/customer/action and revoked delegation. Preserve employee attribution at every hop and fulfill approvals before mutation. Prove that operators/recordings/logs cannot capture the PIN, and that PIN evidence does not clear locks or grant financial permission. See [support PIN](support-pin.md#native-evidence-boundary).
 
 ## Telemetry, privacy and retention
 

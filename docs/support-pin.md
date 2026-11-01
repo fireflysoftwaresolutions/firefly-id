@@ -2,7 +2,7 @@
 
 The support PIN is a separate eight-digit customer knowledge credential. Customers can view its status, create it, replace it or revoke it in Firefly Identity. Nobody can retrieve the stored PIN.
 
-The PIN is not an account password, card PIN, payment approval, possession factor, unlock permission or impersonation credential. Telephone and BPO verification are **not implemented**: the customer lifecycle is available, but no support platform currently provides the required verification authorization.
+The PIN is not an account password, card PIN, payment approval, possession factor, unlock permission or impersonation credential. Telephone and BPO verification are **not activated**. The customer lifecycle and native evidence boundary are available in source, but no support platform currently provides the required production authorization owner. The approved initial scope is consultation/support; the PIN does not grant authority for financial actions.
 
 ## Customer lifecycle
 
@@ -56,10 +56,40 @@ An authenticated, authorized Keycloak administrator may revoke a compromised PIN
 
 Administrative revocation records the actual administrator realm, subject, client and administrative event together with the native revocation. Missing attribution refuses the transaction. Login, recovery and verification budgets are preserved. Use private administrative ingress, named least-privileged identities, strong MFA and the institution's incident procedure.
 
-## Integrating a future support channel
+## Native evidence boundary
 
-`NativeSupportAuthorization.Factory` is the fail-closed extension point. There is no supplied production owner implementation or public PIN-verification HTTP endpoint.
+`NativeSupportAuthorization.Factory` is the fail-closed extension point. There is no supplied production owner implementation or public PIN-verification HTTP endpoint. Exactly one installed factory must explicitly qualify itself before a native caller can use the service. An implementation that returns a plausible grant without independently checking current authorization is not a valid owner.
+
+The contract binds these facts:
+
+| Binding | Native requirement |
+| --- | --- |
+| Target | Exact configured HTTPS customer issuer and realm, local enabled nonprivileged customer subject, tenant and customer link |
+| Staff | Separate HTTPS workforce issuer and actual staff subject; both issuers exclude user information, query strings and fragments |
+| Owner context | Nonblank nonce, genuine case reference and call reference |
+| Action and purpose | Exactly `VERIFY_SUPPORT_PIN` and `TELEPHONE_SUPPORT_KNOWLEDGE` |
+| Lifetime | Future expiry with at most 120 seconds remaining at admission; a recheck must preserve the exact original expiry |
+| Field bounds | Customer subject: 128 characters; action/purpose: 64; other string fields: 512. Blank, surrounding whitespace and control characters are refused |
+
+The native service reserves one of three per-generation check slots before checking the PIN. The database enforces a unique digest of the configured target realm ID, issuer and nonce. Changing the subject, tenant, case, staff identity or expiry cannot turn the same nonce into another attempt. A separate digest binds the complete exact grant. The service checks current owner authorization again outside database locks before it performs the reserved check.
+
+Proof state progresses from `RESERVED` to `REJECTED` or `VERIFIED`, then from `VERIFIED` to `CONSUMED` at most once. A bad PIN consumes its reservation and increments the failed-check counter. Three failed checks hold the PIN without a timer. An owner outage, changed authorization, unavailable pepper/hash provider or expired request leaves the reservation unavailable; it does not refund a slot or count as a bad PIN. Three pending reservations therefore also prevent admission. Authenticated PIN replacement creates a new generation; it does not revive evidence from the old generation.
+
+`NativeSupportPinServiceImpl.consume(signedSupportContext, reference)` is native-only. It reauthorizes the caller through the same owner before acquiring native locks, then locks the customer, state and proof in that order. It requires the exact original grant, current customer and credential eligibility, original PIN generation, credential and pepper-key version, unexpired proof, enabled account and absence of account/PIN holds. Expiry is checked after acquiring locks. Consumption and its audit record commit in the same native transaction; consumption does not issue a customer token or authorize any business operation.
+
+Each transition appends the proof reference, full-grant and nonce digests, actual staff issuer/subject, case/call, tenant/customer, action/purpose and PIN generation to the native audit journal. PostgreSQL's existing append-only audit trigger protects those records. PINs, signed contexts, raw tokens and provider payloads are not audit fields. Restrict access to the journal because its attribution still identifies people and cases.
+
+The additive migration preserves historical proof rows. New binding/status columns remain nullable for those retained rows; a legacy `verified` flag alone cannot make a proof consumable. Preserve the proof table and audit journal together. Never delete nonce records, reset attempt counters or create replacement authorization to resolve an uncertain result.
+
+If verification or consumption commits but its response is lost, the caller must reconcile the original reference with the owner and native journal. Repeating verification or consumption is refused, including a consumed reference. Receipt loss is an unknown result until reconciliation; it is not permission to ask for another PIN or mint a replacement nonce.
 
 A support integration must first establish a genuine case/call, actual employee or BPO operator, employer/delegation, target customer and tenant, permitted action, current approvals and independent possession evidence. It must authenticate the requesting service and bind those facts to a short-lived, one-time authorization with replay and revocation checks.
 
 Capture the PIN through an approved private customer input channel, not through an operator. The native verifier may return only an opaque knowledge-verification result. Every subsequent support or financial action still needs its own authorization. Caller ID, account history, a verified contact or a staff login cannot replace this owner integration. Until the channel, authorization service, recording suppression, consent and operating procedures exist, do not offer telephone or BPO verification.
+
+
+## Activation and acceptance
+
+The institution still needs to name the genuine case/authorization owner and protocol, establish tenant/delegation mappings and permitted consultation actions, approve private PIN collection with recording suppression, define independent possession evidence, and assign audit and incident custody. Support PIN evidence cannot be substituted for forgotten-password recovery, lost-authenticator recovery, payment approval or customer impersonation.
+
+Source regression tests cover grant constraints, altered-grant replay identity, reservation budgets, owner refusal/outage, one-time consumption, lock order, audit attribution, expiry and credential/hold invalidation. These tests and the additive migration require actual native compilation and PostgreSQL execution in owned hosted qualification. The native image workflow includes a hosted-only storage probe for cross-customer nonce contention, nullable legacy bindings, proof/audit rollback and append-only attribution on its fresh, empty PostgreSQL database. That probe does not exercise the native service or upgrade retained data. In particular, qualify concurrent same-nonce attempts across different customers, concurrent different-nonce budget exhaustion, consume races, rollback after audit failure, migration over retained legacy rows and response-loss reconciliation. Mocked transaction tests do not prove database uniqueness, atomic commit or concurrency behavior. Production activation remains blocked until the genuine owner and complete channel pass acceptance.

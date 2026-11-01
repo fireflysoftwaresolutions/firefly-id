@@ -68,6 +68,15 @@ final class NativeStoreImpl {
         audit.actorClientId = auditValue(actor.getClientId()); audit.adminEventId = auditValue(source.getId());
         em.persist(audit);
     }
+    void auditSupport(NativeSupportProof proof, String event) {
+        NativeAudit audit = auditRecord(proof.subject, event, proof.id);
+        audit.actorIssuer = auditValue(proof.staffIssuer); audit.actorSubject = auditValue(proof.staffSubject);
+        audit.supportGrantDigest = auditValue(proof.grantDigest); audit.supportNonceDigest = auditValue(proof.nonceDigest);
+        audit.supportCaseId = auditValue(proof.caseId); audit.supportCallId = auditValue(proof.callId);
+        audit.supportTenant = auditValue(proof.tenant); audit.supportCustomerLink = auditValue(proof.customerLink);
+        audit.supportAction = auditValue(proof.permittedAction); audit.supportPurpose = auditValue(proof.purpose);
+        audit.supportPinGeneration = auditValue(proof.pinGeneration); em.persist(audit);
+    }
     static String auditValue(String value) { require(value != null && !value.isBlank() && value.length() <= 1024); return value; }
     private NativeAudit auditRecord(String subject, String event, String reference) {
         NativeAudit audit = new NativeAudit(); audit.id = UUID.randomUUID().toString(); audit.realmId = session.getContext().getRealm().getId();
