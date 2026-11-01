@@ -64,6 +64,44 @@ class StartupDiagnosticsTest(unittest.TestCase):
         self.assertEqual([], result['exception_classes'])
         self.assertNotIn('DO-NOT-PRINT', json.dumps(result))
 
+    def test_trusted_source_frames_keep_only_allowlisted_filenames_and_line_numbers(self):
+        result = self.module.classify('java.lang.NullPointerException: DO-NOT-PRINT private value\n'
+            '\tat org.keycloak.services.resources.admin.AdminConsole.secretMethod(AdminConsole.java:353)\n'
+            '\tat org.keycloak.theme.DefaultThemeManager.lambda$secret$0(DefaultThemeManager.java:72)\n')
+        self.assertIn('trusted_source_frames', result)
+        self.assertEqual(['AdminConsole.java:353', 'DefaultThemeManager.java:72'], result['trusted_source_frames'])
+        self.assertEqual(['UNKNOWN_STARTUP_FAILURE'], result['causes'])
+        for private in ('DO-NOT-PRINT', 'secretMethod', 'lambda$', 'org.keycloak'):
+            self.assertNotIn(private, json.dumps(result))
+
+    def test_untrusted_or_malformed_source_frames_are_never_published(self):
+        frames = [
+            'at evil.org.keycloak.services.AdminConsole.get(AdminConsole.java:1)',
+            'at org.keycloakx.services.AdminConsole.get(AdminConsole.java:1)',
+            'at org.other.AdminConsole.get(AdminConsole.java:1)',
+            'at org.keycloak.services.Private.get(DO-NOT-PRINT.java:1)',
+            'at org.keycloak.services.AdminConsole.get(/private/AdminConsole.java:1)',
+            'at org.keycloak.services.AdminConsole.get(AdminConsole.java:0)',
+            'at org.keycloak.services.AdminConsole.get(AdminConsole.java:1000000)',
+            'at org.keycloak.services.AdminConsole.get(AdminConsole.java:1-DO-NOT-PRINT)',
+            'at org.keycloak.services.AdminConsole.get(AdminConsole.java:123) DO-NOT-PRINT',
+            'at org.keycloak.services.AdminConsole.get(Unknown Source)',
+            'message containing at org.keycloak.services.AdminConsole.get(AdminConsole.java:1)',
+        ]
+        result = self.module.classify('\n'.join(frames))
+        self.assertIn('trusted_source_frames', result)
+        self.assertEqual([], result['trusted_source_frames'])
+        self.assertNotIn('DO-NOT-PRINT', json.dumps(result))
+
+    def test_trusted_source_frames_preserve_order_deduplicate_and_stop_after_eight(self):
+        frames = ['\tat org.keycloak.services.AdminConsole.get(AdminConsole.java:1)'] * 2
+        frames += [f'\tat org.keycloak.services.AdminConsole.get(AdminConsole.java:{number})' for number in range(2, 12)]
+        result = self.module.classify('\n'.join(frames))
+        self.assertIn('trusted_source_frames', result)
+        self.assertEqual(['AdminConsole.java:1', 'AdminConsole.java:2', 'AdminConsole.java:3', 'AdminConsole.java:4',
+                          'AdminConsole.java:5', 'AdminConsole.java:6', 'AdminConsole.java:7', 'AdminConsole.java:8'],
+                         result['trusted_source_frames'])
+
     def test_cli_stage_messages_do_not_pretend_to_identify_the_underlying_cause(self):
         result = self.module.classify("ERROR: Failed to run 'start' command.\n"
             'ERROR: Failed to start server in (production) mode\n'

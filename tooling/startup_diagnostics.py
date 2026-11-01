@@ -29,6 +29,11 @@ THEME_EXCEPTIONS = {
     'freemarker.template.TemplateModelException': 'TemplateModelException',
     'freemarker.core.ParseException': 'ParseException',
 }
+SOURCE_FILES = {
+    'AdminConsole.java', 'DefaultThemeManager.java', 'DefaultThemeSelectorProvider.java',
+    'DefaultFreeMarkerProvider.java', 'FreeMarkerLoginFormsProvider.java', 'HostnameV2Provider.java',
+    'ModelToRepresentation.java', 'RepresentationToModel.java', 'RealmManager.java', 'Urls.java',
+}
 STATES = {'created', 'running', 'paused', 'restarting', 'removing', 'exited', 'dead'}
 # Pinned Keycloak 26.8.1 Main/Build/Messages and CLI exception handlers emit these literals.
 CLI_MESSAGES = {
@@ -88,6 +93,17 @@ def capture(command, limit=65536, timeout=10):
 
 
 def classify(logs):
+    source_pattern = (r'^[ \t]*at org\.keycloak\.(?:[A-Za-z_$][A-Za-z0-9_$]*\.)+'
+                      r'(?:[A-Za-z_$][A-Za-z0-9_$]*|<init>|<clinit>)\(('
+                      + '|'.join(re.escape(name) for name in sorted(SOURCE_FILES))
+                      + r'):([1-9][0-9]{0,5})\)[ \t]*$')
+    frames = []
+    for match in re.finditer(source_pattern, logs, re.MULTILINE):
+        frame = f'{match[1]}:{match[2]}'
+        if frame not in frames:
+            frames.append(frame)
+            if len(frames) == 8:
+                break
     pattern = r'(?<![\w$])(?:[\w$]+\.)*(' + '|'.join(sorted(EXCEPTIONS)) + r')(?![\w$])'
     observed = set(re.findall(pattern, logs))
     for qualified, simple in THEME_EXCEPTIONS.items():
@@ -121,14 +137,15 @@ def classify(logs):
                 causes.add(cause)
     if not causes:
         causes.add('UNKNOWN_STARTUP_FAILURE' if logs.strip() else 'EMPTY_LOG_WINDOW')
-    return {'causes': sorted(causes), 'exception_classes': classes, 'cli_markers': sorted(markers)}
+    return {'causes': sorted(causes), 'exception_classes': classes, 'cli_markers': sorted(markers),
+            'trusted_source_frames': frames}
 
 
 def report(source):
     return {'schema_version': 1, 'scope': 'Owned synthetic Keycloak error observations only',
             'source': source if isinstance(source, str) and re.fullmatch('[0-9a-f]{40}', source) else None,
             'collection_status': 'UNAVAILABLE', 'causes': [], 'exception_classes': [], 'cli_markers': [],
-            'process': None, 'log_truncated': False}
+            'trusted_source_frames': [], 'process': None, 'log_truncated': False}
 
 
 def collect(state, source):
