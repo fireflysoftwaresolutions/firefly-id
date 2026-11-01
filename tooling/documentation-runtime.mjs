@@ -54,6 +54,7 @@ try {
           brokenImages: [...document.images].filter(img => !img.complete || img.naturalWidth === 0).length,
           linkColor: link ? getComputedStyle(link).color : null,
           activeLinkColor: active ? getComputedStyle(active).color : null,
+          repeatedHeaderTitles: [...document.querySelectorAll('.md-header__title .md-header__topic')].filter(title => title.getClientRects().length > 0).length,
         }; });
         summary.lastObservation = { route, width, mode, ...measured };
         assert.match(measured.font, /Manrope/); assert.ok(measured.fontLoaded);
@@ -63,6 +64,7 @@ try {
         if (measured.linkColor) assert.equal(measured.linkColor, linkColor, 'Body links drifted from the canonical Firefly palette');
         if (measured.activeLinkColor) assert.equal(measured.activeLinkColor, linkColor, 'Active navigation drifted from the canonical Firefly palette');
         assert.equal(measured.brokenImages, 0);
+        assert.equal(measured.repeatedHeaderTitles, 0, 'The masthead repeats the identity already present in the logo');
         assert.ok(await page.locator('.md-header__button.md-logo').isVisible(), 'Product branding is missing from the masthead');
         if (route) assert.ok(await page.locator('.md-path').isVisible(), 'Inner page has no breadcrumb trail');
         assert.match(measured.footer, /Firefly Software Foundation Inc\./); assert.match(measured.footer, /Keycloak/);
