@@ -120,9 +120,10 @@ async function submit(page) {
 async function translated(page, language) {
   const select = page.locator('#login-select-toggle');
   assert.equal(await select.count(), 1, 'Actual quiet native locale footer required');
-  const options = await select.locator('option').evaluateAll(items => items.map(option => ({ value: option.value, language: new URL(option.value).searchParams.get('kc_locale') })));
+  const options = await select.locator('option').evaluateAll(items => items.map(option => ({ value: option.value, language: new URL(option.value, location.href).searchParams.get('kc_locale') })));
   const option = options.find(item => item.language === language); assert.ok(option);
-  await select.selectOption(option.value);
+  const [navigated] = await Promise.all([page.waitForNavigation({ waitUntil: "domcontentloaded" }), select.selectOption(option.value)]);
+  assert.equal(navigated.status(), 200);
   await page.locator('.ffid-native-journey').waitFor();
   assert.ok((await page.locator('html').getAttribute('lang')).startsWith(language));
 }
