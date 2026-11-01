@@ -368,6 +368,7 @@ def snapshot():
     directory, owner = state()
     credentials = json.loads((directory / 'credentials.json').read_text())
     changed = str(uuid.UUID(credentials['profiles'][0]['changed']['id']))
+    person = str(uuid.UUID(credentials['profiles'][0]['person']['id']))
     native = owned.psql(directory, owner, """SELECT json_build_object(
       'executions',(SELECT count(*) FROM ff_reproofing_execution),
       'recordedExecutions',(SELECT count(*) FROM ff_reproofing_execution WHERE recorded=true),
@@ -376,7 +377,9 @@ def snapshot():
       'epochs',(SELECT coalesce(json_agg(json_build_object('subject',subject,'epoch',epoch,'failures',failures)),'[]'::json) FROM ff_reproofing_state),
       'liveGrantSeconds',(SELECT coalesce(max(greatest(0,extract(epoch from (cast(authorization_json as jsonb)->>'expiresAt')::timestamptz-clock_timestamp()))),0) FROM ff_reproofing_ceremony WHERE authorization_json IS NOT NULL AND stage='ENROLL'),
       'changedLegacyStates',(SELECT count(*) FROM ff_native_state WHERE subject='""" + changed + """'),
-      'changedInvalidationAudits',(SELECT count(*) FROM ff_native_audit WHERE subject='""" + changed + """' AND event_type LIKE 'REPROOFING_%')
+      'changedInvalidationAudits',(SELECT count(*) FROM ff_native_audit WHERE subject='""" + changed + """' AND event_type LIKE 'REPROOFING_%'),
+      'pinStored',(SELECT count(*) FROM credential WHERE user_id='""" + person + """' AND type='firefly-support-pin'),
+      'pinAuthority',(SELECT json_build_object('credentialPresent',pin_credential_id IS NOT NULL,'generation',pin_generation,'held',pin_held,'failures',pin_failures,'reserved',pin_reserved,'revoked',pin_revoked_at>0) FROM ff_native_state WHERE subject='""" + person + """')
     );""", 'native_kc')
     core = owned.psql(directory, owner, """SELECT json_build_object(
       'cases',(SELECT coalesce(json_agg(json_build_object('status',status,'failures',failures) ORDER BY case_id),'[]'::json) FROM identity_reproofing_case),

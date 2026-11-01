@@ -184,6 +184,16 @@ async function providerResult(journey, mode) {
   assert.ok(response.ok, 'Owned proofing fixture control unavailable');
 }
 async function enrollment(journey, mode = 'APPROVED') {
+  const popupOpened = journey.context.waitForEvent('page');
+  await journey.page.locator('#ffid-lost-provider').click();
+  const popup = await popupOpened;
+  await popup.waitForLoadState('domcontentloaded');
+  assert.equal(new URL(popup.url()).origin, profile.domain);
+  assert.equal(await popup.evaluate(() => window.opener === null), true, 'External provider must not control the native tab');
+  await popup.close();
+  assert.equal(journey.page.url(), root, 'The original strict-cookie native tab must remain open');
+  const cookie = (await journey.context.cookies([root])).find(value => value.name === 'FF_REPROOFING');
+  assert.ok(cookie && cookie.httpOnly && cookie.secure && cookie.sameSite === 'Strict');
   await providerResult(journey, mode);
   await submit(journey.page);
   assert.equal(await nativeStage(journey.page), 'ENROLL', 'Independently approved exact proofing case must permit enrollment');
@@ -233,6 +243,27 @@ async function csrfControls() {
   await context.close(); passed('native-real-cookie-csrf-and-null-or-foreign-origin-refused');
 }
 
+async function seedSupportPin(context, oldSecret) {
+  const page = await context.newPage();
+  await page.goto(`${profile.issuer}/firefly-recovery/support-pin/set?kc_locale=en`);
+  await page.locator('#ffid-support-pin').waitFor();
+  await page.locator('#password').fill(profile.person.password);
+  await page.locator('#otp').fill(await code(profile.person, oldSecret));
+  let pin;
+  do { pin = [...randomBytes(8)].map(value => String(value % 10)).join(''); }
+  while (/^(\d)\1{7}$/.test(pin) || pin.slice(0, 4) === pin.slice(4) || pin.slice(0, 2).repeat(4) === pin
+    || '01234567890123456789'.includes(pin) || '98765432109876543210'.includes(pin));
+  await page.locator('#pin').fill(pin); await page.locator('#pinConfirm').fill(pin);
+  const posted = page.waitForResponse(response => response.request().method() === 'POST' && response.url() === `${profile.issuer}/firefly-recovery/support-pin`);
+  const landed = page.waitForNavigation({ waitUntil: 'domcontentloaded' });
+  await page.locator('#ffid-pin-save').click();
+  assert.equal((await posted).status(), 303); await landed;
+  await page.locator('#ffid-support-pin').waitFor({ state: 'detached' });
+  const state = fixture('snapshot').native;
+  assert.equal(state.pinStored, 1); assert.equal(state.pinAuthority.credentialPresent, true); assert.equal(state.pinAuthority.held, false);
+  await page.close(); return state.pinAuthority;
+}
+
 try {
   callbackServer = createServer({ key: await readFile(`${directory}/tls/proxy.key`), cert: await readFile(`${directory}/tls/server.crt`) }, (incoming, response) => {
     const url = new URL(incoming.url, callback);
@@ -268,6 +299,9 @@ try {
   assert.equal(onlineSessions.status, 200); assert.ok((await onlineSessions.json()).length > 0);
   assert.equal(offlineSessions.status, 200); assert.ok((await offlineSessions.json()).length > 0);
   passed('real-previous-password-enrolled-totp-and-online-offline-refreshes-positive');
+  phase = 'real-support-pin-before-credential-loss';
+  const previousPin = await seedSupportPin(onlineContext, oldSecret);
+  passed('real-customer-support-pin-created-with-password-and-enrolled-totp-before-recovery');
   phase = 'generic-unknown-and-administrative-hold';
   for (const username of ['unknown-owned-subject', profile.manual.username]) {
     const journey = await startRecovery(username);
@@ -314,6 +348,8 @@ try {
   await capture(recovery.page, 'enrollment-es-empty-form', { enrollment: true });
   await translated(recovery.page, 'en'); await capture(recovery.page, 'enrollment-en-empty-form', { enrollment: true });
   const newPassword = randomBytes(30).toString('base64url') + 'aA9!';
+  const currentOnline = await refresh(initial.tokens.refresh_token); assert.equal(currentOnline.status, 200); initial.tokens.refresh_token = currentOnline.refreshToken;
+  const currentOffline = await refresh(offline.tokens.refresh_token); assert.equal(currentOffline.status, 200); offline.tokens.refresh_token = currentOffline.refreshToken;
   fixture('arm-record-loss');
   const enrollmentCode = await replace(recovery, profile.person, newSecret, newPassword);
   assert.equal(fixture('fault-status').recordResponseDropped, true, 'Actual committed Domain/Core response loss required');
@@ -321,6 +357,11 @@ try {
   assert.equal((await currentUser(profile.person)).enabled, true);
   const sessions = await admin(`users/${profile.person.id}/sessions`); assert.equal(sessions.status, 200); assert.equal((await sessions.json()).length, 0);
   const retiredOffline = await admin(offlinePath); assert.equal(retiredOffline.status, 200); assert.equal((await retiredOffline.json()).length, 0);
+  const retiredPin = fixture('snapshot').native;
+  assert.equal(retiredPin.pinStored, 0); assert.equal(retiredPin.pinAuthority.credentialPresent, false); assert.equal(retiredPin.pinAuthority.held, true);
+  assert.equal(retiredPin.pinAuthority.revoked, true); assert.notEqual(retiredPin.pinAuthority.generation, previousPin.generation);
+  assert.equal(retiredPin.pinAuthority.failures, previousPin.failures); assert.equal(retiredPin.pinAuthority.reserved, previousPin.reserved);
+  passed('credential-replacement-retires-real-support-pin-and-preserves-its-existing-budgets');
   passed('enabled-user-replaces-credentials-without-old-password-and-retires-preexisting-sessions');
   phase = 'superseded-credentials-refused';
   const enrollmentReplayContext = await browser.newContext();
@@ -344,17 +385,27 @@ try {
   await capture(recovery.page, 'replacement-en-complete');
   await translated(recovery.page, 'es'); await capture(recovery.page, 'replacement-es-complete');
   phase = 'native-notification-dispatch';
+  diagnostics.notificationPhase = 'stop-owned-transport';
   fixture('mail-stop');
+  diagnostics.notificationPhase = 'dispatch-unavailable-transport';
   const failedDelivery = await jsonPost(`${root}/rpc/dispatch`, {}, basic('reproofing-core-owner', secrets['core-native']));
+  diagnostics.notificationHttpStatus = failedDelivery.status;
   assert.equal(failedDelivery.status, 200); assert.ok((await failedDelivery.json()).processed >= 1);
   const pendingDelivery = fixture('snapshot').native.notifications;
+  diagnostics.notificationStates = pendingDelivery;
   assert.ok(pendingDelivery.some(value => value.status === 'PENDING' && value.attempts === 1), 'SMTP failure must retain a durable pending delivery');
   fixture('mail-start');
+  diagnostics.notificationPhase = 'durable-backoff';
   await delay(61000);
+  diagnostics.notificationPhase = 'dispatch-restored-transport';
   const dispatched = await jsonPost(`${root}/rpc/dispatch`, {}, basic('reproofing-core-owner', secrets['core-native']));
+  diagnostics.notificationHttpStatus = dispatched.status;
+  diagnostics.notificationStates = fixture('snapshot').native.notifications;
   assert.equal(dispatched.status, 200); assert.ok((await dispatched.json()).processed >= 1);
   const messages = await request('http://127.0.0.1:8025/api/v1/messages'); assert.equal(messages.status, 200);
   const mail = await messages.json();
+  diagnostics.notificationPhase = 'confirm-previous-verified-destination';
+  diagnostics.notificationMessageCount = mail.messages.length;
   assert.ok(mail.messages.some(message => message.To?.some(to => to.Address === profile.person.email)), 'Actual replacement notice must reach previous verified destination');
   assert.ok(fixture('snapshot').native.notifications.some(value => value.status === 'DELIVERED' && value.attempts >= 2));
   passed('notification-transport-failure-retains-outbox-and-retries-without-new-recovery');
