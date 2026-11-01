@@ -63,7 +63,7 @@ export function measureDiagram(mode) {
     }
     return result;
   };
-  const context = document.createElement('canvas').getContext('2d');
+  const context = document.createElementNS('http://www.w3.org/1999/xhtml', 'canvas').getContext('2d');
   const paintedRun = element => {
     const style = getComputedStyle(element);
     const area = bounds(element);

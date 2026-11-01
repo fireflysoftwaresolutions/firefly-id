@@ -23,9 +23,9 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class NativeIssuedReservationTest {
-    @Test void anotherReservationCannotReuseAnIssuedChallengeBeforeAnyAttemptOrVerification() {
-        var fixture = new Fixture();
-        assertThrows(NativeRefusal.class, () -> fixture.attest(UUID.randomUUID()));
+    @Test void anotherCeremonyCannotReuseAnIssuedChallengeBeforeAnyAttemptOrVerification() {
+        var fixture = new Fixture(); fixture.issued.ceremonyId = "another-ceremony";
+        assertThrows(NativeRefusal.class, () -> fixture.attest(fixture.verificationReservation));
         assertEquals(0, fixture.state.knowledgeAttempts); assertEquals(0, fixture.state.possessionAttempts);
         verify(fixture.em, never()).persist(any());
         verifyNoInteractions(fixture.hash);
@@ -33,17 +33,19 @@ class NativeIssuedReservationTest {
 
     @Test void previousCeremonyCannotConsumeAttemptsFromANewerLockGeneration() {
         var fixture = new Fixture(); fixture.state.generation = "next-generation";
-        assertThrows(NativeRefusal.class, () -> fixture.attest(fixture.reservation));
+        assertThrows(NativeRefusal.class, () -> fixture.attest(fixture.verificationReservation));
         assertEquals(0, fixture.state.knowledgeAttempts); assertEquals(0, fixture.state.possessionAttempts);
         verify(fixture.em, never()).persist(any());
         verifyNoInteractions(fixture.hash);
     }
 
-    @Test void matchingIssuedReservationVerifiesAndPersistsItsExactBindingOnce() {
+    @Test void separateVerificationReservationVerifiesAndPersistsItsExactBindingOnce() {
         var fixture = new Fixture();
-        String result = fixture.attest(fixture.reservation);
+        assertNotEquals(fixture.issueReservation, fixture.verificationReservation);
+        String result = fixture.attest(fixture.verificationReservation);
         assertNotNull(result); assertEquals(fixture.proof.id, result);
-        assertEquals(fixture.reservation.toString(), fixture.proof.reservationId);
+        assertEquals(fixture.verificationReservation.toString(), fixture.proof.reservationId);
+        assertEquals(fixture.issueReservation.toString(), fixture.issued.reservationId);
         assertEquals(fixture.issued.id, fixture.proof.providerChallengeId);
         assertTrue(fixture.proof.completed); assertTrue(fixture.proof.verified);
         assertEquals(1, fixture.state.knowledgeAttempts); assertEquals(0, fixture.state.possessionAttempts);
@@ -59,7 +61,7 @@ class NativeIssuedReservationTest {
         final NativeState state = new NativeState();
         final NativeCeremony ceremony = new NativeCeremony();
         final NativeIssuedChallenge issued = new NativeIssuedChallenge();
-        final UUID operation = UUID.randomUUID(), challenge = UUID.randomUUID(), reservation = UUID.randomUUID();
+        final UUID operation = UUID.randomUUID(), challenge = UUID.randomUUID(), issueReservation = UUID.randomUUID(), verificationReservation = UUID.randomUUID();
         NativeAttestation proof;
 
         @SuppressWarnings("unchecked") Fixture() {
@@ -102,7 +104,7 @@ class NativeIssuedReservationTest {
                     "subject", "https://id.test/realms/customers", "customers", "subject", "HUMAN", PURPOSE, state.generation));
             when(em.find(NativeCeremony.class, ceremony.id, LockModeType.PESSIMISTIC_WRITE)).thenReturn(ceremony);
             issued.id = "provider-challenge"; issued.ceremonyId = ceremony.id; issued.operationId = ceremony.operationId;
-            issued.reservationId = reservation.toString(); issued.category = "KNOWLEDGE"; issued.credentialId = "credential"; issued.expiresAt = ceremony.expiresAt;
+            issued.reservationId = issueReservation.toString(); issued.category = "KNOWLEDGE"; issued.credentialId = "credential"; issued.expiresAt = ceremony.expiresAt;
             when(em.find(NativeIssuedChallenge.class, issued.id)).thenReturn(issued);
             var existing = mock(TypedQuery.class, RETURNS_SELF); when(em.createQuery(anyString(), eq(NativeAttestation.class))).thenReturn(existing);
             when(existing.getResultList()).thenReturn(List.of());

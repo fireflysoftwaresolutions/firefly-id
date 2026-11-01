@@ -20,9 +20,10 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname === '/') { res.setHeader('Content-Type', 'text/html'); res.end('<!doctype html><html lang="en"><head><meta charset="utf-8"></head><body></body></html>'); return; }
-    if (/^\/diagrams\/[a-f0-9]{24}-(light|dark)\.svg$/.test(url.pathname)) {
+    if (/^\/diagrams\/[a-f0-9]{24}-(light|dark)\.svg$/.test(url.pathname) || url.pathname === '/diagrams/measurement-regression.svg') {
       res.setHeader('Content-Type', 'image/svg+xml');
-      res.end(await readFile(resolve(output, url.pathname.split('/').at(-1)))); return;
+      const directory = url.pathname === '/diagrams/measurement-regression.svg' ? captures : output;
+      res.end(await readFile(resolve(directory, url.pathname.split('/').at(-1)))); return;
     }
     if (!url.pathname.startsWith('/mermaid/')) { res.writeHead(404); res.end(); return; }
     const file = resolve(vendor, decodeURIComponent(url.pathname.slice('/mermaid/'.length)));
@@ -53,18 +54,19 @@ try {
     window.diagramEngine = (await import(base + '/mermaid/mermaid.esm.min.mjs')).default;
   }, origin);
   assert.equal(await page.evaluate(() => document.fonts.check('16px Manrope')), true);
-  await page.evaluate(() => {
-    document.body.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="180" viewBox="0 0 300 180">' +
-      '<style>text{font-family:Manrope;font-size:16px;fill:#fff}text>tspan{fill:#272820}</style>' +
-      '<rect width="300" height="180" fill="#fff"/>' +
-      '<text x="100" y="50" dominant-baseline="central"><tspan dy="-8">Customer</tspan></text>' +
-      '<text x="100" y="50" dominant-baseline="central"><tspan dy="8">Domain</tspan></text></svg>';
-  });
-  const separated = inspectDiagram(await page.evaluate(measureDiagram, 'light'));
-  await page.evaluate(() => document.querySelectorAll('tspan')[1].setAttribute('dy', '-8'));
-  const overlapping = inspectDiagram(await page.evaluate(measureDiagram, 'light'));
-  await page.evaluate(() => { document.querySelector('tspan').style.fill = '#fff'; });
-  const invisible = inspectDiagram(await page.evaluate(measureDiagram, 'light'));
+  const fixture = '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="180" viewBox="0 0 300 180">' +
+    `<style>@font-face{font-family:Manrope;font-weight:200 800;src:url('${fontUri}')}text{font-family:Manrope;font-size:16px;fill:#fff}text>tspan{fill:#272820}</style>` +
+    '<rect width="300" height="180" fill="#fff"/>' +
+    '<text x="100" y="50" dominant-baseline="central"><tspan dy="-8">Customer</tspan></text>' +
+    '<text x="100" y="50" dominant-baseline="central"><tspan dy="8">Domain</tspan></text></svg>';
+  await writeFile(resolve(captures, 'measurement-regression.svg'), fixture);
+  await assetPage.goto(`${origin}/diagrams/measurement-regression.svg`, { waitUntil: 'networkidle' });
+  await assetPage.evaluate(() => document.fonts.ready);
+  const separated = inspectDiagram(await assetPage.evaluate(measureDiagram, 'light'));
+  await assetPage.evaluate(() => document.querySelectorAll('tspan')[1].setAttribute('dy', '-8'));
+  const overlapping = inspectDiagram(await assetPage.evaluate(measureDiagram, 'light'));
+  await assetPage.evaluate(() => { document.querySelector('tspan').style.fill = '#fff'; });
+  const invisible = inspectDiagram(await assetPage.evaluate(measureDiagram, 'light'));
   summary.measurementRegression = { separated: separated.length === 0,
     collisionDetected: overlapping.some(finding => finding.code === 'LABEL_COLLISION'),
     contrastDetected: invisible.some(finding => finding.code === 'LOW_TEXT_CONTRAST') };
