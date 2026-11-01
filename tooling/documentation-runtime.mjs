@@ -6,11 +6,14 @@ import { chromium } from 'playwright';
 
 const site = resolve('.work/documentation/site');
 const evidence = resolve('.work/documentation/browser');
+const projectPath = '/firefly-id/';
 await mkdir(evidence, { recursive: true });
 const mime = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.json': 'application/json', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.png': 'image/png' };
 const server = createServer(async (req, res) => {
   try {
-    let path = resolve(site, '.' + decodeURIComponent(new URL(req.url, 'http://localhost').pathname));
+    const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+    if (!pathname.startsWith(projectPath)) { res.writeHead(404); res.end(); return; }
+    let path = resolve(site, pathname.slice(projectPath.length));
     if (!path.startsWith(site + sep) && path !== site) { res.writeHead(403); res.end(); return; }
     if ((await stat(path)).isDirectory()) path = resolve(path, 'index.html');
     res.writeHead(200, { 'Content-Type': mime[extname(path)] || 'application/octet-stream' });
@@ -18,11 +21,12 @@ const server = createServer(async (req, res) => {
   } catch { res.writeHead(404); res.end(); }
 });
 await new Promise(done => server.listen(0, '127.0.0.1', done));
-const base = `http://127.0.0.1:${server.address().port}`;
+const origin = `http://127.0.0.1:${server.address().port}`;
+const base = `${origin}${projectPath}`;
 const browser = await chromium.launch({ headless: true });
 const manifest = JSON.parse(await readFile(resolve(site, 'documentation-provenance.json'), 'utf8'));
 const routes = manifest.pages.filter(path => path !== '404.html').map(path => path === 'index.html' ? '' : path.replace(/index\.html$/, ''));
-const summary = { scope: 'Actual static documentation browser; no identity-service or regulatory acceptance', source: manifest.source_revision, surfaces: [], search: [], navigation: [], themePersistence: false, externalRuntimeRequests: 0, failures: [] };
+const summary = { scope: 'Actual static documentation browser; no identity-service or regulatory acceptance', source: manifest.source_revision, basePath: projectPath, surfaces: [], search: [], navigation: [], themePersistence: false, externalRuntimeRequests: 0, failures: [] };
 let stage = 'launch';
 let activePage;
 try {
@@ -31,13 +35,13 @@ try {
       const context = await browser.newContext({ viewport: { width, height: width === 390 ? 844 : 1000 }, colorScheme: mode, reducedMotion: 'reduce' });
       context.on('request', request => {
         const url = new URL(request.url());
-        if (['http:', 'https:'].includes(url.protocol) && url.origin !== base) summary.externalRuntimeRequests++;
+        if (['http:', 'https:'].includes(url.protocol) && url.origin !== origin) summary.externalRuntimeRequests++;
       });
       const page = await context.newPage();
       activePage = page;
       for (const route of routes) {
         stage = `render-${width}-${mode}:${route || 'home'}`;
-        const response = await page.goto(`${base}/${route}`, { waitUntil: 'networkidle' });
+        const response = await page.goto(`${base}${route}`, { waitUntil: 'networkidle' });
         assert.equal(response.status(), 200);
         await page.evaluate(() => document.fonts.ready);
         const measured = await page.evaluate(() => {

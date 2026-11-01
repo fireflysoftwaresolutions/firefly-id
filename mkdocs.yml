@@ -1,6 +1,6 @@
 site_name: Firefly Identity
 site_description: Architecture, integration, security and operations for the Firefly Keycloak distribution.
-site_url: https://firefly-identity-handbook.me-1867.chatgpt.site/
+site_url: https://fireflysoftwaresolutions.github.io/firefly-id/
 repo_url: https://github.com/fireflysoftwaresolutions/firefly-id
 repo_name: firefly-id
 edit_uri: ''
@@ -123,6 +123,7 @@ nav:
       - Brand system: brand.md
       - Isometric artwork: isometric-backgrounds.md
   - Operate and govern:
+      - Production decisions and audit: production-readiness.md
       - Regulated deployment: regulated-deployment.md
       - EU and US controls: controls-matrix.md
       - Workforce and administration: workforce-administration.md

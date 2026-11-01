@@ -64,16 +64,17 @@ The lifecycle helper accepts `preflight`, `pull`, `up`, `status`, `stop`, with `
 
 ## Server and secret inputs
 
-The production example declares `db=postgres`, exact public and administrative URLs, strict hostname validation, no dynamic backchannel, no HTTP listener and mounted certificate/key paths. `xforwarded` headers are trusted only from explicitly supplied proxy CIDRs. Management health/metrics use private port 9000 with HTTP on the isolated management network; that port is never a public browser endpoint. JSON console logs and bounded shutdown delay/timeout are selected.
+The production example declares `db=postgres`, exact public and administrative URLs, strict hostname validation, no dynamic backchannel, no HTTP listener and mounted certificate/key paths. `xforwarded` headers are trusted only from explicitly supplied proxy CIDRs. Management health/metrics use private port 9000 with inherited HTTPS on the isolated management network; that port is never a public browser endpoint. JSON console logs and bounded shutdown delay/timeout are selected.
 
 | Input | Expected owner and value |
 | --- | --- |
-| `FIREFLY_ID_DATABASE_URL` | Approved dedicated JDBC connection; verify encrypted database transport and driver parameters, not just the hostname |
+| `FIREFLY_ID_DATABASE_URL` | Dedicated plain PostgreSQL JDBC URL without query/driver overrides; `db-tls-mode=verify-server` and mounted CA establish verifying TLS |
 | `FIREFLY_ID_DATABASE_USER` | Nonsuperuser application role with reviewed database/schema privileges |
 | `KCRAW_DB_PASSWORD` or supported configuration keystore | Secret-manager injection; generic `KC_DB_PASSWORD_FILE` is not assumed |
 | `FIREFLY_ID_PUBLIC_URL` | Exact canonical HTTPS issuer origin |
 | `FIREFLY_ID_ADMIN_URL` | Approved private administrative hostname; ingress must still block public `/admin/` routes |
 | `FIREFLY_ID_PROXY_CIDRS` | Exact trusted proxy address ranges; ingress overwrites forwarded headers |
+| `/run/secrets/database-ca.pem` | Database trust anchor; preserve peer/hostname verification and qualify the actual server chain |
 | `/run/secrets/tls.crt`, `/run/secrets/tls.key` | Mounted server certificate and private key with correct ownership and rotation procedure |
 
 The sandbox entrypoint reads its explicit mounted files and exports literal `KCRAW_*` variables supported by the pinned release. PostgreSQL's image separately supports `POSTGRES_PASSWORD_FILE`. Changing initialization input does not rotate a retained database password. Never mount the PostgreSQL bootstrap-superuser secret into Keycloak or pass secrets through build arguments, CLI values or documentation examples.
@@ -91,3 +92,5 @@ Core's notification poller additionally requires both recovery and notification 
 ## Verify a configuration change
 
 Record the source revision, catalogue/image/theme hashes, affected population, purpose, expected result and rollback decision. Qualify a fresh owned fixture; read back actual realm/client policy and exercise positive and negative flows. For retained state, use a separately reviewed migration rather than re-import or regeneration. For production, obtain institution-specific policy and legal applicability approval, then validate actual ingress, database, secret rotation, factors, receivers and notification providers. The [acceptance register](evidence.md) separates source checks from those deployment decisions.
+
+The [candidate audit and decision register](production-readiness.md) provide read-only offline refusal checks and the separate owner decisions required before promotion.

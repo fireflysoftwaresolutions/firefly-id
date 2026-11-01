@@ -56,3 +56,7 @@ This handbook's strict MkDocs build, link/anchor checks, source-derived defaults
 | Release and rollout | Approved artifact coordinates, consumer adoption, service operating acceptance and production authorization |
 
 The candidates remain draft PRs: [Identity #1](https://github.com/fireflysoftwaresolutions/firefly-id/pull/1), [Core KYCB #3](https://github.com/fireflysoftwaresolutions/core-common-kycb-mgmt/pull/3), [customer Domain #3](https://github.com/fireflysoftwaresolutions/domain-customer-kyc-kyb/pull/3). No table entry, green test or documentation claim turns a missing acceptance owner into an implemented control.
+
+## Independent production configuration controls
+
+The production reference now selects PostgreSQL verifying TLS with an explicit mounted CA, inherited HTTPS management, explicit TLS 1.2/1.3, default outgoing hostname verification and no legacy public observability. The [read-only candidate audit](production-readiness.md) checks supplied literal server configuration and declared realm/client snapshots, with mutation-based refusal and secret-safe diagnostic coverage. These source controls do not establish deployed transport, network isolation, database privileges, factor flows, bootstrap-account removal, retained-data/HA or legal approval; the decision register retains those gates. The historical runtime tuples above predate this production-reference change and are not presented as qualification of the new production environment.

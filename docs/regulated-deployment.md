@@ -35,7 +35,7 @@ The public ingress should expose only the required realm/protocol/account/resour
 
 Use HTTPS for browser, interservice/backchannel and proxy-to-Keycloak connections; validate certificate chains and hostnames. The supplied production reference disables HTTP, fixes strict canonical hostnames and trusts forwarded headers only from approved proxy CIDRs. The ingress must overwrite, rather than append trust to, untrusted forwarded headers. Avoid a broad proxy allowlist that turns user-controlled headers into trusted client identity.
 
-Management port 9000 belongs to an isolated monitoring network. The reference uses HTTP on that private management leg, so the network boundary must actually prevent public/untrusted reachability; add protected transport according to the approved topology. Health and metrics are not public application routes. No dashboard, database, debug console or SMTP sink belongs on public ingress.
+Management port 9000 belongs to an isolated monitoring network. The reference inherits HTTPS from the main server on that private management leg. Configure HTTPS probes and validate its certificate/name; the network boundary must additionally prevent public/untrusted reachability. Health and metrics are not public application routes. No dashboard, database, debug console or SMTP sink belongs on public ingress.
 
 These requirements are grounded in Keycloak's [production guide](https://www.keycloak.org/server/configuration-production), [reverse-proxy guidance](https://www.keycloak.org/server/reverseproxy) and [hostname configuration](https://www.keycloak.org/server/hostname). Qualify the exact installed version and proxy behavior rather than relying on a generic diagram.
 
@@ -70,3 +70,5 @@ The notification poller is implemented, but its real SMTP provider, channel, ser
 Use an isolated restored database with the corresponding keys/configuration and blocked external delivery. Rehearse migration, backup/restore, restart, clock/failure conditions, concurrent writers, multi-node operation and rollback. Validate actual provider and consumer integrations rather than replacing them with a success fixture. Preserve failed-run data and journals. Never reset counters or issue new grants to repair an ambiguous original execution.
 
 The final acceptance packet should include the institution contract; exact source/image/theme/provider hashes; migration and restore results; ingress and bootstrap proof; factor/recovery/provider conformance; consumer current-state enforcement; real channel/alert evidence; privacy and incident procedures; residual risks and signed operational acceptance. The [evidence register](evidence.md) shows what the repository already proves and what this packet must add.
+
+Use the [production decision register and offline candidate audit](production-readiness.md) before environment qualification. A passing supplied-file check does not close any actual-environment acceptance gate.

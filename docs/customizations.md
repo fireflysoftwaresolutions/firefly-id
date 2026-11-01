@@ -95,7 +95,7 @@ The distribution pins the upstream server and image digests, packages original t
 
 The synthetic generator creates random credentials in a protected new directory, records an immutable Compose ownership hash and refuses overwrite. Lifecycle operations require a local Unix engine and appropriate capacity, act only on that owned project and retain data on stop. No global prune/reset/cleanup helper is supplied. Mailpit and HTTP convenience are evaluation-only.
 
-Production reference configuration fixes canonical/private hostnames, strict proxy trust, HTTPS, private management, structured logs and bounded shutdown. Actual database TLS/privileges, ingress route denial, secret-manager injection, bootstrap removal, keys, backup/restore, migration and selected HA topology require target-environment evidence. [Regulated deployment](regulated-deployment.md), [operations](operations.md), [retained data](retained-data.md) and [incident response](observability-incidents.md) explain the implementation sequence and acceptance owners.
+Production reference configuration fixes canonical/private hostnames, strict proxy trust, verifying database TLS, HTTPS with inherited private management, structured logs and bounded shutdown. Actual database TLS/privileges, ingress route denial, secret-manager injection, bootstrap removal, keys, backup/restore, migration and selected HA topology require target-environment evidence. [Regulated deployment](regulated-deployment.md), [operations](operations.md), [retained data](retained-data.md) and [incident response](observability-incidents.md) explain the implementation sequence and acceptance owners.
 
 The production generator deliberately refuses an unselected institution contract. This prevents a synthetic example from becoming an accidental banking deployment. It is not a missing flag to remove during rollout.
 
@@ -103,7 +103,7 @@ The production generator deliberately refuses an unselected institution contract
 
 The handbook uses MkDocs with source-derived policy/image references, local Manrope/brand resources, original responsive architecture diagrams, scoped light/dark tokens, search and accessible breadcrumbs. The navbar identifies the product through the logo without a repeated text label. The repository link does not make automatic third-party statistics requests.
 
-Build provenance distinguishes committed source from unpublishable dirty previews. Strict validation checks links/anchors and excludes private state/internal planning. Actual browser checks cover every guide in both appearances and viewport sizes, real-keyboard search, navigation, palette persistence, canonical font/colors, branding and overflow. The documentation Site is owner-private; publishing it does not deploy the CIAM service. [Documentation maintenance](documentation.md) describes dependencies, licensing and the reproducible workflow.
+Build provenance distinguishes committed source from unpublishable dirty previews. Strict validation checks links/anchors and excludes private state/internal planning. Actual browser checks cover every guide in both appearances and viewport sizes, real-keyboard search, navigation, palette persistence, canonical font/colors, branding and overflow. The canonical handbook is published from the public repository through GitHub Pages; publishing it does not deploy the CIAM service. [Documentation maintenance](documentation.md) describes dependencies, licensing and the reproducible workflow.
 
 ## Verify a customization before promotion
 

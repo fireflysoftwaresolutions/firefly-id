@@ -12,9 +12,9 @@ The [credential-loss recovery candidate](docs/credential-loss-recovery.md) adds 
 
 ## Documentation
 
-The [Firefly Identity handbook](https://firefly-identity-handbook.me-1867.chatgpt.site/) is the owner-private documentation site. Its maintained [MkDocs source](mkdocs.yml) covers the selection of Keycloak, architecture, setup, exact defaults, customer/workforce/admin journeys, integration, branding, recovery, retained data and operations. The [EU/US controls matrix](docs/controls-matrix.md) identifies applicability, enforcement owners, actual evidence and production acceptance gates.
+The [Firefly Identity handbook](https://fireflysoftwaresolutions.github.io/firefly-id/) is the public GitHub Pages documentation site built from this repository. Its maintained [MkDocs source](mkdocs.yml) covers the selection of Keycloak, architecture, setup, exact defaults, customer/workforce/admin journeys, integration, branding, recovery, retained data and operations. The [EU/US controls matrix](docs/controls-matrix.md) identifies applicability, enforcement owners, actual evidence and production acceptance gates.
 
-Start with [the handbook index](docs/index.md), [customization catalog](docs/customizations.md), [configuration reference](docs/configuration-reference.md) or [regulated deployment](docs/regulated-deployment.md). [Documentation maintenance](docs/documentation.md) explains strict builds, generated references, local assets and browser qualification. Documentation publication is separate from production identity-service activation.
+Start with [the handbook index](docs/index.md), [customization catalog](docs/customizations.md), [configuration reference](docs/configuration-reference.md), [regulated deployment](docs/regulated-deployment.md) or [production decisions and candidate audit](docs/production-readiness.md). [Documentation maintenance](docs/documentation.md) explains strict builds, generated references, local assets and browser qualification. Documentation publication is separate from production identity-service activation.
 
 ## Who uses it
 
