@@ -30,7 +30,7 @@ export function extendedFailureDiagnostics(error) {
     const frame = line.match(/tooling\/extended-runtime\.mjs:(\d{1,6}):(\d{1,5})/);
     return frame ? [`extended-runtime.mjs:${frame[1]}:${frame[2]}`] : [];
   }).slice(0, 4) };
-  const allowed = new Set(['localhost', 'http://localhost:8180', 'required', 'preferred', 'discouraged', 'not specified']);
+  const allowed = new Set(['localhost', 'http://localhost:8180', 'required', 'preferred', 'discouraged', 'not specified', 'HS512', 'RS256']);
   for (const name of ['actual', 'expected']) {
     const value = error?.[name];
     const type = typeof value;
@@ -46,6 +46,26 @@ export function verificationExpiryDelay(claims, now = Date.now()) {
   const wait = Math.max(0, claims.exp * 1000 + 2000 - now);
   assert.ok(Number.isFinite(wait) && wait <= 62000, 'Verification expiry exceeds the fixture deadline');
   return wait;
+}
+
+export function parseVerificationAction(compact, issuer, subject, now = Date.now()) {
+  assert.match(issuer, /^http:\/\/localhost:8180\/realms\/sandbox-authenticators-[a-f0-9]{12}$/);
+  assert.ok(typeof compact === 'string' && compact.length <= 16384 && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(compact),
+    'Bounded compact verification action required');
+  const parts = compact.split('.');
+  const header = JSON.parse(Buffer.from(parts[0], 'base64url'));
+  const claims = JSON.parse(Buffer.from(parts[1], 'base64url'));
+  assert.equal(header.alg, 'HS512', 'Unexpected pinned internal action algorithm');
+  assert.equal(header.typ, 'JWT');
+  assert.equal(Buffer.from(parts[2], 'base64url').length, 64);
+  assert.equal(claims.iss, issuer);
+  assert.deepEqual([claims.aud].flat(), [issuer]);
+  assert.equal(claims.sub, subject);
+  assert.equal(claims.typ, 'verify-email');
+  verificationExpiryDelay(claims, now);
+  assert.ok(claims.exp * 1000 > now && claims.iat * 1000 <= now + 2000, 'Action is not currently within its parsed lifetime');
+  // Internal HMAC keys stay on the server. These parsed claims guide the fixture; the confirmation page validates the original token.
+  return claims;
 }
 
 export function authenticatorFixtureRealm(source, name, password) {
@@ -115,7 +135,7 @@ async function jsonRequest(url, options = {}) {
   return response.json();
 }
 
-async function validateJwt(compact, metadata, audience) {
+export async function validateJwt(compact, metadata, audience) {
   const parts = compact.split('.');
   assert.equal(parts.length, 3, 'Expected signed compact JWT');
   const header = JSON.parse(Buffer.from(parts[0], 'base64url'));
@@ -439,16 +459,27 @@ async function main() {
         const original = await snapshot();
         assert.equal(original.emailVerified, false);
         assert.ok(original.requiredActions.includes('VERIFY_EMAIL'));
-        phase = 'genuine verification email signature and absolute expiry';
+        phase = 'genuine verification email parsed internal profile and absolute expiry';
         const action = await verificationMail(user, 15);
         const compact = action.searchParams.get('key');
-        const signed = await validateJwt(compact, metadata, issuer);
-        assert.equal(signed.sub, user.id);
-        assert.equal(signed.typ, 'verify-email');
-        assert.ok(signed.exp - signed.iat >= 14 && signed.exp - signed.iat <= 15,
+        const parsed = parseVerificationAction(compact, issuer, user.id);
+        assert.ok(parsed.exp - parsed.iat >= 14 && parsed.exp - parsed.iat <= 15,
           'Server did not apply the requested bounded action lifetime');
-        await delay(verificationExpiryDelay(signed));
-        assert.ok(Date.now() / 1000 > signed.exp, 'Signed action is not yet expired');
+        phase = 'server validates original action before expiry without completing verification';
+        const beforeExpiry = await browser.newContext();
+        let beforeCallback = false;
+        try {
+          const page = await beforeExpiry.newPage();
+          page.on('request', req => { if (req.url().startsWith(REDIRECT)) beforeCallback = true; });
+          assert.equal((await page.goto(action.href))?.status(), 200, 'Server refused the original action before expiry');
+          await page.locator('#kc-info-message a[href*="/login-actions/action-token"]').waitFor();
+          assert.ok(Date.now() / 1000 < parsed.exp, 'Pre-expiry validation did not finish before the original deadline');
+          assert.ok(!beforeCallback && !page.url().startsWith(REDIRECT), 'Confirmation page completed authentication');
+          assert.deepEqual(await snapshot(), original, 'Viewing confirmation completed verification or changed required actions');
+        } finally { await beforeExpiry.close(); }
+        passed('server validates the original signed verification action before expiry without verifying email or issuing a code');
+        await delay(verificationExpiryDelay(parsed));
+        assert.ok(Date.now() / 1000 > parsed.exp, 'Signed action is not yet expired');
         assert.equal(action.searchParams.get('key'), compact, 'Expiry probe changed the signed action');
         phase = 'expired unchanged verification link refusal and unchanged private state';
         const context = await browser.newContext();

@@ -85,3 +85,42 @@ for (const invalid of [{}, { iat: 100, exp: 100 }, { iat: 100, exp: 200 },
 }
 assert.throws(() => verificationExpiryDelay({ iat: 1000, exp: 1015 }, 0));
 """)
+
+    def test_internal_action_profile_is_parsed_separately_from_verified_oidc_tokens(self):
+        self.node("""
+import assert from 'node:assert/strict';
+import { generateKeyPairSync, sign } from 'node:crypto';
+import { parseVerificationAction, validateJwt } from './tooling/extended-runtime.mjs';
+const issuer = 'http://localhost:8180/realms/sandbox-authenticators-012345abcdef';
+const subject = 'd5aa48d2-e4c6-4910-915c-c95126e14454';
+const claims = { iss: issuer, aud: issuer, sub: subject, typ: 'verify-email', iat: 100, exp: 115 };
+const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+const action = (value = claims, algorithm = 'HS512') => [encode({ alg: algorithm, typ: 'JWT' }), encode(value), Buffer.alloc(64, 1).toString('base64url')].join('.');
+assert.deepEqual(parseVerificationAction(action(), issuer, subject, 100000), claims);
+for (const algorithm of ['RS256', 'HS256', 'none']) {
+  assert.throws(() => parseVerificationAction(action(claims, algorithm), issuer, subject, 100000));
+}
+for (const value of [{ ...claims, typ: 'Bearer' }, { ...claims, sub: 'another-user' },
+  { ...claims, iss: 'https://another.invalid' }, { ...claims, aud: 'sandbox-web' },
+  { ...claims, exp: 100 }, { ...claims, iat: 99.5 }, { ...claims, iat: 1000, exp: 1015 }]) {
+  assert.throws(() => parseVerificationAction(action(value), issuer, subject, 100000));
+}
+assert.throws(() => parseVerificationAction(action(), issuer, subject, 116000));
+assert.throws(() => parseVerificationAction('a'.repeat(16385), issuer, subject, 100000));
+const originalFetch = globalThis.fetch;
+let requested = 0;
+try {
+  globalThis.fetch = async () => { requested++; throw new Error('Unexpected key request'); };
+  await assert.rejects(validateJwt(action(), { issuer, jwks_uri: 'https://fixture.invalid/keys' }, issuer));
+  assert.equal(requested, 0, 'OIDC verifier must reject internal HMAC before fetching public keys');
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'owned-test-key', use: 'sig' };
+  const oidcClaims = { iss: issuer, aud: 'sandbox-web', sub: subject, exp: Math.floor(Date.now() / 1000) + 60 };
+  const input = encode({ alg: 'RS256', typ: 'JWT', kid: jwk.kid }) + '.' + encode(oidcClaims);
+  const oidc = input + '.' + sign('RSA-SHA256', Buffer.from(input), privateKey).toString('base64url');
+  globalThis.fetch = async () => new Response(JSON.stringify({ keys: [jwk] }), { status: 200 });
+  assert.deepEqual(await validateJwt(oidc, { issuer, jwks_uri: 'https://fixture.invalid/keys' }, 'sandbox-web'), oidcClaims);
+  const tampered = oidc.split('.'); tampered[1] = encode({ ...oidcClaims, sub: 'another-user' });
+  await assert.rejects(validateJwt(tampered.join('.'), { issuer, jwks_uri: 'https://fixture.invalid/keys' }, 'sandbox-web'));
+} finally { globalThis.fetch = originalFetch; }
+""")
