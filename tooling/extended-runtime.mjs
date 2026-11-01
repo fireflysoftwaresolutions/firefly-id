@@ -12,6 +12,50 @@ const REDIRECT = 'http://localhost:3000/oidc/callback';
 const CLIENT = 'sandbox-web';
 const delay = milliseconds => new Promise(ok => setTimeout(ok, milliseconds));
 
+export function verificationExpiryDelay(claims, now = Date.now()) {
+  assert.ok(Number.isInteger(claims.iat) && Number.isInteger(claims.exp)
+    && claims.exp > claims.iat && claims.exp - claims.iat <= 60, 'Unbounded verification expiry fixture');
+  const wait = Math.max(0, claims.exp * 1000 + 2000 - now);
+  assert.ok(Number.isFinite(wait) && wait <= 62000, 'Verification expiry exceeds the fixture deadline');
+  return wait;
+}
+
+export function authenticatorFixtureRealm(source, name, password) {
+  assert.equal(source.realm, 'sandbox-customers', 'Only the generated synthetic customer source is permitted');
+  assert.match(name, /^sandbox-authenticators-[a-f0-9]{12}$/);
+  assert.ok(typeof password === 'string' && password.length >= 14, 'Fresh synthetic password required');
+  const realm = structuredClone(source);
+  delete realm.id;
+  realm.realm = name;
+  realm.displayName = 'Isolated authenticator fixture';
+  realm.attributes = { frontendUrl: 'http://localhost:8180' };
+  realm.clients = realm.clients.filter(client => client.clientId === CLIENT && client.publicClient === true);
+  assert.equal(realm.clients.length, 1, 'Exact synthetic public client required');
+  const flow = (alias, authenticators) => ({ alias, providerId: 'basic-flow', topLevel: true, builtIn: false,
+    authenticationExecutions: authenticators.map((authenticator, index) => ({ authenticator,
+      authenticatorFlow: false, requirement: 'REQUIRED', priority: 10 + index * 10 })) });
+  realm.authenticationFlows = [flow('fixture-enrollment', ['auth-username-password-form']),
+    flow('fixture-passkey', ['auth-username-form', 'webauthn-authenticator-passwordless'])];
+  realm.browserFlow = 'fixture-enrollment';
+  realm.requiredActions = [{ alias: 'webauthn-register-passwordless', providerId: 'webauthn-register-passwordless',
+    name: 'WebAuthn passwordless registration', enabled: true, defaultAction: false, priority: 60 }];
+  Object.assign(realm, { webAuthnPolicyPasswordlessRpEntityName: 'Isolated Firefly test RP',
+    webAuthnPolicyPasswordlessRpId: 'localhost', webAuthnPolicyPasswordlessSignatureAlgorithms: ['ES256'],
+    webAuthnPolicyPasswordlessAttestationConveyancePreference: 'none',
+    webAuthnPolicyPasswordlessAuthenticatorAttachment: 'platform',
+    webAuthnPolicyPasswordlessRequireResidentKey: 'Yes', webAuthnPolicyPasswordlessResidentKey: 'required',
+    webAuthnPolicyPasswordlessUserVerificationRequirement: 'required',
+    webAuthnPolicyPasswordlessCreateTimeout: 30, webAuthnPolicyPasswordlessExtraOrigins: [] });
+  realm.users = [false, true].map(verified => ({ username: verified ? 'synthetic-passkey' : 'synthetic-expiry',
+    email: `${verified ? 'passkey' : 'expiry'}-${name.slice(-12)}@example.invalid`,
+    firstName: 'Synthetic', lastName: 'Authenticator', enabled: true, emailVerified: verified,
+    attributes: { tenant_id: ['synthetic-tenant'], party_id: [randomUUID()] },
+    requiredActions: [verified ? 'webauthn-register-passwordless' : 'VERIFY_EMAIL'],
+    credentials: [{ type: 'password', value: password, temporary: false }],
+    clientRoles: { account: ['manage-account', 'view-profile'] } }));
+  return realm;
+}
+
 export function totpCode(encodedSecret, epochSeconds = Date.now() / 1000, digits = 6) {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
   const normalized = encodedSecret.replace(/[\s=]/g, '').toUpperCase();
@@ -68,10 +112,11 @@ async function main() {
   let browser;
   let server;
   let phase = 'extended setup';
+  let ownedRealm;
   const pending = new Map();
   try {
     const selected = (process.env.FIREFLY_ID_EXTENDED_FLOWS || 'verify,profile,mfa').split(',');
-    assert.ok(selected.length > 0 && selected.every(name => ['verify', 'profile', 'mfa'].includes(name)), 'Unknown extended flow');
+    assert.ok(selected.length > 0 && selected.every(name => ['verify', 'profile', 'mfa', 'verify-expiry', 'passkey'].includes(name)), 'Unknown extended flow');
     const stateDir = resolve(process.env.FIREFLY_ID_STATE || '.state/sandbox');
     assert.equal((await stat(stateDir)).mode & 0o077, 0, 'Sandbox state must remain owner-only');
     assert.equal((await stat(`${stateDir}/credentials.json`)).mode & 0o077, 0, 'Credentials must remain owner-only');
@@ -129,6 +174,17 @@ async function main() {
       return response.json();
     }
 
+    async function fixtureWrite(name, suffix, body, create = false) {
+      assert.match(name, /^sandbox-authenticators-[a-f0-9]{12}$/);
+      assert.ok(create ? body.realm === name : ownedRealm === name, 'Only this run\'s isolated realm may change');
+      await adminRead(`${BASE}/admin/realms/master`);
+      const response = await request(`${BASE}/admin/realms${create ? '' : `/${name}${suffix}`}`, {
+        method: create ? 'POST' : 'PUT', headers: { Authorization: adminAuthorization, 'Content-Type': 'application/json' },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      assert.equal(response.status, create ? 201 : 204, 'Owned authenticator fixture operation refused');
+    }
+
     async function startLogin(population, account, existingContext) {
       const metadata = await metadataFor(population);
       const context = existingContext || await browser.newContext();
@@ -154,7 +210,7 @@ async function main() {
         await page.goto(url.href);
         if (await page.locator('#username').isVisible()) {
           await page.locator('#username').fill(account.username);
-          await page.locator('#password').fill(account.password);
+          if (await page.locator('#password').isVisible()) await page.locator('#password').fill(account.password);
           await page.locator('#kc-login').click();
         }
       } catch (error) { cancel(); throw error; }
@@ -262,6 +318,177 @@ async function main() {
         }
       }
       passed(`${population} permitted Account REST updates cannot change protected sources, cross-population or unmanaged attributes; administrative storage and fresh signed claims remain unchanged`);
+    }
+
+    if (selected.some(name => ['verify-expiry', 'passkey'].includes(name))) {
+      phase = 'owned hosted authenticator fixture admission';
+      assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Authenticator fixtures run only in hosted CI');
+      assert.equal(process.env.FIREFLY_ID_AUTHENTICATOR_FIXTURE, 'owned-hosted');
+      const owner = JSON.parse(await readFile(`${stateDir}/ownership.json`, 'utf8'));
+      assert.equal(owner.mode, 'sandbox');
+      assert.equal(owner.created_by, 'firefly-id/scripts/generate.py');
+      assert.match(owner.project, /^firefly-id-sandbox-[a-f0-9]{10}$/);
+      const name = `sandbox-authenticators-${randomBytes(6).toString('hex')}`;
+      const fixture = authenticatorFixtureRealm(JSON.parse(await readFile(`${stateDir}/realms/sandbox-customers-realm.json`, 'utf8')),
+        name, `Aa1${randomBytes(36).toString('base64url')}`);
+      phase = 'isolated realm import and exact RP readback';
+      await fixtureWrite(name, '', fixture, true);
+      ownedRealm = name;
+      const realmApi = `${BASE}/admin/realms/${name}`;
+      const installed = await adminRead(realmApi);
+      assert.equal(installed.attributes.frontendUrl, 'http://localhost:8180');
+      assert.equal(installed.webAuthnPolicyPasswordlessRpId, 'localhost');
+      assert.equal(installed.webAuthnPolicyPasswordlessResidentKey, 'required');
+      assert.equal(installed.webAuthnPolicyPasswordlessUserVerificationRequirement, 'required');
+      const population = name.slice('sandbox-'.length);
+      const issuer = `http://localhost:8180/realms/${name}`;
+      const metadata = await jsonRequest(`${issuer}/.well-known/openid-configuration`);
+      assert.equal(metadata.issuer, issuer);
+      metadataCache.set(population, metadata);
+      const users = await adminRead(`${realmApi}/users?max=10`);
+      async function userFor(username) {
+        const matches = users.filter(user => user.username === username);
+        assert.equal(matches.length, 1, 'Exact owned synthetic account required');
+        return matches[0];
+      }
+      async function verificationMail(user, lifespan) {
+        const mailbox = await jsonRequest('http://localhost:8025/api/v1/messages');
+        const prior = new Set((mailbox.messages || []).map(message => message.ID));
+        await fixtureWrite(name, `/users/${user.id}/send-verify-email?lifespan=${lifespan}&client_id=${CLIENT}&redirect_uri=${encodeURIComponent(REDIRECT)}`);
+        let message;
+        for (let attempt = 0; attempt < 30; attempt++) {
+          const current = await jsonRequest('http://localhost:8025/api/v1/messages');
+          message = selectNewRecoveryMessage(current.messages || [], prior, user.email);
+          if (message) break;
+          await delay(250);
+        }
+        assert.ok(message, 'No fresh verification message for the owned recipient');
+        const mail = await jsonRequest(`http://localhost:8025/api/v1/message/${message.ID}`);
+        const matched = mail.HTML.match(/href="([^"\s]*\/login-actions\/action-token[^"\s]*)"/);
+        assert.ok(matched, 'Signed verification action absent');
+        const action = new URL(matched[1].replaceAll('&amp;', '&'));
+        assert.equal(action.origin, 'http://localhost:8180');
+        assert.equal(action.pathname, `/realms/${name}/login-actions/action-token`);
+        return action;
+      }
+
+      if (selected.includes('verify-expiry')) {
+        const user = await userFor('synthetic-expiry');
+        const snapshot = async () => {
+          const current = await adminRead(`${realmApi}/users/${user.id}`);
+          return { emailVerified: current.emailVerified, requiredActions: current.requiredActions };
+        };
+        const original = await snapshot();
+        assert.equal(original.emailVerified, false);
+        assert.ok(original.requiredActions.includes('VERIFY_EMAIL'));
+        phase = 'genuine verification email signature and absolute expiry';
+        const action = await verificationMail(user, 15);
+        const compact = action.searchParams.get('key');
+        const signed = await validateJwt(compact, metadata, issuer);
+        assert.equal(signed.sub, user.id);
+        assert.equal(signed.typ, 'verify-email');
+        assert.ok(signed.exp - signed.iat >= 14 && signed.exp - signed.iat <= 15,
+          'Server did not apply the requested bounded action lifetime');
+        await delay(verificationExpiryDelay(signed));
+        assert.ok(Date.now() / 1000 > signed.exp, 'Signed action is not yet expired');
+        assert.equal(action.searchParams.get('key'), compact, 'Expiry probe changed the signed action');
+        phase = 'expired unchanged verification link refusal and unchanged private state';
+        const context = await browser.newContext();
+        let callback = false;
+        try {
+          const page = await context.newPage();
+          page.on('request', req => { if (req.url().startsWith(REDIRECT)) callback = true; });
+          const response = await page.goto(action.href);
+          assert.ok(response && response.status() >= 200 && response.status() < 500);
+          const message = page.locator('#kc-info-message, #kc-error-message');
+          await message.waitFor();
+          assert.match(await message.innerText(), /expired|no longer valid/i, 'Expired signed link has no recognized expiry refusal');
+          assert.ok(!callback && !page.url().startsWith(REDIRECT), 'Expired action issued a code');
+          assert.deepEqual(await snapshot(), original, 'Expired action changed verification state or required actions');
+        } finally { await context.close(); }
+        passed('genuine signed verification action expires naturally without verification, required-action removal or login code');
+        phase = 'fresh verification action succeeds after expired predecessor';
+        const fresh = await verificationMail(user, 120);
+        const positive = await browser.newContext();
+        try {
+          const page = await positive.newPage();
+          await page.goto(fresh.href);
+          const confirm = page.locator('#kc-info-message a[href*="/login-actions/action-token"]');
+          if (await confirm.isVisible()) await confirm.click();
+          await page.locator('#kc-info-message, #kc-error-message').waitFor();
+          const verified = await snapshot();
+          assert.equal(verified.emailVerified, true);
+          assert.ok(!verified.requiredActions.includes('VERIFY_EMAIL'));
+        } finally { await positive.close(); }
+        passed('fresh server-issued verification action remains usable after an expired action');
+      }
+
+      if (selected.includes('passkey')) {
+        const user = await userFor('synthetic-passkey');
+        const account = { username: user.username, password: fixture.users.find(entry => entry.username === user.username).credentials[0].value };
+        async function virtualAuthenticator(page, credential) {
+          const session = await page.context().newCDPSession(page);
+          await session.send('WebAuthn.enable', { enableUI: false });
+          const { authenticatorId } = await session.send('WebAuthn.addVirtualAuthenticator', { options: {
+            protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal',
+            hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true,
+          } });
+          if (credential) await session.send('WebAuthn.addCredential', { authenticatorId, credential });
+          return { session, authenticatorId };
+        }
+        phase = 'actual platform passkey enrollment and signed PKCE exchange';
+        const enrollment = await startLogin(population, account);
+        let credential;
+        try {
+          await enrollment.page.locator('#registerWebAuthn').waitFor();
+          assert.equal(await enrollment.page.evaluate(() => window.isSecureContext), true);
+          const authenticator = await virtualAuthenticator(enrollment.page);
+          enrollment.page.on('dialog', dialog => dialog.accept('Owned hosted passkey'));
+          await enrollment.page.locator('#registerWebAuthn').click();
+          const result = await enrollment.finish();
+          assert.equal(result.claims.sub, user.id);
+          const stored = await adminRead(`${realmApi}/users/${user.id}/credentials`);
+          assert.equal(stored.filter(item => item.type === 'webauthn-passwordless').length, 1);
+          const listed = await authenticator.session.send('WebAuthn.getCredentials', { authenticatorId: authenticator.authenticatorId });
+          assert.equal(listed.credentials.length, 1);
+          [credential] = listed.credentials;
+          assert.equal(credential.rpId, 'localhost');
+          assert.equal(credential.isResidentCredential, true);
+          assert.ok(credential.privateKey && credential.userHandle, 'Browser did not create a resident key');
+        } finally { enrollment.cancel(); await enrollment.context.close(); }
+        passed('configured loopback RP, required user verification and resident platform passkey enroll through the real form and signed code exchange');
+        phase = 'owned passwordless flow binding';
+        await fixtureWrite(name, '', { browserFlow: 'fixture-passkey' });
+        assert.equal((await adminRead(realmApi)).browserFlow, 'fixture-passkey');
+        for (const bogus of [true, false]) {
+          phase = bogus ? 'actual invalid WebAuthn signature refuses callback' : 'fresh passkey assertion and signed PKCE exchange';
+          const existingSessions = bogus ? (await adminRead(`${realmApi}/users/${user.id}/sessions`)).map(session => session.id).sort() : [];
+          const flow = await startLogin(population, { username: account.username });
+          try {
+            await flow.page.locator('#authenticateWebAuthnButton').waitFor();
+            assert.equal(await flow.page.locator('#password').count(), 0, 'Password fallback appeared in the required passkey flow');
+            const authenticator = await virtualAuthenticator(flow.page, credential);
+            if (bogus) await authenticator.session.send('WebAuthn.setResponseOverrideBits', {
+              authenticatorId: authenticator.authenticatorId, isBogusSignature: true });
+            await flow.page.locator('#authenticateWebAuthnButton').click();
+            if (bogus) {
+              const feedback = flow.page.locator('#kc-error-message, .kc-feedback-text').first();
+              await feedback.waitFor();
+              assert.ok((await feedback.innerText()).trim(), 'WebAuthn refusal has no visible message');
+              assert.ok(!flow.callbackReceived && !flow.page.url().startsWith(REDIRECT), 'Invalid WebAuthn signature issued a code');
+              assert.deepEqual((await adminRead(`${realmApi}/users/${user.id}/sessions`)).map(session => session.id).sort(), existingSessions,
+                'Invalid signature created an authenticated session');
+              passed('real WebAuthn assertion with an invalid signature is refused without a login code');
+            } else {
+              const result = await flow.finish();
+              assert.equal(result.claims.sub, user.id);
+              const after = await authenticator.session.send('WebAuthn.getCredentials', { authenticatorId: authenticator.authenticatorId });
+              assert.ok(after.credentials[0].signCount > credential.signCount, 'Fresh assertion did not advance authenticator signature count');
+              passed('fresh browser passkey assertion without password or SSO completes signed PKCE exchange');
+            }
+          } finally { flow.cancel(); await flow.context.close(); }
+        }
+      }
     }
 
     if (selected.includes('verify')) {
@@ -415,11 +642,19 @@ async function main() {
     }
     const evidence = resolve('.work/extended-runtime');
     await mkdir(evidence, { recursive: true });
-    await writeFile(`${evidence}/summary.json`, JSON.stringify({ flows: selected, results,
-      pending: ['verification token expiration', 'passkey enrollment and challenge', 'lost-factor and step-up recovery'],
+    await writeFile(`${evidence}/summary.json`, JSON.stringify({ status: 'passed', flows: selected, results,
+      pending: [...(selected.includes('verify-expiry') ? [] : ['verification token expiration']),
+        ...(selected.includes('passkey') ? [] : ['passkey enrollment and challenge']),
+        'physical or synced passkey authenticators and production RP trust', 'real-provider proofing',
+        'workforce, administrator, passkey and external-store lost-factor recovery',
+        'BPO verification and institution-specific policy', 'recovery codes and phishing-resistant step-up'],
       scope: 'Synthetic provider flows only; no production or business authorization acceptance.' }, null, 2));
   } catch (error) {
     reportFailure(error, phase);
+    const evidence = resolve('.work/extended-runtime');
+    await mkdir(evidence, { recursive: true });
+    await writeFile(`${evidence}/summary.json`, JSON.stringify({ status: 'failed', phase, results,
+      scope: 'Fixed stage labels only; no raw mail, credentials, tokens, authenticator keys or browser traces.' }, null, 2));
     process.exitCode = 1;
   } finally {
     pending.clear();

@@ -1,0 +1,68 @@
+name: Verification expiry and passkey runtime
+
+on:
+  workflow_dispatch:
+  push:
+    paths: ['tooling/extended-runtime.mjs', 'tooling/safe-errors.mjs', 'tooling/recovery-mail.mjs', 'tooling/package*.json', 'tests/test_extended_runtime.py', 'scripts/generate.py', 'scripts/sandbox.py', 'config/authentication-policies.json', 'deploy/images.lock.json', 'themes/**', 'assets/**', '.github/workflows/extended-authenticators.yml']
+  pull_request:
+    paths: ['tooling/extended-runtime.mjs', 'tooling/safe-errors.mjs', 'tooling/recovery-mail.mjs', 'tooling/package*.json', 'tests/test_extended_runtime.py', 'scripts/generate.py', 'scripts/sandbox.py', 'config/authentication-policies.json', 'deploy/images.lock.json', 'themes/**', 'assets/**', '.github/workflows/extended-authenticators.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extended-authenticators-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  authenticators:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Check isolated fixture construction and expiry boundaries
+        run: |
+          node --check tooling/extended-runtime.mjs
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p test_extended_runtime.py -v
+      - name: Prepare a fresh owned synthetic runtime
+        id: owned-runtime
+        run: |
+          umask 077
+          python3 tooling/build_theme.py
+          python3 scripts/generate.py --mode sandbox
+          printf '\n127.0.0.1 id.firefly.test\n' | sudo tee -a /etc/hosts >/dev/null
+          python3 scripts/sandbox.py preflight
+          python3 scripts/sandbox.py pull
+          python3 scripts/sandbox.py up
+      - name: Diagnose only an owned startup failure
+        if: ${{ failure() && steps.owned-runtime.outcome == 'failure' && hashFiles('.state/sandbox/ownership.json') != '' }}
+        run: python3 tooling/startup_diagnostics.py
+      - name: Install pinned hosted browser tools
+        working-directory: tooling
+        run: |
+          npm ci --ignore-scripts
+          npx playwright install --with-deps chromium
+      - name: Exercise genuine verification expiry and resident passkey ceremonies
+        env:
+          FIREFLY_ID_EXTENDED_FLOWS: verify-expiry,passkey
+          FIREFLY_ID_AUTHENTICATOR_FIXTURE: owned-hosted
+        run: node tooling/extended-runtime.mjs
+      - name: Preserve bounded runtime summary
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: extended-authenticators-summary
+          path: |
+            .work/extended-runtime/summary.json
+            .work/startup-diagnostics/summary.json
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Stop only the owned runtime
+        if: always()
+        run: |
+          if test -f .state/sandbox/ownership.json; then
+            python3 scripts/sandbox.py stop
+          fi
