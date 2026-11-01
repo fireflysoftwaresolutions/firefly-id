@@ -37,7 +37,7 @@ class ReproofingBoundaryTest {
     @Test void redactedObjectsNeverExposeEnrollmentOrAuthorization() {
         Binding binding = new Binding("issuer", "realm", "tenant", "private-subject", UUID.randomUUID(), "HUMAN", "CREDENTIAL_REPLACEMENT", "epoch", "revision", "private-nonce");
         assertFalse(binding.toString().contains("private-subject"));
-        var view = new ReproofingEngineImpl.View("private-id", "private-csrf", "ENROLL", "https://private-provider", "private-secret", false, false, null);
+        var view = new ReproofingEngineImpl.View("private-id", "private-csrf", "ENROLL", "https://private-provider", "private-secret", false, false, null, null);
         assertFalse(view.toString().contains("private"));
         assertFalse(new Journey(null, "private-provider").toString().contains("private"));
     }

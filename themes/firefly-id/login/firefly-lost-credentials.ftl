@@ -41,7 +41,7 @@
           <div class="${properties.kcFormGroupClass!}">
             <label class="${properties.kcLabelClass!}" for="ffid-lost-enrollment-secret">${msg("ffidLostSetupKey")}</label>
             <output id="ffid-lost-enrollment-secret" class="ffid-enrollment-secret" aria-describedby="ffid-lost-otp-help">${enrollmentSecret?replace("(.{4})", "$1 ", "r")?trim}</output>
-            <p id="ffid-lost-otp-help">${msg("ffidLostSetupInstruction")}</p>
+            <p id="ffid-lost-otp-help">${msg("ffidLostSetupInstruction", otpAlgorithm, otpDigits, otpPeriod)}</p>
             <label class="${properties.kcLabelClass!}" for="otp">${msg("ffidLostOtpLabel")}</label>
             <span class="${properties.kcInputClass!}"><input id="otp" name="otp" type="password" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,8}" maxlength="8" aria-describedby="ffid-lost-otp-help" required /></span>
           </div>

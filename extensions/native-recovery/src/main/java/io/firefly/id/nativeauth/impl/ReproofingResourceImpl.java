@@ -71,6 +71,8 @@ public final class ReproofingResourceImpl {
         LocaleUtil.processLocaleParam(session, session.getContext().getRealm(), null); var config = new ReproofingConfigImpl(session.getContext().getRealm());
         Response response = session.getProvider(LoginFormsProvider.class).setAttribute("stage", view.stage()).setAttribute("csrf", view.csrf())
                 .setAttribute("verificationUrl", view.verificationUrl()).setAttribute("enrollmentSecret", view.secret()).setAttribute("passwordMinimum", view.passwordMinimum())
+                .setAttribute("otpAlgorithm", view.totpSetup() == null ? null : view.totpSetup().algorithm())
+                .setAttribute("otpDigits", view.totpSetup() == null ? null : view.totpSetup().digits()).setAttribute("otpPeriod", view.totpSetup() == null ? null : view.totpSetup().period())
                 .setAttribute("actionUrl", config.root()).setAttribute("signInUrl", config.value("issuer") + "/account")
                 .setAttribute("recordPending", view.recordPending()).setAttribute("nativeCredentialForm", true).setAttribute("messageKey", view.failed() ? "ffidLostFailed" : null).createForm("firefly-lost-credentials.ftl");
         var builder = Response.fromResponse(response).header("Cache-Control", "no-store").header("Pragma", "no-cache").header("Referrer-Policy", "same-origin");
