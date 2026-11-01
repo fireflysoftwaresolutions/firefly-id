@@ -3,6 +3,11 @@ name: Real native recovery integration
 on:
   workflow_dispatch:
     inputs:
+      credential_loss:
+        description: Qualify independent customer KYC credential replacement instead of known-password SCA unlock
+        required: true
+        default: false
+        type: boolean
       domain_sha:
         description: Exact Domain source commit with genuine producer SDK fixture
         required: true
@@ -26,7 +31,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  credential-loss-native-kyc:
+    if: inputs.credential_loss
+    uses: ./.github/workflows/credential-loss-integration.yml
+    with:
+      domain_sha: ${{ inputs.domain_sha }}
+      core_sha: ${{ inputs.core_sha }}
   actual-native-core-domain:
+    if: ${{ !inputs.credential_loss }}
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     env:

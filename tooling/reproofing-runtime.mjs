@@ -23,6 +23,7 @@ const fonts = [];
 const pending = new Map();
 const factors = new Map();
 let phase = 'initialization';
+const diagnostics = {};
 let browser;
 let callbackServer;
 const delay = milliseconds => new Promise(ok => setTimeout(ok, milliseconds));
@@ -95,17 +96,25 @@ async function authenticate(person, context, { password = person.password, secre
 async function refresh(refreshToken) {
   const response = await request(`${profile.issuer}/protocol/openid-connect/token`, { method: 'POST', body: new URLSearchParams({
     client_id: 'native-browser', grant_type: 'refresh_token', refresh_token: refreshToken }) });
-  return response.status;
+  if (response.status !== 200) return { status: response.status };
+  const value = await response.json();
+  assert.ok(value.refresh_token, 'Positive refresh must retain its current replacement token');
+  return { status: response.status, refreshToken: value.refresh_token };
 }
 async function nativeStage(page) { return page.locator('.ffid-native-journey').getAttribute('data-stage'); }
 async function submit(page) {
+  diagnostics.nativeStage = await nativeStage(page);
   const posted = page.waitForResponse(response => response.request().method() === 'POST' && response.url() === root);
+  const landed = page.waitForNavigation({ waitUntil: 'domcontentloaded' });
   await page.locator('#ffid-lost-continue').click();
   const response = await posted;
+  diagnostics.nativePostStatus = response.status();
   assert.equal(response.status(), 303, 'Native form must use PRG');
   const headers = await response.request().allHeaders();
+  diagnostics.nativeOrigin = headers.origin === origin ? 'same' : headers.origin === 'null' ? 'null' : 'other';
   assert.equal(headers.origin, origin, 'Actual browser Origin must remain same-origin');
-  await page.waitForURL(root);
+  await landed;
+  assert.equal(page.url(), root);
   await page.locator('.ffid-native-journey').waitFor();
 }
 async function translated(page, language) {
@@ -239,7 +248,18 @@ try {
   const oldSecret = initial.secret;
   const offlineContext = await browser.newContext();
   const offline = await authenticate(profile.person, offlineContext, { secret: oldSecret, offline: true });
-  assert.equal(await refresh(initial.tokens.refresh_token), 200); assert.equal(await refresh(offline.tokens.refresh_token), 200);
+  const onlineProbe = await refresh(initial.tokens.refresh_token);
+  const offlineProbe = await refresh(offline.tokens.refresh_token);
+  assert.equal(onlineProbe.status, 200); assert.equal(offlineProbe.status, 200);
+  initial.tokens.refresh_token = onlineProbe.refreshToken;
+  offline.tokens.refresh_token = offlineProbe.refreshToken;
+  const clients = await admin('clients?clientId=native-browser'); assert.equal(clients.status, 200);
+  const internalClient = (await clients.json())[0].id;
+  const offlinePath = `users/${profile.person.id}/offline-sessions/${internalClient}`;
+  const onlineSessions = await admin(`users/${profile.person.id}/sessions`);
+  const offlineSessions = await admin(offlinePath);
+  assert.equal(onlineSessions.status, 200); assert.ok((await onlineSessions.json()).length > 0);
+  assert.equal(offlineSessions.status, 200); assert.ok((await offlineSessions.json()).length > 0);
   passed('real-previous-password-enrolled-totp-and-online-offline-refreshes-positive');
   phase = 'generic-unknown-and-administrative-hold';
   for (const username of ['unknown-owned-subject', profile.manual.username]) {
@@ -267,10 +287,13 @@ try {
   await capture(recovery.page, 'enrollment-es-empty-form', { enrollment: true });
   await translated(recovery.page, 'en'); await capture(recovery.page, 'enrollment-en-empty-form', { enrollment: true });
   const newPassword = randomBytes(30).toString('base64url') + 'aA9!';
+  fixture('arm-record-loss');
   const enrollmentCode = await replace(recovery, profile.person, newSecret, newPassword);
-  assert.equal(await refresh(initial.tokens.refresh_token), 400); assert.equal(await refresh(offline.tokens.refresh_token), 400);
+  assert.equal(fixture('fault-status').recordResponseDropped, true, 'Actual committed Domain/Core response loss required');
+  assert.equal((await refresh(initial.tokens.refresh_token)).status, 400); assert.equal((await refresh(offline.tokens.refresh_token)).status, 400);
   assert.equal((await currentUser(profile.person)).enabled, true);
   const sessions = await admin(`users/${profile.person.id}/sessions`); assert.equal(sessions.status, 200); assert.equal((await sessions.json()).length, 0);
+  const retiredOffline = await admin(offlinePath); assert.equal(retiredOffline.status, 200); assert.equal((await retiredOffline.json()).length, 0);
   passed('enabled-user-replaces-credentials-without-old-password-and-retires-preexisting-sessions');
   phase = 'superseded-credentials-refused';
   const enrollmentReplayContext = await browser.newContext();
@@ -294,11 +317,20 @@ try {
   await capture(recovery.page, 'replacement-en-complete');
   await translated(recovery.page, 'es'); await capture(recovery.page, 'replacement-es-complete');
   phase = 'native-notification-dispatch';
+  fixture('mail-stop');
+  const failedDelivery = await jsonPost(`${root}/rpc/dispatch`, {}, basic('reproofing-core-owner', secrets['core-native']));
+  assert.equal(failedDelivery.status, 200); assert.ok((await failedDelivery.json()).processed >= 1);
+  const pendingDelivery = fixture('snapshot').native.notifications;
+  assert.ok(pendingDelivery.some(value => value.status === 'PENDING' && value.attempts === 1), 'SMTP failure must retain a durable pending delivery');
+  fixture('mail-start');
+  await delay(61000);
   const dispatched = await jsonPost(`${root}/rpc/dispatch`, {}, basic('reproofing-core-owner', secrets['core-native']));
   assert.equal(dispatched.status, 200); assert.ok((await dispatched.json()).processed >= 1);
   const messages = await request('http://127.0.0.1:8025/api/v1/messages'); assert.equal(messages.status, 200);
   const mail = await messages.json();
   assert.ok(mail.messages.some(message => message.To?.some(to => to.Address === profile.person.email)), 'Actual replacement notice must reach previous verified destination');
+  assert.ok(fixture('snapshot').native.notifications.some(value => value.status === 'DELIVERED' && value.attempts >= 2));
+  passed('notification-transport-failure-retains-outbox-and-retries-without-new-recovery');
   passed('durable-native-notification-dispatch-delivers-to-previous-verified-channel');
   phase = 'permanently-locked-account-credential-loss';
   const lockedPerson = profile.locked;
@@ -333,12 +365,23 @@ try {
   assert.equal((await currentUser(heldPerson)).enabled, false, 'An approved proof must never override a later administrative hold');
   await heldRecovery.context.close();
   passed('administrative-disable-after-proofing-refuses-activation');
-  phase = 'literal-completion-reload'; await recovery.page.reload(); assert.equal(await nativeStage(recovery.page), 'COMPLETE');
+  phase = 'literal-completion-reload';
+  const beforeReload = fixture('snapshot');
+  assert.ok(beforeReload.native.oldestExecutedGrantSeconds < 0, 'Natural consumed authorization expiry must precede audit-only recovery');
+  assert.ok(beforeReload.native.recordedExecutions < beforeReload.native.executions, 'Lost response must leave a real pending native recording');
+  fixture('restart-native');
+  await recovery.page.reload(); assert.equal(await nativeStage(recovery.page), 'COMPLETE');
+  await submit(recovery.page);
+  assert.equal(await nativeStage(recovery.page), 'COMPLETE');
+  const afterReload = fixture('snapshot');
+  assert.equal(afterReload.native.executions, beforeReload.native.executions);
+  assert.equal(afterReload.native.recordedExecutions, beforeReload.native.recordedExecutions + 1);
+  assert.deepEqual(afterReload.core, beforeReload.core);
   await recovery.context.close(); await onlineContext.close(); await offlineContext.close();
-  passed('literal-completion-reload-preserves-execution-and-requires-fresh-sign-in');
+  passed('committed-response-loss-restart-and-natural-receipt-expiry-reconcile-only-original-execution');
   await writeFile(`${output}/summary.json`, JSON.stringify({ scope: 'Actual native/Core/customer Domain with test-only proofing adapter; real provider, workforce recovery, receiver-wide JWT revocation and production acceptance excluded', gates, failed: [], fontMeasurements: fonts.length }, null, 2));
 } catch (error) {
-  await writeFile(`${output}/summary.json`, JSON.stringify({ scope: 'Incomplete actual native/customer proofing qualification', gates, failed: [{ phase, kind: error instanceof assert.AssertionError ? 'assertion' : 'runtime' }] }, null, 2));
+  await writeFile(`${output}/summary.json`, JSON.stringify({ scope: 'Incomplete actual native/customer proofing qualification', gates, failed: [{ phase, kind: error instanceof assert.AssertionError ? 'assertion' : 'runtime', diagnostics }] }, null, 2));
   reportFailure(error, phase);
   process.exitCode = 1;
 } finally {

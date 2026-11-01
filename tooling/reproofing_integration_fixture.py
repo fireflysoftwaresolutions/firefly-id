@@ -6,11 +6,14 @@ No command accepts an existing database, remote Docker, arbitrary process or pat
 """
 import argparse
 import hashlib
+import http.client
+import http.server
 import json
 import os
 from pathlib import Path
 import secrets
 import socket
+import ssl
 import subprocess
 import sys
 import time
@@ -94,7 +97,7 @@ def prepare():
                            'fromDisplayName': 'Firefly Identity', 'ssl': 'false', 'starttls': 'false', 'auth': 'false'}
     realm_file.write_text(json.dumps(realm, indent=2) + '\n')
     (directory / 'credentials.json').write_text(json.dumps(credentials, indent=2) + '\n')
-    for port in (5432, 8443, 8444, 8445, 8448, 1025, 8025):
+    for port in (5432, 8443, 8444, 8445, 8448, 8449, 1025, 8025):
         with socket.socket() as probe:
             try:
                 probe.bind(('127.0.0.1', port))
@@ -205,6 +208,7 @@ def start():
               'spring.flyway.enabled': False, 'spring.r2dbc.url': 'r2dbc:postgresql://127.0.0.1:5432/kycb_reproofing',
               'spring.r2dbc.username': 'reproofing_runtime', 'spring.r2dbc.password': credentials['core-db'],
               'firefly.cache.enabled': False, 'firefly.web.idempotency.enabled': False,
+              'firefly.security.resource-server.enabled': False,
               'firefly.cqrs.query.caching-enabled': False, 'firefly.eda.enabled': False, 'firefly.stepevents.enabled': False,
               'springdoc.api-docs.enabled': False, 'springdoc.swagger-ui.enabled': False, 'logging.level.root': 'WARN',
               'firefly.reproofing.enabled': True, 'firefly.reproofing.issuer': profile['issuer'],
@@ -249,7 +253,7 @@ def start_domain(directory, owner, credentials, common):
     if not classpath or '\n' in classpath:
         raise RuntimeError('Invalid actual Domain classpath')
     settings = {**common, **descriptor_value['properties'],
-                'server.port': credentials['profiles'][0]['domain_port']}
+                'server.port': credentials['profiles'][0]['domain_backend_port']}
     # All templated values are private runner-local paths/credentials; the file
     # never becomes evidence and no response content is logged.
     substitutions = {'STATE': str(directory), 'CORE': credentials['profiles'][0]['core'],
@@ -266,13 +270,96 @@ def start_domain(directory, owner, credentials, common):
                 raise RuntimeError('Unresolved actual Domain runtime setting')
             settings[name] = value
     process = service(directory, owner, credentials, 'domain', settings, ['-cp', classpath, FIXTURE_MAIN])
-    owned.wait_https(credentials['profiles'][0]['domain'] + '/api/v1/identity-recovery/cases', directory, process)
+    backend = credentials['profiles'][0]['domain'].rsplit(':', 1)[0] + ':' + str(credentials['profiles'][0]['domain_backend_port'])
+    owned.wait_https(backend + '/api/v1/identity-recovery/cases', directory, process)
+    script = str(Path(__file__).resolve())
+    with (directory / 'logs/domain-transport.log').open('ab') as output:
+        relay = subprocess.Popen([sys.executable, script, 'serve-proxy'], stdout=output, stderr=subprocess.STDOUT)
+    owner['processes'].append({'pid': relay.pid, 'jar': script, 'kind': 'reproofing-domain-transport'})
+    owned.save_owner(directory, owner)
+    owned.wait_https(credentials['profiles'][0]['domain'] + '/api/v1/identity-recovery/cases', directory, relay)
+
+
+def serve_proxy():
+    directory, _ = state()
+    credentials = json.loads((directory / 'credentials.json').read_text())
+    profile = credentials['profiles'][0]
+    trust = ssl.create_default_context(cafile=str(directory / 'tls/ca.crt'))
+
+    class Relay(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def forward(self):
+            upstream = None
+            try:
+                raw_length = self.headers.get('Content-Length', '0')
+                if not raw_length.isdigit() or int(raw_length) > 32768 or self.headers.get('Transfer-Encoding'):
+                    self.send_error(400)
+                    return
+                body = self.rfile.read(int(raw_length))
+                headers = {key: value for key, value in self.headers.items()
+                           if key.lower() not in ('host', 'connection', 'transfer-encoding')}
+                upstream = http.client.HTTPSConnection('domain-customers.firefly.test', profile['domain_backend_port'],
+                                                        context=trust, timeout=15)
+                upstream.request(self.command, self.path, body=body or None, headers=headers)
+                response = upstream.getresponse()
+                payload = response.read(65537)
+                if len(payload) > 65536:
+                    raise RuntimeError('Bounded owned transport response exceeded')
+                marker = directory / 'record-response-loss.armed'
+                if self.command == 'POST' and self.path.endswith('/executions') and 200 <= response.status < 300:
+                    try:
+                        marker.rename(directory / 'record-response-loss.spent')
+                        self.connection.shutdown(socket.SHUT_RDWR)
+                        self.connection.close()
+                        return
+                    except FileNotFoundError:
+                        pass
+                self.send_response(response.status)
+                for key, value in response.getheaders():
+                    if key.lower() not in ('content-length', 'connection', 'transfer-encoding'):
+                        self.send_header(key, value)
+                self.send_header('Content-Length', str(len(payload)))
+                self.send_header('Connection', 'close')
+                self.end_headers()
+                self.wfile.write(payload)
+            except Exception:
+                self.close_connection = True
+            finally:
+                if upstream is not None:
+                    upstream.close()
+
+        do_POST = forward
+        do_GET = forward
+        do_PUT = forward
+
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', profile['domain_port']), Relay)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(str(directory / 'tls/server.crt'), str(directory / 'tls/proxy.key'))
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    server.serve_forever()
+
+
+def arm_record_loss():
+    directory, _ = state()
+    if (directory / 'record-response-loss.spent').exists():
+        raise RuntimeError('Owned response-loss fault already consumed')
+    protected(directory / 'record-response-loss.armed', 'one committed response\n')
+    print(json.dumps({'armed': True}))
+
+
+def fault_status():
+    directory, _ = state()
+    print(json.dumps({'recordResponseDropped': (directory / 'record-response-loss.spent').exists()}))
 
 
 def snapshot():
     directory, owner = state()
     native = owned.psql(directory, owner, """SELECT json_build_object(
       'executions',(SELECT count(*) FROM ff_reproofing_execution),
+      'recordedExecutions',(SELECT count(*) FROM ff_reproofing_execution WHERE recorded=true),
+      'oldestExecutedGrantSeconds',(SELECT coalesce(min(extract(epoch from (cast(authorization_json as jsonb)->>'expiresAt')::timestamptz-clock_timestamp())),0) FROM ff_reproofing_execution),
       'notifications',(SELECT coalesce(json_agg(json_build_object('status',status,'attempts',attempts)),'[]'::json) FROM ff_reproofing_notification),
       'epochs',(SELECT coalesce(json_agg(json_build_object('subject',subject,'epoch',epoch,'failures',failures)),'[]'::json) FROM ff_reproofing_state),
       'liveGrantSeconds',(SELECT coalesce(max(greatest(0,extract(epoch from (cast(authorization_json as jsonb)->>'expiresAt')::timestamptz-clock_timestamp()))),0) FROM ff_reproofing_ceremony WHERE authorization_json IS NOT NULL AND stage='ENROLL')
@@ -306,7 +393,8 @@ def restart_native():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['prepare', 'start', 'stop', 'snapshot', 'mail-stop', 'mail-start', 'restart-native'])
+    parser.add_argument('action', choices=['prepare', 'start', 'stop', 'snapshot', 'mail-stop', 'mail-start', 'restart-native',
+                                           'serve-proxy', 'arm-record-loss', 'fault-status'])
     args = parser.parse_args()
     owned.require_hosted()
     try:
@@ -321,6 +409,12 @@ def main():
             snapshot()
         elif args.action == 'restart-native':
             restart_native()
+        elif args.action == 'serve-proxy':
+            serve_proxy()
+        elif args.action == 'arm-record-loss':
+            arm_record_loss()
+        elif args.action == 'fault-status':
+            fault_status()
         else:
             mail(args.action == 'mail-start')
     except Exception:
