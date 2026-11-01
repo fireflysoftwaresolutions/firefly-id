@@ -184,6 +184,9 @@ async function providerResult(journey, mode) {
   assert.ok(response.ok, 'Owned proofing fixture control unavailable');
 }
 async function enrollment(journey, mode = 'APPROVED') {
+  diagnostics.enrollmentPhase = 'external-provider-tab';
+  const originalNativeUrl = journey.page.url();
+  assert.equal(new URL(originalNativeUrl).origin + new URL(originalNativeUrl).pathname, root);
   const popupOpened = journey.context.waitForEvent('page');
   await journey.page.locator('#ffid-lost-provider').click();
   const popup = await popupOpened;
@@ -191,12 +194,14 @@ async function enrollment(journey, mode = 'APPROVED') {
   assert.equal(new URL(popup.url()).origin, profile.domain);
   assert.equal(await popup.evaluate(() => window.opener === null), true, 'External provider must not control the native tab');
   await popup.close();
-  assert.equal(journey.page.url(), root, 'The original strict-cookie native tab must remain open');
+  assert.equal(journey.page.url(), originalNativeUrl, 'The original strict-cookie native tab and selected locale must remain unchanged');
   const cookie = (await journey.context.cookies([root])).find(value => value.name === 'FF_REPROOFING');
   assert.ok(cookie && cookie.httpOnly && cookie.secure && cookie.sameSite === 'Strict');
+  diagnostics.enrollmentPhase = 'independent-provider-result';
   await providerResult(journey, mode);
   await submit(journey.page);
   assert.equal(await nativeStage(journey.page), 'ENROLL', 'Independently approved exact proofing case must permit enrollment');
+  diagnostics.enrollmentPhase = 'fresh-authenticator-setup';
   const secret = (await journey.page.locator('#ffid-lost-enrollment-secret').innerText()).replace(/\s/g, '');
   assert.ok(/^[A-Z2-7]+$/.test(secret), 'Native enrollment secret unavailable');
   return secret;
