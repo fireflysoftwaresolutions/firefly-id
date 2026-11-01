@@ -3,6 +3,10 @@ package io.firefly.id.nativeauth.impl;
 import io.firefly.id.nativeauth.NativePhases;
 import io.firefly.id.nativeauth.ReproofingContracts.*;
 import org.keycloak.models.KeycloakSession;
+import org.keycloak.models.ClientModel;
+import org.keycloak.models.OAuth2DeviceConfig;
+import org.keycloak.models.CibaConfig;
+import org.keycloak.protocol.oidc.OIDCConfigAttributes;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
@@ -39,6 +43,10 @@ final class ReproofingRpcImpl {
                 || (id.equals(config.value("domain-workload-client-id")) && Set.of("prepare", "admit").contains(route)));
         var client = child.clients().getClientByClientId(config.realm, id);
         require(client != null && client.isEnabled() && !client.isPublicClient() && !client.isStandardFlowEnabled() && !client.isDirectAccessGrantsEnabled()
-                && !client.isImplicitFlowEnabled() && !client.isServiceAccountsEnabled() && client.validateSecret(secret));
+                && !client.isImplicitFlowEnabled() && !client.isServiceAccountsEnabled()
+                && disabled(client, OAuth2DeviceConfig.OAUTH2_DEVICE_AUTHORIZATION_GRANT_ENABLED) && disabled(client, CibaConfig.OIDC_CIBA_GRANT_ENABLED)
+                && disabled(client, OIDCConfigAttributes.STANDARD_TOKEN_EXCHANGE_ENABLED) && disabled(client, OIDCConfigAttributes.JWT_AUTHORIZATION_GRANT_ENABLED)
+                && client.validateSecret(secret));
     }
+    private static boolean disabled(ClientModel client, String attribute) { String value = client.getAttribute(attribute); return value == null || "false".equals(value); }
 }

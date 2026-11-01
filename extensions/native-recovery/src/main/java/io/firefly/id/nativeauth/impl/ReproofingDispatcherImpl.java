@@ -11,8 +11,12 @@ import static io.firefly.id.nativeauth.NativeSecurity.require;
 final class ReproofingDispatcherImpl {
     private final KeycloakSession request;
     ReproofingDispatcherImpl(KeycloakSession request) { this.request = request; }
-    record Lease(String id, String token) { }
+    record Lease(String id, String token, boolean dispatch) { }
     static boolean owns(ReproofingNotificationImpl notification, String token) { return notification != null && "SENDING".equals(notification.status) && token != null && token.equals(notification.leaseToken); }
+    static boolean expireFinalLease(ReproofingNotificationImpl notification, long now) {
+        if (notification == null || !"SENDING".equals(notification.status) || notification.attempts < 8 || notification.nextAttemptAt > now) return false;
+        notification.status = "FAILED"; notification.leaseToken = null; return true;
+    }
     int dispatch() {
         String header = request.getContext().getRequestHeaders().getHeaderString("Authorization");
         NativePhases.run(request, child -> { ReproofingRpcImpl.workload(child, header, "dispatch"); return null; });
@@ -20,11 +24,15 @@ final class ReproofingDispatcherImpl {
         for (int n = 0; n < 10; n++) {
             Lease lease = NativePhases.run(request, child -> {
                 var store = new ReproofingStoreImpl(child); long now = store.now();
-                var rows = store.em.createQuery("select n from ReproofingNotificationImpl n where n.realmId = :realm and n.status in ('PENDING','SENDING') and n.nextAttemptAt <= :now and n.attempts < 8 order by n.nextAttemptAt", ReproofingNotificationImpl.class)
+                var rows = store.em.createQuery("select n from ReproofingNotificationImpl n where n.realmId = :realm and n.status in ('PENDING','SENDING') and n.nextAttemptAt <= :now and (n.attempts < 8 or (n.status = 'SENDING' and n.attempts = 8)) order by n.nextAttemptAt", ReproofingNotificationImpl.class)
                         .setParameter("realm", store.config.realm.getId()).setParameter("now", now).setLockMode(LockModeType.PESSIMISTIC_WRITE).setMaxResults(1).getResultList();
-                if (rows.isEmpty()) return null; var notification = rows.get(0); notification.attempts++; notification.status = "SENDING"; notification.nextAttemptAt = now + 60_000L; notification.leaseToken = java.util.UUID.randomUUID().toString(); return new Lease(notification.id, notification.leaseToken);
+                if (rows.isEmpty()) return null; var notification = rows.get(0);
+                if (expireFinalLease(notification, now)) return new Lease(notification.id, null, false);
+                require(notification.attempts < 8); notification.attempts++; notification.status = "SENDING"; notification.nextAttemptAt = now + 60_000L; notification.leaseToken = java.util.UUID.randomUUID().toString(); return new Lease(notification.id, notification.leaseToken, true);
             });
-            if (lease == null) break; String id = lease.id();
+            if (lease == null) break;
+            if (!lease.dispatch()) { processed++; continue; }
+            String id = lease.id();
             boolean delivered;
             try {
                 NativePhases.run(request, child -> {
