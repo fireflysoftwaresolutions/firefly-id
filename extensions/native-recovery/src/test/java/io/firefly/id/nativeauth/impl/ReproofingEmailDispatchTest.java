@@ -21,7 +21,7 @@ class ReproofingEmailDispatchTest {
     @Test @SuppressWarnings("unchecked")
     void realEmailTemplateProviderCanPopulateAttributesAndDeliverExactCommittedDestination() throws Exception {
         var session = mock(KeycloakSession.class); var context = mock(KeycloakContext.class); var realm = mock(RealmModel.class);
-        when(session.getContext()).thenReturn(context); when(context.getRealm()).thenReturn(realm); when(realm.getId()).thenReturn("realm"); when(realm.getName()).thenReturn("customers");
+        when(session.getContext()).thenReturn(context); when(context.getRequestHeaders()).thenReturn(mock(jakarta.ws.rs.core.HttpHeaders.class)); when(context.getRealm()).thenReturn(realm); when(realm.getId()).thenReturn("realm"); when(realm.getName()).thenReturn("customers");
         Map<String,String> configuration = Map.of("enabled","true","population","HUMAN","allowed-origin","https://id.test","issuer","https://id.test/realms/customers","core-workload-client-id","core","domain-workload-client-id","domain","ttl-seconds","600");
         when(realm.getAttribute(anyString())).thenAnswer(call -> configuration.get(call.getArgument(0,String.class).replace("firefly.reproofing.","")));
         var em = mock(EntityManager.class); var jpa = mock(JpaConnectionProvider.class); when(session.getProvider(JpaConnectionProvider.class)).thenReturn(jpa); when(jpa.getEntityManager()).thenReturn(em);
