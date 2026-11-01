@@ -24,19 +24,19 @@ public final class ReproofingResourceImpl {
         } catch (Exception refused) { return unavailable(); }
     }
     @POST @Consumes(MediaType.APPLICATION_FORM_URLENCODED) @Produces(MediaType.TEXT_HTML)
-    public Response submit(@FormParam("csrf") String csrf, @FormParam("username") String username, @FormParam("password") String password,
-            @FormParam("passwordConfirm") String confirmation, @FormParam("otp") String otp) {
+    public Response submit(InputStream body) {
         String id = null;
         try {
             secure(); var config = new ReproofingConfigImpl(session.getContext().getRealm());
             requireOrigin(session.getContext().getRequestHeaders().getHeaderString("Origin"), config.value("allowed-origin"));
             var cookie = session.getContext().getRequestHeaders().getCookies().get(COOKIE); require(cookie != null); id = cookie.getValue();
-            var engine = new ReproofingEngineImpl(session); String stage = engine.csrf(id, csrf);
+            var fields = form(body);
+            var engine = new ReproofingEngineImpl(session); String stage = engine.csrf(id, fields.get("csrf"));
             try {
                 switch (stage) {
-                    case "IDENTIFY" -> engine.identify(id, username);
+                    case "IDENTIFY" -> engine.identify(id, fields.get("username"));
                     case "VERIFY" -> engine.confirm(id);
-                    case "ENROLL" -> { if (engine.replace(id, password, confirmation, otp)) { try { engine.reconcile(id); } catch (Exception auditPending) { /* Exact committed journal remains available for audit-only retry. */ } } }
+                    case "ENROLL" -> { if (engine.replace(id, fields.get("password"), fields.get("passwordConfirm"), fields.get("otp"))) { try { engine.reconcile(id); } catch (Exception auditPending) { /* Exact committed journal remains available for audit-only retry. */ } } }
                     case "COMPLETE" -> engine.reconcile(id);
                     default -> throw new IllegalStateException("Recovery unavailable");
                 }
@@ -52,6 +52,18 @@ public final class ReproofingResourceImpl {
                     : new ReproofingRpcImpl(session).call(route, ReproofingWireImpl.read(new String(bytes, StandardCharsets.UTF_8), NativeRequest.class));
             return Response.ok(ReproofingWireImpl.json(result)).header("Cache-Control", "no-store").build();
         } catch (Exception refused) { return Response.status(403).entity(Map.of("error", "recovery_unavailable")).header("Cache-Control", "no-store").build(); }
+    }
+    static Map<String, String> form(InputStream body) {
+        try {
+            byte[] bytes = body.readNBytes(16385); require(bytes.length <= 16384);
+            Map<String, String> fields = new java.util.HashMap<>();
+            for (String pair : new String(bytes, StandardCharsets.UTF_8).split("&", -1)) {
+                String[] parts = pair.split("=", 2); require(parts.length == 2 && fields.size() < 5);
+                String name = java.net.URLDecoder.decode(parts[0], StandardCharsets.UTF_8), value = java.net.URLDecoder.decode(parts[1], StandardCharsets.UTF_8);
+                require(java.util.Set.of("csrf", "username", "password", "passwordConfirm", "otp").contains(name) && fields.putIfAbsent(name, value) == null);
+            }
+            return fields;
+        } catch (Exception refused) { throw new IllegalStateException("Recovery unavailable"); }
     }
     private void secure() { require("https".equals(session.getContext().getUri().getBaseUri().getScheme())); new ReproofingConfigImpl(session.getContext().getRealm()); }
     private Response render(ReproofingEngineImpl.View view, boolean cookie) {

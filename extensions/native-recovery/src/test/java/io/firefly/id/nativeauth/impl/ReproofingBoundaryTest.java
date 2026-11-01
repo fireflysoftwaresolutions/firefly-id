@@ -41,6 +41,13 @@ class ReproofingBoundaryTest {
         assertFalse(view.toString().contains("private"));
         assertFalse(new Journey(null, "private-provider").toString().contains("private"));
     }
+    @Test void formRejectsOversizeDuplicateAndUnexpectedFieldsBeforeParsingCredentials() {
+        java.util.function.Function<String, java.io.InputStream> input = text -> new java.io.ByteArrayInputStream(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertEquals("a+b c", ReproofingResourceImpl.form(input.apply("csrf=a%2Bb+c")).get("csrf"));
+        assertThrows(RuntimeException.class, () -> ReproofingResourceImpl.form(input.apply("csrf=a&csrf=b")));
+        assertThrows(RuntimeException.class, () -> ReproofingResourceImpl.form(input.apply("approved=true")));
+        assertThrows(RuntimeException.class, () -> ReproofingResourceImpl.form(input.apply("password=" + "x".repeat(16384))));
+    }
     private RealmModel realm() {
         var realm = mock(RealmModel.class); when(realm.getName()).thenReturn("customers");
         Map<String, String> attributes = Map.of("enabled", "true", "population", "HUMAN", "allowed-origin", "https://id.test", "issuer", "https://id.test/realms/customers", "core-workload-client-id", "core-owner", "domain-workload-client-id", "domain-owner", "ttl-seconds", "600");
