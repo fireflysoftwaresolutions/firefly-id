@@ -42,6 +42,13 @@ class NativePackagingTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 PACKAGE.inspect(path, 'native-recovery')
 
+    def test_distribution_refuses_qualification_classes_even_without_registration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.archive(directory, {'io/firefly/id/nativeauth/SupportQualificationFactory.class':
+                                             struct.pack('>IHH', 0xCAFEBABE, 0, 65)})
+            with self.assertRaises(ValueError):
+                PACKAGE.inspect(path, 'native-recovery')
+
     def test_current_distribution_is_admitted_without_support_owner(self):
         with tempfile.TemporaryDirectory() as directory:
             result = PACKAGE.inspect(self.archive(directory), 'native-recovery')

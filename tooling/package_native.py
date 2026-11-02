@@ -32,6 +32,8 @@ def inspect(path: Path, module: str) -> dict:
     with zipfile.ZipFile(path) as archive:
         if "META-INF/services/io.firefly.id.nativeauth.NativeSupportAuthorization$Factory" in archive.namelist():
             raise ValueError("The default distribution must not activate a support authorization owner")
+        if any("SupportQualification" in name or "support-retained-fixture" in name for name in archive.namelist()):
+            raise ValueError("Qualification adapters must not enter the default distribution")
         for name in REQUIRED[module]:
             if not archive.read(name):
                 raise ValueError(f"Empty required resource: {name}")
