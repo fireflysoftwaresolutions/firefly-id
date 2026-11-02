@@ -48,8 +48,13 @@ test('retained plan uses only generated profile flows and controls, never realm 
   assert.deepEqual(Object.fromEntries(Object.keys(policies).map(key => [key, result.realm[key]])), policies);
   for (const key of Object.keys(policies)) {
     const missing = { ...controls }; delete missing[key];
-    assert.throws(() => retainedOperations(missing), 'Missing retained policy field must refuse: ' + key);
+    if (key === 'webAuthnPolicyPasswordlessMediation') {
+      const native = retainedOperations(missing);
+      assert.equal(Object.hasOwn(native.realm, key), false, 'Absent native null mediation must not invent a value');
+      assert.equal(native.realm.webAuthnPolicyPasswordlessPasskeysEnabled, false);
+    } else assert.throws(() => retainedOperations(missing), 'Missing retained policy field must refuse: ' + key);
   }
+  assert.equal(retainedOperations({ ...controls, webAuthnPolicyPasswordlessMediation: null }).realm.webAuthnPolicyPasswordlessMediation, null);
   for (const key of ['webAuthnPolicyRpEntityName', 'webAuthnPolicyPasswordlessRpEntityName']) {
     for (const value of ['', null, false]) assert.throws(() => retainedOperations({ ...controls, [key]: value }));
   }
@@ -57,6 +62,19 @@ test('retained plan uses only generated profile flows and controls, never realm 
   assert.throws(() => retainedOperations(incomplete));
   assert.ok(!JSON.stringify(result).includes('must-not'));
   assert.throws(() => retainedOperations({ ...controls, authenticationFlows: [] }, ['browserFlow', 'authenticationFlows']));
+});
+
+test('retained control diagnostics expose fixed missing field names and native nullable shape only', async () => {
+  const { retainedControlDiagnostic } = await runtime();
+  assert.equal(typeof retainedControlDiagnostic, 'function');
+  const value = retainedControlDiagnostic({ PRIVATE_FIELD: 'PRIVATE_VALUE', webAuthnPolicyRpEntityName: 'PRIVATE_NAME' });
+  assert.ok(value.missingFields.includes('webAuthnPolicyPasswordlessMediation'));
+  assert.ok(!value.missingRequiredFields.includes('webAuthnPolicyPasswordlessMediation'));
+  assert.ok(value.missingRequiredFields.includes('webAuthnPolicyPasswordlessPasskeysEnabled'));
+  assert.equal(value.passwordlessMediation, 'ABSENT');
+  assert.equal(retainedControlDiagnostic({ webAuthnPolicyPasswordlessMediation: null }).passwordlessMediation, 'NULL');
+  assert.equal(retainedControlDiagnostic({ webAuthnPolicyPasswordlessMediation: 'PRIVATE' }).passwordlessMediation, 'PRESENT');
+  assert.doesNotMatch(JSON.stringify(value), /PRIVATE/);
 });
 
 test('runtime failure diagnostics expose only whitelisted class and owned source positions', async () => {

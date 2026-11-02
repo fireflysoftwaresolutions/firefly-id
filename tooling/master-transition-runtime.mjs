@@ -21,6 +21,7 @@ const WEBAUTHN_POLICY_KEYS = Object.freeze(['webAuthnPolicy', 'webAuthnPolicyPas
   'RequireResidentKey', 'ResidentKey', 'UserVerificationRequirement', 'CreateTimeout', 'AvoidSameAuthenticatorRegister',
   'AcceptableAaguids', 'ExtraOrigins'].map(field => prefix + field))
   .concat(['webAuthnPolicyPasswordlessPasskeysEnabled', 'webAuthnPolicyPasswordlessMediation']));
+const NULLABLE_WEBAUTHN_POLICY_KEYS = new Set(['webAuthnPolicyPasswordlessMediation']);
 export const CONTROL_KEYS = Object.freeze(['attributes', 'registrationAllowed', 'resetPasswordAllowed', 'rememberMe', 'registrationEmailAsUsername',
   'editUsernameAllowed', 'verifyEmail', 'browserFlow', 'directGrantFlow', 'registrationFlow', 'resetCredentialsFlow',
   'dockerAuthenticationFlow', 'firstBrokerLoginFlow', 'authenticationFlows', 'requiredActions', ...WEBAUTHN_POLICY_KEYS,
@@ -37,7 +38,8 @@ export function ownedRuntime(root, env, owner) {
 }
 
 export function retainedOperations(candidate) {
-  assert.ok(CONTROL_KEYS.every(key => Object.hasOwn(candidate, key)), 'Complete generated security controls required');
+  assert.ok(CONTROL_KEYS.every(key => Object.hasOwn(candidate, key) || NULLABLE_WEBAUTHN_POLICY_KEYS.has(key)),
+    'Complete generated security controls required');
   // The update API replaces each complete WebAuthn block only when its RP entity name is nonempty.
   for (const key of ['webAuthnPolicyRpEntityName', 'webAuthnPolicyPasswordlessRpEntityName']) {
     assert.ok(typeof candidate[key] === 'string' && candidate[key].trim().length > 0, 'Candidate RP entity name required');
@@ -45,10 +47,20 @@ export function retainedOperations(candidate) {
   const flows = candidate.authenticationFlows.filter(item => [BROWSER, DENY].includes(item.alias));
   assert.equal(flows.length, 2);
   assert.ok(flows.every(item => item.providerId === 'basic-flow' && item.topLevel === true && item.builtIn === false));
-  const realm = Object.fromEntries(CONTROL_KEYS.filter(key => !['authenticationFlows', 'requiredActions'].includes(key))
+  // Native passwordless mediation defaults to null and NON_NULL export omits it; omission preserves that builder default.
+  const realm = Object.fromEntries(CONTROL_KEYS.filter(key => !['authenticationFlows', 'requiredActions'].includes(key) && Object.hasOwn(candidate, key))
     .map(key => [key, candidate[key]]));
   assert.equal(realm.browserFlow, BROWSER);
   return { realm, flows, actions: candidate.requiredActions };
+}
+
+export function retainedControlDiagnostic(candidate) {
+  const missingFields = CONTROL_KEYS.filter(key => !Object.hasOwn(candidate, key));
+  return { missingFields, missingRequiredFields: missingFields.filter(key => !NULLABLE_WEBAUTHN_POLICY_KEYS.has(key)),
+    invalidRpNames: ['webAuthnPolicyRpEntityName', 'webAuthnPolicyPasswordlessRpEntityName']
+      .filter(key => typeof candidate[key] !== 'string' || candidate[key].trim().length === 0),
+    passwordlessMediation: !Object.hasOwn(candidate, 'webAuthnPolicyPasswordlessMediation') ? 'ABSENT'
+      : candidate.webAuthnPolicyPasswordlessMediation === null ? 'NULL' : 'PRESENT' };
 }
 
 export function safeRuntimeFailure(error) {
@@ -503,6 +515,7 @@ async function qualify() {
     const actionLinks = await prepareMasterActions({ browser, contexts, admin, accounts,
       stage: value => { stage = value; save(); }, passed: pass });
     stage = 'apply-generated-settings-without-realm-replacement'; save();
+    report.retainedControls = retainedControlDiagnostic(candidate); save();
     const operations = retainedOperations(candidate);
     for (const flow of operations.flows) {
       const { authenticationExecutions, ...representation } = flow;
