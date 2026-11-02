@@ -109,6 +109,34 @@ class MasterTransitionTest(unittest.TestCase):
         self.assertNotIn('PRIVATE', json.dumps(result)); self.assertNotIn('unknown-private-field', json.dumps(result))
         self.assertEqual(module.profile_diagnostic({}, ValueError('PRIVATE'))['gate'], 'UNCLASSIFIED')
 
+    def test_profile_diagnostic_inventories_later_gates_without_exposing_unknown_names_or_values(self):
+        module = self.module()
+        document = {'privateKey': 'PRIVATE', 'scimApiEnabled': False, 'PRIVATE_FIELD': 'PRIVATE',
+                    'attributes': {'cibaExpiresIn': '120', 'frontendUrl': 'PRIVATE', 'PRIVATE_ATTRIBUTE': 'PRIVATE'},
+                    'clients': [{'clientId': 'PRIVATE', 'authorizationSettings': 'PRIVATE',
+                                 'PRIVATE_FIELD': 'PRIVATE', 'attributes': {'jwks.url': 'PRIVATE',
+                                 'oidc.ciba.grant.enabled': 'true', 'PRIVATE_ATTRIBUTE': 'PRIVATE'}}],
+                    'authenticationFlows': [{'authenticationExecutions': [
+                        {'authenticator': 'organization'}, {'authenticator': 'PRIVATE'}]}],
+                    'authenticatorConfig': [{'alias': 'review profile config', 'config': {'PRIVATE': 'PRIVATE'}}],
+                    'requiredActions': [{'alias': 'UPDATE_PASSWORD', 'providerId': 'PRIVATE'}],
+                    'components': {module.profile.USER_PROFILE_PROVIDER: [{'config': {'kc.user.profile.config': [json.dumps({
+                        'attributes': [{'name': 'PRIVATE', 'displayName': 'PRIVATE', 'required': None}], 'PRIVATE': 'PRIVATE'})]}}]}}
+        result = module.profile_diagnostic(document, ValueError('Unsupported realm fields refused'))
+        self.assertIn('privateKey', result['knownUnsupportedRealmFields'])
+        self.assertEqual(result['realmNativeDefaults'], {'cibaExpiresIn': True})
+        self.assertIn('authorizationSettings', result['clients'][0]['knownUnsupportedFields'])
+        self.assertIn('jwks.url', result['clients'][0]['knownAttributes'])
+        self.assertIn('organization', result['knownAuthenticators'])
+        self.assertEqual(result['unknownAuthenticatorCount'], 1)
+        self.assertFalse(result['authenticatorConfigs'][0]['reviewedDefault'])
+        self.assertEqual(result['requiredActions'][0]['alias'], 'UPDATE_PASSWORD')
+        self.assertEqual(result['requiredActions'][0]['provider'], 'OTHER')
+        self.assertTrue(result['nativeUserProfiles'][0]['jsonObject'])
+        self.assertEqual(result['nativeUserProfiles'][0]['unknownKeyCount'], 1)
+        self.assertEqual(result['nativeUserProfiles'][0]['attributes'][0]['name'], 'OTHER')
+        self.assertNotIn('PRIVATE', json.dumps(result))
+
     def test_native_default_profile_readback_normalizes_serialization_only_after_strict_review(self):
         module = self.module(); document = source(); kind = module.profile.USER_PROFILE_PROVIDER
         configuration = copy.deepcopy(module.profile.DEFAULT_USER_PROFILE)

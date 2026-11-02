@@ -24,6 +24,36 @@ LABEL = 'org.firefly-id.master-transition'
 ORIGIN = 'https://id.firefly.test:8443'
 PHASE = 'initialization'
 PROFILE_DIAGNOSTIC = None
+# Diagnostic catalogs are pinned 26.8.1 representation fields/provider IDs, not acceptance allowlists.
+UPSTREAM_REALM_FIELDS = profile.REALM_FIELDS | set('''adminPermissionsClient applicationScopeMappings applications
+certificate clientTemplates codeSecret defaultRoles oauthClients organizations passwordCredentialGrantAllowed privateKey
+protocolMappers publicKey realmCacheEnabled social socialProviders updateProfileOnInitialSocialLogin userCacheEnabled'''.split())
+UPSTREAM_CLIENT_FIELDS = profile.CLIENT_FIELDS | set('''type directGrantsOnly clientTemplate useTemplateConfig
+useTemplateScope useTemplateMappers authorizationSettings'''.split())
+UPSTREAM_ATTRIBUTES = set(profile.SAFE_REALM_ATTRIBUTES) | set(profile.SAFE_CLIENT_ATTRIBUTES) | set('''
+firefly.privileged-administration frontendUrl clientOfflineSessionIdleTimeout clientSessionMaxLifespan clientSessionIdleTimeout
+user.info.response.signature.alg user.info.encrypted.response.alg user.info.encrypted.response.enc
+request.object.signature.alg request.object.encryption.alg request.object.encryption.enc request.object.required request.uris
+jwks.url use.jwks.url jwks.string use.jwks.string exclude.session.state.from.auth.response exclude.issuer.from.auth.response
+tls.client.certificate.bound.access.tokens dpop.bound.access.tokens id.token.signed.response.alg id.token.encrypted.response.alg
+id.token.encrypted.response.enc access.token.signed.response.alg access.token.lifespan client.session.idle.timeout
+client.session.max.lifespan client.offline.session.idle.timeout client.offline.session.max.lifespan
+token.endpoint.auth.signing.alg token.endpoint.auth.signing.max.exp backchannel.logout.url logout.confirmation.enabled
+client_credentials.use_refresh_token token.response.type.bearer.lower-case access.token.header.type.rfc9068
+id.token.as.detached.signature authorization.signed.response.alg authorization.encrypted.response.alg
+authorization.encrypted.response.enc frontchannel.logout.url frontchannel.logout.session.required
+standard.token.exchange.enableRefreshRequestedTokenType oauth2.jwt.authorization.grant.enabled
+oauth2.jwt.authorization.grant.idp oauth2.jwt.authorization.grant.audience external.token.enabled external.token.idp
+logoUri tosUri policyUri sectorIdentifierUri allow.token.introspection.without.audience.check
+allow.userinfo.with.lightweight.access.token allow.oidc.params.in.redirect.uris require.pushed.authorization.requests
+ciba.backchannel.token.delivery.mode ciba.backchannel.client.notification.endpoint ciba.backchannel.auth.request.signing.alg
+'''.split())
+UPSTREAM_AUTHENTICATORS = profile.SOURCE_AUTHENTICATORS | set('''auth-username-form auth-password-form
+conditional-sub-flow-executed conditional-client-scope conditional-user-role conditional-level-of-authentication
+conditional-user-attribute idp-detect-existing-broker-user idp-confirm-override-link idp-auto-link
+idp-add-organization-member auth-conditional-otp-form auth-x509-client-username-form direct-grant-auth-x509-username
+webauthn-authenticator-passwordless deny-access-authenticator allow-access-authenticator organization passkeys-authenticator
+user-session-limits firefly-privileged-webauthn'''.split())
 
 
 def require(value, message):
@@ -72,19 +102,72 @@ def profile_diagnostic(document, failure):
         'Effective required actions differ': 'ACTION_READBACK',
         'Signing component inventory differs': 'SIGNING_COMPONENT_READBACK',
     }
-    upstream_fields = {'userManagedAccessAllowed', 'defaultSignatureAlgorithm', 'maxSecondaryAuthFailures',
-                       'otpPolicyCodeReusable', 'localizationTexts', 'webAuthnPolicyPasswordlessMediation',
-                       'adminPermissionsClient', 'applications', 'applicationScopeMappings', 'defaultRoles',
-                       'clientTemplates', 'social', 'socialProviders', 'userCacheEnabled', 'realmCacheEnabled'}
-    known_attributes = {'frontendUrl', 'cibaBackchannelTokenDeliveryMode', 'cibaAuthRequestedUserHint',
-                        'oauth2DeviceCodeLifespan', 'oauth2DevicePollingInterval', 'parRequestUriLifespan',
-                        'clientOfflineSessionIdleTimeout', 'clientSessionMaxLifespan', 'clientSessionIdleTimeout'}
+    def mapping(value):
+        return value if isinstance(value, dict) else {}
+    def rows(value):
+        return [item for item in value[:64] if isinstance(item, dict)] if isinstance(value, list) else []
+    def count(value):
+        return min(len(value), 10000)
+    def names(value, known):
+        return sorted(set(value) & known)
+    def known(value, catalog):
+        return value if isinstance(value, str) and value in catalog else 'OTHER'
+    def profile_shape(component):
+        config = mapping(component.get('config'))
+        result = {'configKeyCount': count(config), 'knownConfigKeys': names(config, {'kc.user.profile.config'}),
+                  'jsonObject': False}
+        values = config.get('kc.user.profile.config')
+        if isinstance(values, list) and len(values) == 1 and isinstance(values[0], str):
+            try:
+                configured = profile.parse_document(values[0])
+                result.update(jsonObject=True, knownKeys=names(configured, {'attributes', 'groups', 'unmanagedAttributePolicy'}),
+                              unknownKeyCount=count(set(configured) - {'attributes', 'groups', 'unmanagedAttributePolicy'}),
+                              attributes=[{'name': known(item.get('name'), {'username', 'email', 'firstName', 'lastName'}),
+                                           'knownKeys': names(item, {'name', 'displayName', 'validations', 'annotations', 'permissions',
+                                                                    'required', 'selector', 'group', 'multivalued'}),
+                                           'requiredPresent': item.get('required') is not None,
+                                           'multivaluedFalse': item.get('multivalued') is False}
+                                          for item in rows(configured.get('attributes'))])
+            except (ValueError, TypeError):
+                pass
+        return result
+    attributes = mapping(document.get('attributes'))
+    clients = rows(document.get('clients'))
+    authenticators = [step.get('authenticator') for flow in rows(document.get('authenticationFlows'))
+                      for step in rows(flow.get('authenticationExecutions')) if isinstance(step.get('authenticator'), str)]
+    actions = set(profile.ACTIONS) | {'verifiable_credential_offer'}
     message = str(failure)
     result = {'gate': gates.get(message, 'UNCLASSIFIED'),
-              'unsupportedRealmFieldCount': len(set(document) - profile.REALM_FIELDS),
-              'knownUnsupportedRealmFields': sorted((set(document) - profile.REALM_FIELDS) & upstream_fields),
-              'realmAttributeCount': len(document.get('attributes') or {}),
-              'knownRealmAttributes': sorted(set(document.get('attributes') or {}) & known_attributes)}
+              'unsupportedRealmFieldCount': count(set(document) - profile.REALM_FIELDS),
+              'knownUnsupportedRealmFields': names(set(document) - profile.REALM_FIELDS, UPSTREAM_REALM_FIELDS),
+              'realmAttributeCount': count(attributes), 'knownRealmAttributes': names(attributes, UPSTREAM_ATTRIBUTES),
+              'unknownRealmAttributeCount': count(set(attributes) - UPSTREAM_ATTRIBUTES),
+              'realmNativeDefaults': {key: attributes[key] == profile.SAFE_REALM_ATTRIBUTES[key]
+                                      for key in names(attributes, set(profile.SAFE_REALM_ATTRIBUTES))},
+              'alternateAuthorizationDisabled': {key: document[key] is False for key in (
+                  'scimApiEnabled', 'organizationsEnabled', 'userManagedAccessEnabled', 'userManagedAccessAllowed',
+                  'verifiableCredentialsEnabled') if key in document},
+              'clients': [{'knownUnsupportedFields': names(set(client) - profile.CLIENT_FIELDS, UPSTREAM_CLIENT_FIELDS),
+                           'unknownFieldCount': count(set(client) - UPSTREAM_CLIENT_FIELDS),
+                           'knownAttributes': names(mapping(client.get('attributes')), UPSTREAM_ATTRIBUTES),
+                           'unknownAttributeCount': count(set(mapping(client.get('attributes'))) - UPSTREAM_ATTRIBUTES),
+                           'reviewedAttributes': {key: mapping(client.get('attributes'))[key] in profile.SAFE_CLIENT_ATTRIBUTES[key]
+                                                  if isinstance(mapping(client.get('attributes'))[key], str) else False
+                                                  for key in names(mapping(client.get('attributes')), set(profile.SAFE_CLIENT_ATTRIBUTES))}}
+                          for client in clients],
+              'knownAuthenticators': names(authenticators, UPSTREAM_AUTHENTICATORS),
+              'unknownAuthenticatorCount': count(set(authenticators) - UPSTREAM_AUTHENTICATORS),
+              'authenticatorConfigs': [{'alias': known(item.get('alias'), profile.SOURCE_CONFIGS),
+                                       'reviewedDefault': item.get('config') == profile.SOURCE_CONFIGS.get(known(item.get('alias'), profile.SOURCE_CONFIGS), False),
+                                       'configKeyCount': count(mapping(item.get('config')))}
+                                      for item in rows(document.get('authenticatorConfig'))],
+              'requiredActions': [{'alias': known(item.get('alias'), actions),
+                                   'provider': known(item.get('providerId'), actions),
+                                   'enabled': item.get('enabled') is True, 'defaultAction': item.get('defaultAction') is True,
+                                   'configKeyCount': count(mapping(item.get('config')))}
+                                  for item in rows(document.get('requiredActions'))],
+              'nativeUserProfiles': [profile_shape(component) for component in rows(
+                  mapping(document.get('components')).get(profile.USER_PROFILE_PROVIDER))]}
     for prefix in ('Preserved realm setting differs: ', 'Effective realm control differs: '):
         if message.startswith(prefix) and message[len(prefix):] in profile.REALM_FIELDS:
             result.update(gate='REALM_READBACK', field=message[len(prefix):])

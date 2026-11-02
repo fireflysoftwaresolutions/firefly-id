@@ -43,7 +43,7 @@ accessCodeLifespanUserAction accessCodeLifespanLogin actionTokenGeneratedByAdmin
 oauth2DeviceCodeLifespan oauth2DevicePollingInterval smtpServer loginTheme accountTheme adminTheme emailTheme
 browserSecurityHeaders eventsEnabled eventsListeners enabledEventTypes eventsExpiration adminEventsEnabled
 adminEventsDetailsEnabled internationalizationEnabled supportedLocales defaultLocale keycloakVersion
-userManagedAccessEnabled userManagedAccessAllowed organizationsEnabled verifiableCredentialsEnabled adminPermissionsEnabled
+userManagedAccessEnabled userManagedAccessAllowed organizationsEnabled verifiableCredentialsEnabled adminPermissionsEnabled scimApiEnabled
 '''.split())
 CLIENT_FIELDS = set('''id clientId name description rootUrl adminUrl baseUrl surrogateAuthRequired enabled alwaysDisplayInConsole
 clientAuthenticatorType secret registrationAccessToken redirectUris webOrigins notBefore bearerOnly consentRequired
@@ -58,6 +58,12 @@ SAFE_CLIENT_ATTRIBUTES = {
     'oauth2.device.authorization.grant.enabled': {'false'}, 'oidc.ciba.grant.enabled': {'false'},
     'standard.token.exchange.enabled': {'false'}, 'oauth2.token.exchange.grant.enabled': {'false'},
     'use.refresh.tokens': {'true', 'false'}, 'client.use.lightweight.access.token.enabled': {'false'},
+}
+# Pinned CibaConfig, OAuth2DeviceConfig, and ParConfig defaults; client grant switches remain independently refused.
+SAFE_REALM_ATTRIBUTES = {
+    'cibaBackchannelTokenDeliveryMode': 'poll', 'cibaExpiresIn': '120', 'cibaInterval': '5',
+    'cibaAuthRequestedUserHint': 'login_hint', 'oauth2DeviceCodeLifespan': '600',
+    'oauth2DevicePollingInterval': '5', 'parRequestUriLifespan': '60',
 }
 
 SOURCE_AUTHENTICATORS = set("""registration-page-form registration-user-creation registration-password-action
@@ -234,13 +240,16 @@ def prerequisites(document, realm, origin, admin_origin=None):
         require(not document.get(key), 'External identity or credential providers are unsupported')
     require(not document.get('userManagedAccessEnabled') and not document.get('userManagedAccessAllowed')
             and not document.get('organizationsEnabled')
-            and not document.get('verifiableCredentialsEnabled'), 'Alternate authorization features are unsupported')
+            and not document.get('verifiableCredentialsEnabled')
+            and document.get('scimApiEnabled', False) is False, 'Alternate authorization features are unsupported')
     require(not document.get('clientPolicies', {}).get('policies') and not document.get('clientProfiles', {}).get('profiles'),
             'Custom client policy/profile execution requires separate review')
     components = document.get('components', {})
     reviewed_native_components(components, realm=realm)
     attributes = document.get('attributes', {})
-    require(isinstance(attributes, dict) and set(attributes) <= {'firefly.privileged-administration'},
+    approved_attributes = dict(SAFE_REALM_ATTRIBUTES, **{'firefly.privileged-administration': PROFILE})
+    require(isinstance(attributes, dict) and all(key in approved_attributes and value == approved_attributes[key]
+                                               for key, value in attributes.items()),
             'Realm extension attributes require explicit review')
     clients = document.get('clients')
     require(isinstance(clients, list) and clients, 'Complete client inventory required')
@@ -300,9 +309,9 @@ def flow(alias, authenticators):
                 for i, authenticator in enumerate(authenticators)]}
 
 
-def controls(hostname):
+def controls(hostname, retained_attributes=None):
     return {
-        'attributes': {'firefly.privileged-administration': PROFILE},
+        'attributes': dict(retained_attributes or {}, **{'firefly.privileged-administration': PROFILE}),
         'registrationAllowed': False, 'resetPasswordAllowed': False, 'rememberMe': False,
         'registrationEmailAsUsername': False, 'editUsernameAllowed': False, 'verifyEmail': True,
         'browserFlow': BROWSER, 'directGrantFlow': DENY, 'registrationFlow': DENY,
@@ -322,7 +331,7 @@ def build_profile(document, *, realm, origin, admin_origin=None, acknowledge_mas
     require(realm != 'master' or acknowledge_master is True, 'Master candidate requires explicit acknowledgment')
     prerequisites(document, realm, origin, admin_origin)
     candidate = copy.deepcopy(document)
-    candidate.update(controls(target(document, realm, origin)))
+    candidate.update(controls(target(document, realm, origin), document.get('attributes')))
     candidate['authenticationFlows'] += copy.deepcopy([item for item in document.get('authenticationFlows', [])
                                                        if item.get('alias') not in (BROWSER, DENY)])
     validate_profile(candidate, realm=realm, origin=origin, admin_origin=admin_origin)
@@ -331,7 +340,7 @@ def build_profile(document, *, realm, origin, admin_origin=None, acknowledge_mas
 
 def validate_profile(document, *, realm, origin, admin_origin=None):
     prerequisites(document, realm, origin, admin_origin)
-    expected = controls(target(document, realm, origin))
+    expected = controls(target(document, realm, origin), document.get('attributes'))
     for key, value in expected.items():
         if key == 'authenticationFlows':
             selected = [item for item in document.get(key, []) if item.get('alias') in (BROWSER, DENY)]

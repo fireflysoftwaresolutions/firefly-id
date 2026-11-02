@@ -76,6 +76,30 @@ class PrivilegedProfileTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.module.build_profile(source(), realm='other', origin='https://id.example.test')
 
+    def test_native_export_defaults_are_preserved_without_enabling_alternate_authority(self):
+        document = source()
+        document['scimApiEnabled'] = False
+        document['attributes'] = {'cibaBackchannelTokenDeliveryMode': 'poll', 'cibaExpiresIn': '120',
+                                  'cibaInterval': '5', 'cibaAuthRequestedUserHint': 'login_hint',
+                                  'oauth2DeviceCodeLifespan': '600', 'oauth2DevicePollingInterval': '5',
+                                  'parRequestUriLifespan': '60'}
+        before = copy.deepcopy(document)
+        candidate = self.candidate(document)
+        self.assertEqual(document, before)
+        self.assertEqual(candidate['attributes'], dict(document['attributes'], **{
+            'firefly.privileged-administration': self.module.PROFILE}))
+        self.assertIs(candidate['scimApiEnabled'], False)
+        self.module.validate_profile(candidate, realm='master', origin='https://id.example.test')
+        for field, value in [('scimApiEnabled', True), ('scimApiEnabled', 'false')]:
+            invalid = copy.deepcopy(document); invalid[field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError): self.candidate(invalid)
+        for key in document['attributes']:
+            invalid = copy.deepcopy(document); invalid['attributes'][key] = 'unreviewed'
+            with self.subTest(attribute=key), self.assertRaises(ValueError): self.candidate(invalid)
+        for key in ('oidc.ciba.grant.enabled', 'oauth2.device.authorization.grant.enabled'):
+            invalid = copy.deepcopy(document); invalid['clients'][-1]['attributes'][key] = 'true'
+            with self.subTest(grant=key), self.assertRaises(ValueError): self.candidate(invalid)
+
     def test_enabled_client_bypasses_and_unsupported_extensions_are_refused_without_repair(self):
         mutations = [
             ('directAccessGrantsEnabled', True), ('implicitFlowEnabled', True),
