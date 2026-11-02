@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { assertionProperties, privilegedWriteDiagnostic } from './privileged-runtime.mjs';
 import { validateJwt } from './extended-runtime.mjs';
+import { prepareMasterActions, qualifyMasterActions } from './master-action-links.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'https://id.firefly.test:8443';
@@ -41,6 +42,15 @@ export function retainedOperations(candidate) {
   return { realm, flows, actions: candidate.requiredActions };
 }
 
+export function safeRuntimeFailure(error) {
+  const names = new Set(['TimeoutError', 'AssertionError', 'TypeError', 'RangeError', 'SyntaxError', 'Error']);
+  const frames = String(error?.stack || '').split('\n').flatMap(line => {
+    const matched = line.match(/tooling\/(master-transition-runtime|master-action-links)\.mjs:(\d{1,6}):(\d{1,5})/);
+    return matched ? [matched[1] + '.mjs:' + matched[2] + ':' + matched[3]] : [];
+  }).slice(0, 6);
+  return { errorKind: names.has(error?.name) ? error.name : 'OTHER', sourceFrames: frames };
+}
+
 async function qualify() {
   const directory = ROOT + '/.state/master-' + process.env.GITHUB_RUN_ID + '-' + process.env.GITHUB_RUN_ATTEMPT;
   assert.equal(realpathSync(directory), directory);
@@ -50,7 +60,7 @@ async function qualify() {
   const report = { status: 'RUNNING', source: process.env.GITHUB_SHA, results: [],
     boundaries: { import: 'Exact candidate into a new empty owned database; never an overwrite of retained master.',
       transition: 'Generated settings applied to the original owned master without realm replacement.',
-      pendingActionLinks: 'NOT_QUALIFIED: outstanding emailed action tokens need separate expiry or invalidation acceptance.',
+      pendingActionLinks: 'PENDING: genuine server-issued links and preaccepted action forms require observed runtime evidence.',
       leastPrivilege: 'NOT_QUALIFIED: both synthetic accounts hold master admin only to exercise migration and emergency factor enforcement.',
       physicalKeyCustody: 'NOT_QUALIFIED: Chromium virtual authenticator; no physical custody or institutional activation.' } };
   let stage = 'ownership';
@@ -113,18 +123,25 @@ async function qualify() {
     const url = new URL(metadata.authorization_endpoint);
     url.search = new URLSearchParams({ client_id: CLIENT, redirect_uri: CALLBACK, response_type: 'code', scope: 'openid',
       state, nonce, code_challenge_method: 'S256', code_challenge: createHash('sha256').update(verifier).digest('base64url') });
+    const loginStage = stage;
+    stage = loginStage + '-authorization-navigation'; save();
     await page.goto(url.href);
     if (expectPassword) {
+      stage = loginStage + '-password-form'; save();
       await page.locator('#password').waitFor(); assert.ok(!received, 'Cookie bypassed required password');
       if (await page.locator('#username').isVisible()) await page.locator('#username').fill(username);
-      await page.locator('#password').fill(password); await page.locator('#kc-login').click();
+      await page.locator('#password').fill(password); stage = loginStage + '-password-submit'; save();
+      await page.locator('#kc-login').click();
     }
     return { page, context, get received() { return received; }, async finish() {
+      stage = loginStage + '-callback-wait'; save();
       const value = await Promise.race([returned, new Promise((_, reject) => { const timer = setTimeout(() => reject(new Error('Owned callback deadline')), 40000); timer.unref(); })]);
       assert.ok(!value.searchParams.has('error') && value.searchParams.has('code'));
       const response = await request(metadata.token_endpoint, { method: 'POST', body: new URLSearchParams({
         grant_type: 'authorization_code', client_id: CLIENT, redirect_uri: CALLBACK, code: value.searchParams.get('code'), code_verifier: verifier }) });
+      stage = loginStage + '-pkce-token-response'; save();
       assert.equal(response.status, 200); const tokens = await response.json();
+      stage = loginStage + '-id-token-validation'; save();
       const identity = await validateJwt(tokens.id_token, metadata, CLIENT); assert.equal(identity.nonce, nonce);
       return { tokens, identity };
     } };
@@ -194,6 +211,8 @@ async function qualify() {
     let bootstrapTokens = await bootstrapResponse.json(); token = bootstrapTokens.access_token; await proveAccess(token);
     await admin('', 'PUT', { sslRequired: 'all', verifyEmail: true, registrationAllowed: false,
       accessTokenLifespan: 1800, eventsEnabled: true, adminEventsEnabled: true, adminEventsDetailsEnabled: false,
+      smtpServer: { host: '127.0.0.1', port: '1025', from: 'identity@example.invalid',
+        fromDisplayName: 'Owned synthetic identity', ssl: 'false', starttls: 'false', auth: 'false' },
       eventsExpiration: 86400, eventsListeners: ['jboss-logging'], enabledEventTypes: [],
       loginTheme: 'firefly-id', accountTheme: 'firefly-id', adminTheme: 'firefly-id', emailTheme: 'firefly-id',
       webAuthnPolicyRpId: 'id.firefly.test', webAuthnPolicyRpEntityName: 'Owned synthetic master',
@@ -223,9 +242,12 @@ async function qualify() {
       const users = await admin('users?username=' + username + '&exact=true'); assert.equal(users.length, 1);
       const user = users[0]; await admin('users/' + user.id + '/role-mappings/realm', 'POST', [adminRole]);
       const login = await startLogin(username, credentials[kind]);
+      stage = 'enroll-' + kind + '-registration-form'; save();
       await login.page.locator('#registerWebAuthn').waitFor();
+      stage = 'enroll-' + kind + '-virtual-authenticator'; save();
       const authenticator = await virtual(login.page);
       login.page.on('dialog', dialog => dialog.accept('Owned synthetic ' + kind + ' key'));
+      stage = 'enroll-' + kind + '-registration-submit'; save();
       await login.page.locator('#registerWebAuthn').click();
       const result = await login.finish(); assert.equal(result.identity.sub, user.id); await proveAccess(result.tokens.access_token);
       const listed = await authenticator.session.send('WebAuthn.getCredentials', { authenticatorId: authenticator.authenticatorId });
@@ -310,6 +332,8 @@ async function qualify() {
     const ordinaryOld = await freshRefresh(retainedTokens); const emergencyOld = await freshRefresh(retainedEmergencyTokens);
     token = ordinaryOld.access_token;
     pass('retained-old-access-and-refresh-authority-positive-immediately-before-transition');
+    const actionLinks = await prepareMasterActions({ browser, contexts, admin, accounts,
+      stage: value => { stage = value; save(); }, passed: pass });
     stage = 'apply-generated-settings-without-realm-replacement'; save();
     const operations = retainedOperations(candidate);
     for (const flow of operations.flows) {
@@ -351,6 +375,9 @@ async function qualify() {
     stage = 'retained-emergency-positive'; save();
     await authenticate('emergency', 'valid', accounts.emergency.context);
     pass('emergency-requires-same-password-plus-genuine-uv-key-and-master-permission');
+    await qualifyMasterActions({ actions: actionLinks, lifecycle, stage: value => { stage = value; save(); }, passed: pass,
+      record: value => { report.actionLinks = { ...report.actionLinks, ...value }; save(); } });
+    report.boundaries.pendingActionLinks = 'Qualified only for this single-process owned restart and observed original expiry; HA and destination action/session inventories require their own acceptance.';
     for (const kind of ['ordinary', 'emergency']) {
       for (const scenario of ['password-only', 'wrong-key', 'missing-uv']) {
         stage = kind + '-' + scenario + '-refusal'; save(); await authenticate(kind, scenario);
@@ -374,9 +401,21 @@ async function qualify() {
     console.log('Owned master import and retained-transition qualification passed; bounded evidence written.');
   } catch (error) {
     report.status = 'FAILED';
-    report.failure = { kind: error?.code === 'ERR_ASSERTION' ? 'ASSERTION' : 'RUNTIME',
+    report.failure = { ...safeRuntimeFailure(error), kind: error?.code === 'ERR_ASSERTION' ? 'ASSERTION' : 'RUNTIME',
       ...(Number.isInteger(error?.actual) ? { actualStatus: error.actual } : {}),
       ...(error?.diagnostic ? { administrativeWrite: error.diagnostic } : {}) };
+    report.failure.visibleControls = [];
+    for (const context of contexts) {
+      const page = context.pages().at(-1);
+      if (!page) continue;
+      const visible = {};
+      for (const id of ['username', 'password', 'registerWebAuthn', 'authenticateWebAuthnButton', 'kc-info-message',
+        'kc-error-message', 'password-new', 'email', 'firstName', 'lastName', 'kc-update-profile-form']) {
+        visible[id] = await page.locator('#' + id).isVisible().catch(() => false);
+      }
+      report.failure.visibleControls.push(visible);
+      if (report.failure.visibleControls.length === 4) break;
+    }
     save(); throw new Error('Owned master qualification refused');
   } finally {
     for (const context of contexts) await context.close().catch(() => {});

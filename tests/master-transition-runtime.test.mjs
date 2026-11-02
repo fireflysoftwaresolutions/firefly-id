@@ -40,3 +40,11 @@ test('retained plan uses only generated profile flows and controls, never realm 
   assert.ok(!JSON.stringify(result).includes('must-not'));
   assert.throws(() => retainedOperations({ ...controls, authenticationFlows: [] }, ['browserFlow', 'authenticationFlows']));
 });
+
+test('runtime failure diagnostics expose only whitelisted class and owned source positions', async () => {
+  const { safeRuntimeFailure } = await runtime();
+  assert.equal(typeof safeRuntimeFailure, 'function', 'Safe runtime failure context is missing');
+  const error = { name: 'TimeoutError', message: 'PRIVATE-TOKEN', stack: 'TimeoutError PRIVATE-TOKEN\n at start (file:///owned/tooling/master-transition-runtime.mjs:145:21)\n at other (file:///PRIVATE-PATH/file.mjs:12:3)' };
+  assert.deepEqual(safeRuntimeFailure(error), { errorKind: 'TimeoutError', sourceFrames: ['master-transition-runtime.mjs:145:21'] });
+  assert.deepEqual(safeRuntimeFailure({ name: 'PRIVATE-TYPE', message: 'PRIVATE-TOKEN', stack: 'PRIVATE' }), { errorKind: 'OTHER', sourceFrames: [] });
+});

@@ -37,7 +37,7 @@ def validate_owner(root, directory, owner, run_id):
     project = 'ff-master-' + run_id
     require(owner.get('run') == run_id and owner.get('root') == str(expected)
             and owner.get('kind') == 'master-transition' and owner.get('project') == project, 'State ownership mismatch')
-    allowed = {project + '-' + kind for kind in ('postgres', 'retained', 'imported', 'export', 'import')}
+    allowed = {project + '-' + kind for kind in ('postgres', 'mailpit', 'retained', 'imported', 'export', 'import')}
     require(isinstance(owner.get('containers'), list) and set(owner['containers']) <= allowed, 'Container ownership mismatch')
     require(not any(path.is_symlink() for path in directory.rglob('*')), 'Symlink inside owned state refused')
     return owner
@@ -170,8 +170,12 @@ def inspect_container(owner, kind):
     require(result.returncode == 0, 'Owned container missing')
     actual = json.loads(result.stdout)[0]
     require(actual['Config'].get('Labels', {}).get(LABEL) == owner['run'], 'Container ownership label mismatch')
-    require(actual['Config']['Image'] == images()['postgres' if kind == 'postgres' else 'keycloak']['image'], 'Pinned owned image required')
-    if kind == 'postgres':
+    require(actual['Config']['Image'] == images()[kind if kind in ('postgres', 'mailpit') else 'keycloak']['image'], 'Pinned owned image required')
+    if kind == 'mailpit':
+        bindings = actual['HostConfig']['PortBindings']
+        require(all(bindings.get(str(port) + '/tcp') == [{'HostIp': '127.0.0.1', 'HostPort': str(port)}]
+                    for port in (1025, 8025)), 'Owned loopback mail transport required')
+    elif kind == 'postgres':
         require(actual['HostConfig']['PortBindings'].get('5432/tcp') == [{'HostIp': '127.0.0.1', 'HostPort': '5432'}], 'Loopback database binding required')
     else:
         require(actual['HostConfig']['NetworkMode'] == 'host', 'Owned local native network required')
@@ -215,7 +219,7 @@ def prepare():
     require(re.fullmatch(r'[0-9]+-[0-9]+', run_id), 'Hosted attempt identity required')
     directory = ROOT / '.state' / ('master-' + run_id)
     require(not directory.exists() and not directory.is_symlink() and not (ROOT / '.state').is_symlink(), 'Fresh state required')
-    for port in (5432, 8443):
+    for port in (5432, 8443, 1025, 8025):
         with socket.socket() as probe:
             probe.bind(('127.0.0.1', port))
     directory.mkdir(parents=True, mode=0o700)
@@ -302,6 +306,8 @@ def start():
     else:
         raise ValueError('Postgres readiness deadline')
     psql(directory, owner, "CREATE ROLE master_fixture LOGIN PASSWORD '" + credentials['database'] + "'; CREATE DATABASE master_retained OWNER master_fixture; CREATE DATABASE master_imported OWNER master_fixture;")
+    create_container(directory, owner, 'mailpit', ['--detach', '--publish', '127.0.0.1:1025:1025',
+                     '--publish', '127.0.0.1:8025:8025', images()['mailpit']['image']])
     create_container(directory, owner, 'retained', native_command(directory, 'retained', 'master_retained', ['start']))
     wait_ready(directory); owner['phase'] = 'enrollment'; save_owner(directory, owner)
 
@@ -310,7 +316,7 @@ def snapshot(directory, owner):
     tables = {'users': 'user_entity', 'credentials': 'credential', 'roles': 'user_role_mapping',
               'events': 'event_entity', 'adminEvents': 'admin_event_entity', 'roleDefinitions': 'keycloak_role',
               'roleComposites': 'composite_role', 'groups': 'keycloak_group', 'groupMembership': 'user_group_membership',
-              'groupRoles': 'group_role_mapping'}
+              'groupRoles': 'group_role_mapping', 'userAttributes': 'user_attribute', 'requiredActions': 'user_required_action'}
     result = {}
     for key, table in tables.items():
         # Full row hashes remain private. Equality proves credential hashes and stored key counters survive.
@@ -372,6 +378,25 @@ def verify_state():
     print(json.dumps({'retainedCounts': {key: len(value) for key, value in before.items()}}))
 
 
+def action_snapshot(directory, owner):
+    result = snapshot(directory, owner)
+    for table in ('offline_user_session', 'offline_client_session'):
+        result[table] = json.loads(psql(directory, owner,
+            "SELECT coalesce(json_agg(h ORDER BY h),'[]'::json) FROM (SELECT md5(row_to_json(t)::text) h FROM " + table + " t) q;", 'master_retained'))
+    return result
+
+
+def action_baseline():
+    directory, owner = state(); require(owner['phase'] == 'retained', 'Retained phase required')
+    path = directory / 'action-before.json'; require(not path.exists(), 'Fresh action baseline required')
+    private_write(path, json.dumps(action_snapshot(directory, owner)))
+
+
+def verify_action_state():
+    directory, owner = state(); require(owner['phase'] == 'retained', 'Retained phase required')
+    verify_retained(json.loads((directory / 'action-before.json').read_text()), action_snapshot(directory, owner))
+
+
 def readback():
     directory, _ = state()
     verify_candidate(directory, json.loads((directory / 'candidate-receipt.json').read_text()))
@@ -392,13 +417,14 @@ def check():
     directory, owner = state()
     require(owner['phase'] == 'enrollment', 'Fresh owned runtime phase required')
     inspect_container(owner, 'postgres')
+    inspect_container(owner, 'mailpit')
     _, native = inspect_container(owner, 'retained')
     require(native['State']['Running'], 'Owned retained native runtime required')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['check', 'prepare', 'start', 'export_candidate', 'import_start', 'retained_start', 'restart', 'verify_state', 'readback', 'stop'])
+    parser.add_argument('action', choices=['check', 'action_baseline', 'verify_action_state', 'prepare', 'start', 'export_candidate', 'import_start', 'retained_start', 'restart', 'verify_state', 'readback', 'stop'])
     args = parser.parse_args(); require_hosted(); os.umask(0o077)
     globals()[args.action]()
 
