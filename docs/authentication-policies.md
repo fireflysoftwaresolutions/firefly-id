@@ -11,7 +11,7 @@ Use separate authentication policies for customers, employees, institutional use
 | Institutional humans | 16–128 characters | Previous 5 excluded | Password; MFA is optional in the sandbox |
 | Administrators | 20–128 characters | Previous 10 excluded | Opt-in password and pre-enrolled WebAuthn key, with user verification required |
 
-All profiles select Argon2, reject a password equal to the whole username or email, and use `passwordBlacklist(firefly-baseline.txt)`. Spaces and passphrases are supported. There is no arbitrary digit/uppercase/symbol recipe or scheduled expiry in the base policy. `notUsername` and `notEmail` compare the whole value case-insensitively, rather than excluding every substring. Enforce the maximum at the server without truncating input.
+All catalogue profiles select Argon2, reject a password equal to the whole username or email, and use `passwordBlacklist(firefly-baseline.txt)`. Spaces and passphrases are supported. There is no arbitrary digit/uppercase/symbol recipe or scheduled expiry in the base policy. `notUsername` and `notEmail` compare the whole value case-insensitively, rather than excluding every substring. Enforce the maximum at the server without truncating input.
 
 The exact policy IDs are `length`, `maxLength`, `notUsername`, `notEmail`, `passwordHistory`, `hashAlgorithm` and `passwordBlacklist`. See [Keycloak's password policy implementation](https://github.com/keycloak/keycloak/blob/26.8.1/server-spi/src/main/java/org/keycloak/models/PasswordPolicy.java).
 
@@ -27,7 +27,7 @@ The administrator catalogue alone does not install a factor flow or enroll a key
 | Workforce | 900 seconds | 28,800 seconds | 300 seconds |
 | Administrators | 300 seconds | 3,600 seconds | 60 seconds |
 
-The generator applies catalogue settings after its common realm values. Refresh-token rotation is enabled with `refreshTokenMaxReuse=0`. Test how each application handles rotation, simultaneous refreshes, logout and reauthentication.
+The sandbox realm generator, `scripts/generate.py`, applies catalogue settings after its common realm values and enables refresh-token rotation with `refreshTokenMaxReuse=0`. The separate factor-profile generator, `tooling/privileged_profile.py`, inherits the source realm's password, brute-force, session, token-lifetime and rotation settings; it does not automatically apply the administrator catalogue to `master`. Approve, configure and read back those settings separately before privileged activation. Test how each application handles rotation, simultaneous refreshes, logout and reauthentication.
 
 Identity SSO activity does not measure human inactivity in a payment application: automatic refresh can keep an identity session alive. Where the PSD2 five-minute payer-inactivity rule applies, the payment/account application must track actual payer activity and enforce its own inactivity limit.
 

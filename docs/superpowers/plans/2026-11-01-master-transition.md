@@ -29,16 +29,18 @@
 
 ## Task 1: Actual master qualification
 
-- [ ] Inspect existing fixture ownership, TLS, browser helpers and profile validator patterns.
-- [ ] Add failing offline regressions for ownership and exact-candidate/readback boundaries.
-- [ ] Implement hosted fixture and workflow, with bounded diagnostics and private ephemeral state.
-- [ ] Exercise pre-enrolled ordinary/emergency accounts, exact generated candidate import into empty storage, settings-level retained-master transition, retained-state comparison, configuration readback, positive/refusal authentication and old-authority retirement.
-- [ ] Run local presubmit, independently review, commit/push and run actual hosted qualification; fix evidenced failures and rerun.
+- [x] Inspect existing fixture ownership, TLS, browser helpers and profile validator patterns.
+- [x] Add failing offline regressions for ownership and exact-candidate/readback boundaries.
+- [x] Implement hosted fixture and workflow, with bounded diagnostics and private ephemeral state.
+- [x] Exercise pre-enrolled ordinary/emergency accounts, exact generated candidate import into empty storage, settings-level retained-master transition, retained-state comparison, configuration readback, positive/refusal authentication and old-authority retirement.
+- [x] Run local presubmit, independently review, commit/push and run actual hosted qualification; fix evidenced failures and rerun.
+
+Hosted acceptance: run [41382681222](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41382681222), source `920004300411eeabc1f0ef0ec13a0a29909fff4d`, passes all 22 runtime controls and 115 native Java tests (zero failures, errors or skips). Original identities, credential hashes, component material, role mappings and nonempty audits survive. Prior ordinary/emergency/bootstrap access and refresh tokens refuse; fresh ordinary/emergency password plus UV succeeds. Previously opened password action refuses after restart; unexpired signed authority remains reachable and is closed only at its original expiry. This is single-process synthetic acceptance, not destination, hardware, least-privilege, HA or production approval.
 
 ## Task 2: Activation instructions
 
-- [ ] Extend existing support/admin/decision guides with ordered choices, responsible roles, artifacts to prepare, disabled defaults and measurable acceptance gates.
-- [ ] Separate agreed defaults from unassigned institutional decisions; distinguish synthetic qualification from destination-specific cutover.
+- [x] Extend existing support/admin/decision guides with ordered choices, responsible roles, artifacts to prepare, disabled defaults and measurable acceptance gates.
+- [x] Separate agreed defaults from unassigned institutional decisions; distinguish synthetic qualification from destination-specific cutover.
 - [ ] Run MkDocs/reading checks in hosted CI and verify exact public artifact after publication.
 
 ## Task 3: Delivery
