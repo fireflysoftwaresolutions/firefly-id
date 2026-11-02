@@ -44,20 +44,36 @@ def build(output: Path) -> Path:
     for variant in ("light", "dark", "mobile-light", "mobile-dark"):
         entries[f"theme/firefly-id/login/resources/img/authentication-{variant}.svg"] = (
             ROOT / f"assets/identity-backgrounds/authentication-{variant}.svg").read_bytes()
-    output.mkdir(parents=True, exist_ok=True)
     target = output / "firefly-id-theme.jar"
+    checksums = output / "SHA256SUMS"
+    unpacked = {output / "themes" / name.removeprefix("theme/"): data
+                for name, data in entries.items() if name.startswith("theme/")}
+    directories = set()
+    for path in unpacked:
+        parent = path.parent
+        while parent != output:
+            directories.add(parent)
+            parent = parent.parent
+    if any(path.is_symlink() for path in {output, target, checksums, *unpacked, *directories}):
+        raise ValueError("Theme output targets must not be symlinks")
+    output.mkdir(parents=True, exist_ok=True)
+    # Bind-mounted public themes must remain readable by the nonroot server regardless of the caller's umask.
+    for directory in sorted(directories, key=lambda path: (len(path.parts), str(path))):
+        directory.mkdir(exist_ok=True)
+        directory.chmod(0o755)
     with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for name, data in sorted(entries.items()):
             info = zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o100644 << 16
             archive.writestr(info, data)
-            if name.startswith("theme/"):
-                unpacked = output / "themes" / name.removeprefix("theme/")
-                unpacked.parent.mkdir(parents=True, exist_ok=True)
-                unpacked.write_bytes(data)
+    target.chmod(0o644)
+    for path, data in unpacked.items():
+        path.write_bytes(data)
+        path.chmod(0o644)
     digest = hashlib.sha256(target.read_bytes()).hexdigest()
-    (output / "SHA256SUMS").write_text(f"{digest}  {target.name}\n")
+    checksums.write_text(f"{digest}  {target.name}\n")
+    checksums.chmod(0o644)
     return target
 
 

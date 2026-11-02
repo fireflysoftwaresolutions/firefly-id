@@ -5,7 +5,7 @@
 <body style="margin:0;background:#f3f1eb;color:#272820;font-family:Arial,sans-serif;line-height:1.6;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:40px 20px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:auto;">
-      <tr><td style="padding:0 0 28px;font-size:26px;font-weight:700;letter-spacing:-0.5px;">firefly <span style="color:#855414;">id</span></td></tr>
+      <tr><td style="padding:0 0 28px;font-size:26px;font-weight:700;letter-spacing:-0.5px;">firefly <span style="color:#855414;">identity</span></td></tr>
       <tr><td style="padding:32px;background:#ffffff;border-radius:12px;">
         <#nested>
       </td></tr>

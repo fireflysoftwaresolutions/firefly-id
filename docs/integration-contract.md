@@ -1,112 +1,96 @@
-# Integration contract review
+# Integrate an application
 
-Reviewed against GitHub default branches and the open pull-request heads listed below on October 31, 2026. This is a source review, not a claim that the services have been deployed together or that an installed release contains the reviewed source. The sandbox realm and client names below are local examples; no production issuer or customer configuration is specified here.
+Firefly Identity accepts applications built with any framework that supports the configured OpenID Connect and OAuth 2.0 profiles. No Firefly application framework is required.
 
-## Reviewed public sources
+Use OpenID Connect authorization code with PKCE S256 to sign a person into an application. Use an access token for the API named in its audience, and let that API authorize the requested action. The application should not collect the person's password or turn a username lookup into authentication.
 
-| Repository | Reviewed commit |
-| --- | --- |
-| [domain-core-security-center](https://github.com/fireflysoftwaresolutions/domain-core-security-center) | `da6006873315a81c5cd04057f83503e2f11dd030` |
-| [exp-finance-terminal](https://github.com/fireflysoftwaresolutions/exp-finance-terminal) | `7309a4fa15e3b1e02334864dbb12575e386293e9` |
-| [exp-insurance-terminal](https://github.com/fireflysoftwaresolutions/exp-insurance-terminal) | `a9fc32a76ab2eae500ce90593c96103e681f1334` |
-| [exp-security](https://github.com/fireflysoftwaresolutions/exp-security) | `8278c552f7b3cc374c041701ab75e631e1a6c4e9` |
-| [core-common-user-mgmt](https://github.com/fireflysoftwaresolutions/core-common-user-mgmt) | `655b867a35b951d76fa9f14ea355b0dbc851ac75` |
-| [fireflyframework-jafly](https://github.com/fireflyframework/fireflyframework-jafly) | `674fdd33a2a7ae6538ab1d026e45e9f82dcf35b0` |
-| [core-common-config-mgmt](https://github.com/fireflysoftwaresolutions/core-common-config-mgmt) | `a14ea8cced7261c090285a5b8cdadadb55192bb7` |
+This guide uses the generated customer sandbox. Complete [sandbox setup](sandbox.md) first. Production integration uses the same protocol with the institution's configured HTTPS issuer, exact client registration, receiver audience and identity-linking policy.
 
-Open pull requests are reviewed separately from main and released artifacts. Their current source supersedes several main-branch limitations for consumers selecting those candidate commits.
+## 1. Choose the client and issuer
 
-| Public candidate | Reviewed open PR head |
-| --- | --- |
-| [Finance terminal PR 1](https://github.com/fireflysoftwaresolutions/exp-finance-terminal/pull/1) | `4e7212c0d6312a3f0fe16eb138c0714ae82dfd26` |
-| [Insurance terminal PR 1](https://github.com/fireflysoftwaresolutions/exp-insurance-terminal/pull/1) | `c96f580d2bb8006bf28e479fedf6e543375c2377` |
-| [Configuration PR 1](https://github.com/fireflysoftwaresolutions/core-common-config-mgmt/pull/1) | `e00f96c8329a1088583bbf0569c8f6233e8e3248` |
-| [Document management PR 1](https://github.com/fireflysoftwaresolutions/core-common-document-mgmt/pull/1) | `ff433cd0353197c8577de75a8b57b7c309a4eb32` |
-| [Underwriting PR 1](https://github.com/fireflysoftwaresolutions/core-insurance-underwriting/pull/1) | `4b40c1ac4289c2238352f32a987d3ae6c469600b` |
-
-## Main-branch contracts and integration boundaries
-
-| Consumer or boundary | Current source contract | Required integration work |
+| Setting | Public browser example | Confidential interactive backend example |
 | --- | --- | --- |
-| Security Center identity | `POST /api/v1/identity/subjects` accepts `username`, `actorId`, and optional `password`; response is `actorId`, `provider`, `roles`. | Resolution alone supplies no signed human, tenant, audience, or delegating-client proof. Do not treat the response as an access token. |
-| Security Center access | `AccessRequest` carries `actorId`, `action`, `resourceType`, `resourceId`. `SubjectBoundAccessAdapter` resolves the actor before delegating. | A separate authenticated binding must connect the request to the current verified principal and resource scope. |
-| Finance and insurance terminals | Staff routes accept an `X-Actor-Id` UUID; sign-in sends only a username. `SubjectRef` and `StaffSession` use UUID actor IDs. | Replace or constrain caller-selected identity at the receiving boundary. OIDC subjects are opaque strings and need an explicit account/staff mapping when a domain UUID is required. |
-| Experience Security | Delegates login/refresh/session operations to Security Center. Its HTTP chain permits all exchanges and refers to separate method authorization. | Verify the actual enforcement of each protected route; this chain itself does not authenticate bearer tokens. |
-| User management | `UserExternalIdentity` links `provider` and string `subjectId` to UUID `userAccountId`. | Qualify provider/issuer uniqueness, linking, tenant ownership, and lifecycle rules before using the link as authority. Email or display-name equality is insufficient proof. |
-| Jafly resource server | Signature-verifying decoder, configurable issuer/audiences, authority/scope mapping, optional required tenant projection, `SecurityPrincipal`. | Explicitly configure issuer, JWKS, audience, tenant projection, and current policy. Defaults do not establish a deployment's issuer/tenant contract. |
-| Jafly policy | `PolicyDecisionPort.authorize(principal, action, resource, context)` returns `Mono<Decision>`. | Enforce current policy per purpose and resource. Empty/error/indeterminate results must refuse; the caller must fulfill obligations or refuse. A decision is not a signed delegation token. |
-| Jafly OAuth client | Default provider supports authorization code, refresh token, and client credentials. | Human token exchange and verified delegation require additional framework/IdP integration; the current default provider does not configure token exchange. |
-| Configuration | Public `TenantDTO.id` is a UUID, while `SecurityPrincipal.tenantId` is a generic string. | Keep the authenticated issuer/tenant namespace separate from the resource tenant UUID. A qualified owner mapping is required where these differ. |
+| Client ID | `sandbox-web` | `sandbox-backend` |
+| Customer issuer | `http://id.firefly.test:8180/realms/sandbox-customers` | Same customer issuer |
+| Callback | `http://localhost:3000/oidc/callback` | `http://localhost:8081/oidc/callback` |
+| Signed-out callback | `http://localhost:3000/signed-out` | `http://localhost:8081/signed-out` |
+| Client secret | None; never embed a secret in browser code | Random backend credential held only on the server |
+| Flow | Authorization code with PKCE S256 | Authorization code with PKCE S256 and client authentication |
+| API audience | `sandbox-api` | `sandbox-api` |
 
-The exact identity/access contracts are in [IdentityController](https://github.com/fireflysoftwaresolutions/domain-core-security-center/blob/da6006873315a81c5cd04057f83503e2f11dd030/domain-core-security-center-web/src/main/java/io/fireflysoftware/security/center/web/controllers/IdentityController.java), [Subject](https://github.com/fireflysoftwaresolutions/domain-core-security-center/blob/da6006873315a81c5cd04057f83503e2f11dd030/domain-core-security-center-interfaces/src/main/java/io/fireflysoftware/security/center/interfaces/identity/Subject.java), [AccessRequest](https://github.com/fireflysoftwaresolutions/domain-core-security-center/blob/da6006873315a81c5cd04057f83503e2f11dd030/domain-core-security-center-interfaces/src/main/java/io/fireflysoftware/security/center/interfaces/access/AccessRequest.java), and [SubjectBoundAccessAdapter](https://github.com/fireflysoftwaresolutions/domain-core-security-center/blob/da6006873315a81c5cd04057f83503e2f11dd030/domain-core-security-center-core/src/main/java/io/fireflysoftware/security/center/core/access/SubjectBoundAccessAdapter.java).
+The backend example is an interactive client. It is not a service account. The generated clients disable direct password, implicit, device and CIBA grants. For an unattended workload, use the separate [Configuration service-client guide](configuration-service-client.md).
 
-Terminal evidence: [finance StaffController](https://github.com/fireflysoftwaresolutions/exp-finance-terminal/blob/7309a4fa15e3b1e02334864dbb12575e386293e9/exp-finance-terminal-web/src/main/java/io/fireflysoftware/experience/finance/terminal/StaffController.java), [finance HttpIdentityAdapter](https://github.com/fireflysoftwaresolutions/exp-finance-terminal/blob/7309a4fa15e3b1e02334864dbb12575e386293e9/exp-finance-terminal-core/src/main/java/io/fireflysoftware/experience/finance/terminal/HttpIdentityAdapter.java), [insurance StaffController](https://github.com/fireflysoftwaresolutions/exp-insurance-terminal/blob/a9fc32a76ab2eae500ce90593c96103e681f1334/exp-insurance-terminal-web/src/main/java/io/fireflysoftware/experience/insurance/terminal/StaffController.java), and [insurance HttpIdentityAdapter](https://github.com/fireflysoftwaresolutions/exp-insurance-terminal/blob/a9fc32a76ab2eae500ce90593c96103e681f1334/exp-insurance-terminal-core/src/main/java/io/fireflysoftware/experience/insurance/terminal/HttpIdentityAdapter.java).
+For workforce integration, select the workforce issuer and workforce identity policy explicitly. Do not share a customer session as staff authentication. [Workforce administration](workforce-administration.md) explains mandatory TOTP and staff linking.
 
-Additional evidence: [Experience Security HTTP chain](https://github.com/fireflysoftwaresolutions/exp-security/blob/8278c552f7b3cc374c041701ab75e631e1a6c4e9/exp-security-web/src/main/java/io/fireflysoftware/experience/security/web/config/WebSecurityConfig.java), [external identity model](https://github.com/fireflysoftwaresolutions/core-common-user-mgmt/blob/655b867a35b951d76fa9f14ea355b0dbc851ac75/core-common-user-mgmt-models/src/main/java/io/fireflysoftware/core/users/models/entities/UserExternalIdentity.java), and [Configuration TenantDTO](https://github.com/fireflysoftwaresolutions/core-common-config-mgmt/blob/a14ea8cced7261c090285a5b8cdadadb55192bb7/core-common-config-mgmt-interfaces/src/main/java/io/fireflysoftware/common/config/interfaces/dtos/TenantDTO.java).
+## 2. Load discovery from the trusted issuer
 
-## Candidate contracts beyond main
+Configure the issuer in the application, then load its metadata:
 
-| Candidate boundary | Exact observed contract | Remaining integration concern |
-| --- | --- | --- |
-| Finance/insurance staff authentication | `TerminalAuthentication` preserves issuer/opaque subject, requires future expiration, reads canonical UUID strings `staff_actor_id` and `tenant_id`, projects staff UUID into `attributes.staffActorId`. `TerminalSecurityConfiguration` requires explicit `firefly.terminal.security.issuer`, `.audience`, `.jwk-set-uri`. | Tenant projection is UUID-specific in this candidate; it is not Jafly's generic opaque namespace contract. Bind the workforce issuer and required signed staff proof explicitly. |
-| Finance/insurance actor enforcement | `TerminalAccessFilter` requires strict policy, rejects differing/multiple actor headers, and writes the authorized staff UUID into `X-Actor-Id`. Sign-in uses the authenticated staff attribute. | Main-branch username-only sign-in and caller-header findings must not be reported as unchanged PR behavior. Consumer/native acceptance remains a separate gate. |
-| Configuration current lookup | `GET /api/v1/tenant-resource-bindings/current`, operation `observeCurrentTenantResourceBinding`, default-off `firefly.configuration.tenant-resource-binding.enabled`. `Namespace(String issuer, String platformTenant)` and `ResourceTenant(UUID value)` are distinct types. | Select the candidate SDK/source deliberately; main lacks this boundary. Preserve owner eligibility, binding version/digest, observation deadline, and current authorization. |
-| Configuration lookup identity | Current lookup requires configured issuer trust, exact signed `tenant_id == principal.tenantId`, typed `exp` as `Instant`, optional typed `nbf`, and current PDP action `configuration.tenant-resource-binding.current`. It does not construct a UUID governance principal. | Configure the exact signed tenant claim at token issuance/resource projection. Do not replace the namespace with the returned resource UUID. |
-| Configuration governance identity | `InstitutionAuthorityAuthorization` requires `principal_kind=STAFF` with canonical UUID `staff_actor_id`, or `principal_kind=MACHINE` with string `client_id` and no staff claim; typed expiration and signed `tenant_id` matching a canonical UUID principal tenant. | These canonical control-plane rules are distinct from opaque current lookup. Do not weaken them to accommodate an unrelated namespace. |
-| Document signing | `TrustedSigningRuntime` observes the existing principal's issuer, subject, tenant and typed `exp`, reads `client_id`, and creates an audit actor. | This is a purpose-specific signed-principal input contract, not global human/staff claim approval. |
-| Document Configuration reader | `GeneratedConfigSigningTenantBindingResolver` uses a configured native OAuth client-credentials registration for the exact HTTPS CURRENT endpoint. It validates registration/grant/bearer/expiry and the returned binding namespace, UUID, versions, eligibility, and deadlines. It preserves the original principal identity separately. | Machine OAuth authenticates the owner call; it does not delegate a human credential. Its configured namespace and returned binding must remain consistent. |
-| Underwriting human proof | `QuoteAuthorityGate.Profile` configures `issuer`, `audience`, `tenantClaim`, `delegatingClientClaim`, `delegatingClientId`. The gate requires signed `principal_kind=HUMAN`, canonical UUID `party_id`, typed `exp`/`nbf`, exactly one `aud` equal to the profile audience, the exact configured delegating-client claim/value, and purpose scopes/current PDP permission. | This candidate also parses its configured tenant claim as UUID and requires equality to principal/request tenant. That owner coupling must be resolved before accepting opaque namespaces; do not coerce the global identity contract to it. |
+```sh
+curl --fail --silent --show-error \
+  http://id.firefly.test:8180/realms/sandbox-customers/.well-known/openid-configuration
+```
 
-Staff sources: [finance authentication](https://github.com/fireflysoftwaresolutions/exp-finance-terminal/blob/4e7212c0d6312a3f0fe16eb138c0714ae82dfd26/exp-finance-terminal-web/src/main/java/io/fireflysoftware/experience/finance/terminal/TerminalAuthentication.java), [finance security](https://github.com/fireflysoftwaresolutions/exp-finance-terminal/blob/4e7212c0d6312a3f0fe16eb138c0714ae82dfd26/exp-finance-terminal-web/src/main/java/io/fireflysoftware/experience/finance/terminal/TerminalSecurityConfiguration.java), [finance access filter](https://github.com/fireflysoftwaresolutions/exp-finance-terminal/blob/4e7212c0d6312a3f0fe16eb138c0714ae82dfd26/exp-finance-terminal-web/src/main/java/io/fireflysoftware/experience/finance/terminal/TerminalAccessFilter.java), [insurance authentication](https://github.com/fireflysoftwaresolutions/exp-insurance-terminal/blob/c96f580d2bb8006bf28e479fedf6e543375c2377/exp-insurance-terminal-web/src/main/java/io/fireflysoftware/experience/insurance/terminal/TerminalAuthentication.java), and [insurance access filter](https://github.com/fireflysoftwaresolutions/exp-insurance-terminal/blob/c96f580d2bb8006bf28e479fedf6e543375c2377/exp-insurance-terminal-web/src/main/java/io/fireflysoftware/experience/insurance/terminal/TerminalAccessFilter.java).
+The response supplies `issuer`, `authorization_endpoint`, `token_endpoint`, `jwks_uri` and the supported protocol metadata. Require `issuer` to equal the configured issuer. Keep the public issuer distinct from internal routing aliases; replacing its host with an internal service name changes the identity authority.
 
-Owner sources: [Configuration typed contracts](https://github.com/fireflysoftwaresolutions/core-common-config-mgmt/blob/e00f96c8329a1088583bbf0569c8f6233e8e3248/core-common-config-mgmt-interfaces/src/main/java/io/fireflysoftware/common/config/interfaces/authority/TenantResourceBindingContracts.java), [current controller](https://github.com/fireflysoftwaresolutions/core-common-config-mgmt/blob/e00f96c8329a1088583bbf0569c8f6233e8e3248/core-common-config-mgmt-web/src/main/java/io/fireflysoftware/common/config/web/controllers/authority/TenantResourceBindingCurrentController.java), [lookup authorization](https://github.com/fireflysoftwaresolutions/core-common-config-mgmt/blob/e00f96c8329a1088583bbf0569c8f6233e8e3248/core-common-config-mgmt-core/src/main/java/io/fireflysoftware/common/config/core/authority/TenantResourceBindingLookupAuthorization.java), [governance authorization](https://github.com/fireflysoftwaresolutions/core-common-config-mgmt/blob/e00f96c8329a1088583bbf0569c8f6233e8e3248/core-common-config-mgmt-core/src/main/java/io/fireflysoftware/common/config/core/authority/InstitutionAuthorityAuthorization.java), [trusted signing runtime](https://github.com/fireflysoftwaresolutions/core-common-document-mgmt/blob/ff433cd0353197c8577de75a8b57b7c309a4eb32/core-common-document-mgmt-core/src/main/java/io/fireflysoftware/commons/ecm/core/signing/TrustedSigningRuntime.java), [generated Configuration reader](https://github.com/fireflysoftwaresolutions/core-common-document-mgmt/blob/ff433cd0353197c8577de75a8b57b7c309a4eb32/core-common-document-mgmt-core/src/main/java/io/fireflysoftware/commons/ecm/core/signing/GeneratedConfigSigningTenantBindingResolver.java), and [underwriting human gate](https://github.com/fireflysoftwaresolutions/core-insurance-underwriting/blob/4b40c1ac4289c2238352f32a987d3ae6c469600b/core-insurance-underwriting-core/src/main/java/io/fireflysoftware/core/insurance/underwriting/core/services/quotes/QuoteAuthorityGate.java).
+Use a maintained OIDC client library to handle discovery, state, nonce, PKCE, token validation and logout. Configure exact callbacks and web origins; do not introduce wildcard redirects to resolve a callback mismatch.
 
-## Jafly configuration and claim mapping
+## 3. Complete code and PKCE sign-in
 
-The following recovery-specific source candidates are a separate integration lane from the earlier reviewed business APIs. They do not replace published framework defaults or establish terminal delegation.
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant App as Application
+    participant ID as Firefly Identity
+    participant API as Receiving API
+    Browser->>App: Open protected application
+    App-->>Browser: Redirect with state, nonce and S256 challenge
+    Browser->>ID: Authorization request
+    ID-->>Browser: Sign-in and required actions
+    Browser->>App: Exact callback with code and state
+    App->>ID: Exchange code and PKCE verifier
+    ID-->>App: ID token, access token and applicable refresh token
+    App->>API: Request with API access token
+    API-->>App: Authorized result or refusal
+```
 
-| Recovery component | Exact source and qualified scope |
+At the start of each authorization attempt, the OIDC library creates unpredictable state, nonce and a PKCE verifier. It retains them in the initiating session and sends only the S256 challenge in the authorization request. Request `response_type=code` and the ordinary `openid profile email` scopes.
+
+On callback, reject protocol errors, mismatched state and an unexpected callback path before exchanging the code. Send the same redirect URI and original verifier to the discovered token endpoint. The confidential backend also authenticates with its protected client credential; the browser client does not supply a client secret. Codes are single use.
+
+Validate the ID token for this client, including signature, exact issuer, client audience, time and nonce. Use its subject to establish the application's identity session. Validate access tokens at the API separately. An ID token is not a substitute for the API's access token. See [token audiences](receiver-audiences.md).
+
+Keep code, token, PKCE verifier and refresh credentials out of URLs beyond the protocol's bounded callback, application logs, browser diagnostics and support tickets. Use secure session storage appropriate to the application architecture; keep confidential credentials server-side.
+
+## 4. Configure the receiving API
+
+The API needs an explicit issuer, JWKS URI, approved signature algorithm and audience. It validates token signature and time before projecting a principal. Then it requires the intended population, protected tenant/link attributes and current business permission for the action/resource.
+
+The sandbox uses RS256 and `sandbox-api`. [Claims](provider-claim-profile.md) explains their formats; [audiences](receiver-audiences.md) explains how to configure issuance and receiver validation together. Do not accept unsigned actor headers or parse a token without verifying it.
+
+An opaque subject or tenant is not a business UUID. If a service needs a party, staff or resource-tenant UUID, resolve it through its authoritative owner while retaining the original issuer/subject/namespace. A machine token cannot supply human delegation by adding a customer identifier to the request body.
+
+## 5. Refresh, logout and downstream calls
+
+Use the OIDC library's supported refresh handling and update stored refresh authority atomically. Generated realms revoke refresh tokens with no reuse; concurrent refreshes must not blindly reuse an old token. Expired or refused refresh means the application needs a fresh sign-in.
+
+Use discovered OIDC logout and an exact registered post-logout destination. Terminate the application's own session as well. Identity logout alone does not force every offline JWT decoder to reject existing tokens immediately; configure the receiving service's required current-state behavior as described in [zero trust](zero-trust.md).
+
+Each downstream API call needs its own receiver authentication and authorization. Use that API's supported client library or protocol. Forward a human token only when it is explicitly valid for that receiver; otherwise use a supported purpose-bound exchange/delegation contract. This distribution does not configure a general human token-exchange flow. Keep that route unavailable until its owner implements it, rather than substituting client credentials for human proof.
+
+## Optional framework example
+
+If your application uses Jafly, the [Jafly resource-server example](jafly.md) applies these checks through its generic Spring Security module. Jafly is an independent framework that can integrate with other compatible CIAM providers; the example does not make it a component or prerequisite of Firefly Identity. Other applications implement the same protocol checks with their chosen libraries.
+
+## Resolve common integration errors
+
+| Symptom | Check |
 | --- | --- |
-| [Core SCA draft 2](https://github.com/fireflysoftwaresolutions/core-common-sca-mgmt/pull/2) | `c91880ac092eec11ec4640a65a599a8a1d9d5c2a`: eight producer operations, committed factor reservation, online consumed-receipt verification, durable audit and optional native adapters; 84 source tests in run `41251638357` |
-| [Domain SCA draft 1](https://github.com/fireflysoftwaresolutions/domain-common-sca/pull/1) | `d32ecca07e3dfd3a2330c201e555e95b89476c89`: genuine Core-generated candidate SDK, strict optional receiver, request-local verified bearer relay and phase-specific current native admission; full reactor and 23 required tests in run `41252856215` |
-| Firefly native owner | Java 21 / Keycloak 26.8.1 modules under `extensions/`, outside Jafly; source and complete provider qualification recorded separately in [current evidence](progress.md) |
+| Redirect URI refused | Exact registered scheme, host, port and callback path; the token exchange must reuse it |
+| Token accepted by login client but refused by API | Access token versus ID token, API audience and exact population issuer |
+| Signature/JWKS failure | Trusted discovery, network/TLS access, key rotation and algorithm allowlist |
+| Missing subject or tenant | Keep the `basic` client scope; configure protected attributes and required receiver projection |
+| Signed staff/party link but operation denied | Current membership, resource ownership, consent, purpose and business policy |
+| Old API token survives logout | Offline JWT lifetime versus the receiver's configured current-state/revocation mechanism |
 
-The [native guide](native-recovery.md) describes explicit opt-in configuration, browser protocol and interruption handling. [Support PIN](support-pin.md) and [zero trust](zero-trust.md) describe the genuine support/delegation owner that is still required. A narrow self-recovery policy cannot authorize other business or workforce actions.
-
-The actual resource-server prefix is `firefly.security.resource-server`. Its relevant properties are `issuer`, `jwk-set-uri`, `audiences`, `signature-algorithms`, `role-claim-paths`, `scope-claim-paths`, `authority-prefix`, `tenant-claim-paths`, `tenant-required`, and `strict-policy`.
-
-| Projection | Current behavior |
-| --- | --- |
-| Subject and issuer | JWT `sub` and `iss` project to `SecurityPrincipal.subject` and `.issuer`. Preserve their exact issuer-scoped identity. |
-| Roles | Default paths are `roles`, `realm_access.roles`, `cognito:groups`, `groups`; authority prefix defaults to empty. Keycloak client roles are not in these default paths. |
-| Scopes | Default paths are `scope`, `scp`. Scalar OAuth scope strings split on ASCII space. |
-| Tenant | Resource-server tenant paths default to empty; projection is optional until configured. With configured paths, exactly one distinct nonblank tenant is required for a resolved tenant. Opaque tenant identifiers are not split like scopes. Required missing/ambiguous projection rejects authentication. |
-| Other claims | Validated claims remain in `SecurityPrincipal.claims`. There are no built-in party, staff, or client fields in the principal record. |
-| Authentication context | `auth_time`, `acr`, and `amr` project to dedicated principal fields. Their presence does not by itself prove a particular business purpose. |
-| JWT validation | Expiration is required. Exact issuer validation applies when configured; configured audiences use membership matching. External JWKS defaults to asymmetric `RS256`, `PS256`, and `ES256`. Configure a narrow receiver audience. |
-
-Sources: [ResourceServerProperties](https://github.com/fireflyframework/fireflyframework-jafly/blob/674fdd33a2a7ae6538ab1d026e45e9f82dcf35b0/modules/security-resource-server/src/main/java/org/fireflyframework/security/rs/ResourceServerProperties.java), [ResourceServerAutoConfiguration](https://github.com/fireflyframework/fireflyframework-jafly/blob/674fdd33a2a7ae6538ab1d026e45e9f82dcf35b0/modules/security-resource-server/src/main/java/org/fireflyframework/security/rs/ResourceServerAutoConfiguration.java), [AuthorityMappingProperties](https://github.com/fireflyframework/fireflyframework-jafly/blob/674fdd33a2a7ae6538ab1d026e45e9f82dcf35b0/modules/security-core/src/main/java/org/fireflyframework/security/core/authority/AuthorityMappingProperties.java), [ConfigurableTenantResolver](https://github.com/fireflyframework/fireflyframework-jafly/blob/674fdd33a2a7ae6538ab1d026e45e9f82dcf35b0/modules/security-core/src/main/java/org/fireflyframework/security/core/tenant/ConfigurableTenantResolver.java), [SecurityPrincipal](https://github.com/fireflyframework/fireflyframework-jafly/blob/674fdd33a2a7ae6538ab1d026e45e9f82dcf35b0/modules/security-api/src/main/java/org/fireflyframework/security/api/domain/SecurityPrincipal.java), and [PrincipalFactory](https://github.com/fireflyframework/fireflyframework-jafly/blob/674fdd33a2a7ae6538ab1d026e45e9f82dcf35b0/modules/security-core/src/main/java/org/fireflyframework/security/core/context/PrincipalFactory.java).
-
-Application code obtains the verified principal through `SecurityContextPort.currentPrincipal()`. `PolicyDecisionPort` is product-neutral; party/staff relationships require a purpose-specific contract and authoritative enrichment. Sources: [SecurityContextPort](https://github.com/fireflyframework/fireflyframework-jafly/blob/674fdd33a2a7ae6538ab1d026e45e9f82dcf35b0/modules/security-spi/src/main/java/org/fireflyframework/security/spi/SecurityContextPort.java) and [PolicyDecisionPort](https://github.com/fireflyframework/fireflyframework-jafly/blob/674fdd33a2a7ae6538ab1d026e45e9f82dcf35b0/modules/security-spi/src/main/java/org/fireflyframework/security/spi/PolicyDecisionPort.java).
-
-## Sandbox names and pending deployment bindings
-
-The local example realms are `sandbox-customers`, `sandbox-workforce`, and `sandbox-institutions`; interactive clients are `sandbox-web` and `sandbox-backend`. The separately registered confidential `sandbox-api` receiver matches the already selected access-token audience. It has a separate random secret and all token grants/service accounts disabled; it authenticates only the native audience-bound introspection probe and does not create a MACHINE principal. Keycloak 26.8.1 refuses introspection from a client outside the token audience. The fixture checks that refusal and does not enable the upstream audience-check bypass. These examples do not establish a production identity mapping or credential rollout.
-
-Before integration, record each exact issuer URL, receiver audience, JWKS URL, client registration ID, and the issuer-declared signed claim used for a delegating client. Do not infer an audience from a base URL or assume a client ID is an audience. Do not select between client claims by permissive fallback. The candidate table records concrete existing claim names; deploying their party/staff semantics, realm binding, and authoritative mapping still requires an approved owner profile. This review does not create a global profile.
-
-For a signed human path, verify the signature and exact issuer/audience at every receiving hop, then require the approved human subject/tenant/party or staff relationship and current purpose policy. A client-credentials token authenticates a machine. It cannot replace human proof or synthesize a human actor. Human exchange must preserve the approved original identity and scope, independently verify the returned token, bind its delegating client, and bound its lifetime by the source token. Until that path is implemented and qualified, keep it unavailable.
-
-The existing [OAuth2ClientAutoConfiguration](https://github.com/fireflyframework/fireflyframework-jafly/blob/674fdd33a2a7ae6538ab1d026e45e9f82dcf35b0/modules/security-oauth2-client/src/main/java/org/fireflyframework/security/client/OAuth2ClientAutoConfiguration.java) configures no token-exchange provider. [FireflyAuthenticationToken](https://github.com/fireflyframework/fireflyframework-jafly/blob/674fdd33a2a7ae6538ab1d026e45e9f82dcf35b0/modules/security-webflux/src/main/java/org/fireflyframework/security/webflux/authentication/FireflyAuthenticationToken.java) has empty credentials and a `SecurityPrincipal`, so raw-token delegation must not be inferred from that object.
-
-The authenticated namespace is the exact pair `(verified issuer, projected tenant string)`. A Configuration resource tenant is a separately typed UUID. Do not parse an opaque namespace into that UUID, substitute an institution/bank/party ID, or rewrite the principal to satisfy a legacy parser. The reviewed Configuration PR supplies the current mapping boundary; its presence in that PR does not imply availability on main or in an installed artifact. Any namespace-to-resource mapping must come from the authenticated, currently authorized owner boundary and preserve both identities.
-
-## Source defects and acceptance gates
-
-1. Security Center `JaflyIdentityAdapter.resolve` returns a subject for any nonblank actor ID after role lookup; lookup errors become empty roles. This must not serve as authentication or existence proof. Its authenticated path falls back from `sub` to preferred username, which is unsuitable for a stable issuer/subject identity. [Source](https://github.com/fireflysoftwaresolutions/domain-core-security-center/blob/da6006873315a81c5cd04057f83503e2f11dd030/domain-core-security-center-core/src/main/java/io/fireflysoftware/security/center/core/identity/JaflyIdentityAdapter.java).
-2. Main-branch terminal adapters parse `actorId` as a UUID and provide no password in username sign-in; main controllers accept caller actor headers. The reviewed PRs add signed staff projection and actor-header enforcement as documented above. Their remaining UUID-only tenant projection requires explicit owner integration. Changing the Keycloak theme does not remediate consumer contracts.
-3. Jafly Keycloak `TokenServiceImpl.parseAccessToken` calls `TokenVerifier.create(...).getToken()` without a verification call, key, issuer, or audience, despite validation wording. Treat it as parsing, not signature proof. A complete scan of the module's 14 main Java files found one external helper use: `IdpAdminServiceImpl` checks expiry after obtaining a fresh token from Keycloak using the old password. This review did not establish a caller-supplied bearer admission bypass. Login, introspection, and user-info calls use the remote provider; the resource-server decoder supplies a separate signature-verification boundary. [Parser](https://github.com/fireflyframework/fireflyframework-jafly/blob/674fdd33a2a7ae6538ab1d026e45e9f82dcf35b0/modules/security-idp-keycloak/src/main/java/org/fireflyframework/security/idp/adapter/service/impl/TokenServiceImpl.java), [admin caller](https://github.com/fireflyframework/fireflyframework-jafly/blob/674fdd33a2a7ae6538ab1d026e45e9f82dcf35b0/modules/security-idp-keycloak/src/main/java/org/fireflyframework/security/idp/adapter/service/impl/IdpAdminServiceImpl.java), [provider calls](https://github.com/fireflyframework/fireflyframework-jafly/blob/674fdd33a2a7ae6538ab1d026e45e9f82dcf35b0/modules/security-idp-keycloak/src/main/java/org/fireflyframework/security/idp/adapter/service/impl/IdpUserServiceImpl.java).
-4. Security Center configuration examples use `firefly.security-center.idp.keycloak`; the reviewed Jafly `KeycloakProperties` actually binds `firefly.security.idp.keycloak`. Use the binding class as authority and validate adapter selection at startup. [Properties](https://github.com/fireflyframework/fireflyframework-jafly/blob/674fdd33a2a7ae6538ab1d026e45e9f82dcf35b0/modules/security-idp-keycloak/src/main/java/org/fireflyframework/security/idp/properties/KeycloakProperties.java), [existing guide](https://github.com/fireflysoftwaresolutions/domain-core-security-center/blob/da6006873315a81c5cd04057f83503e2f11dd030/docs/CONFIGURATION.md).
-5. Source compilation, installed Jafly artifacts, Keycloak startup/import, browser login, real issued-token validation, current policy evaluation, token exchange, and consumer acceptance are separate gates. This review establishes only current remote source facts. No production grants, signed business identity profile, or consumer rollout is implied.
-
-Private evidence locations, credentials, tenant catalogs, customer data, and local machine paths must remain outside public documentation and realm exports. An optional private source inventory can use the adjacent example schema; populate and store it outside this repository.
+Use [troubleshooting](troubleshooting.md) for server, callback and local networking issues. Never fix a refusal by disabling issuer/audience validation or granting broad identity administration.

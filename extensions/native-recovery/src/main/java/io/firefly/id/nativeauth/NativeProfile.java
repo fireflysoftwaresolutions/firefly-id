@@ -4,7 +4,7 @@ import org.keycloak.models.RealmModel;
 import org.keycloak.models.UserModel;
 import java.util.Set;
 import java.util.UUID;
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
 public record NativeProfile(String issuer, String population, String clientId, String tenantAttribute,
         String linkAttribute, String origin, String domainAudience, String coreAudience,

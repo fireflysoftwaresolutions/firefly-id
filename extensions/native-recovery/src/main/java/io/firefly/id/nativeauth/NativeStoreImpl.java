@@ -13,7 +13,7 @@ import org.keycloak.storage.StorageId;
 import org.keycloak.storage.UserStoragePrivateUtil;
 import java.util.Comparator;
 import java.util.UUID;
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
 final class NativeStoreImpl {
     final KeycloakSession session;
@@ -67,6 +67,15 @@ final class NativeStoreImpl {
         audit.actorRealmId = auditValue(actor.getRealmId()); audit.actorSubject = auditValue(actor.getUserId());
         audit.actorClientId = auditValue(actor.getClientId()); audit.adminEventId = auditValue(source.getId());
         em.persist(audit);
+    }
+    void auditSupport(NativeSupportProof proof, String event) {
+        NativeAudit audit = auditRecord(proof.subject, event, proof.id);
+        audit.actorIssuer = auditValue(proof.staffIssuer); audit.actorSubject = auditValue(proof.staffSubject);
+        audit.supportGrantDigest = auditValue(proof.grantDigest); audit.supportNonceDigest = auditValue(proof.nonceDigest);
+        audit.supportCaseId = auditValue(proof.caseId); audit.supportCallId = auditValue(proof.callId);
+        audit.supportTenant = auditValue(proof.tenant); audit.supportCustomerLink = auditValue(proof.customerLink);
+        audit.supportAction = auditValue(proof.permittedAction); audit.supportPurpose = auditValue(proof.purpose);
+        audit.supportPinGeneration = auditValue(proof.pinGeneration); em.persist(audit);
     }
     static String auditValue(String value) { require(value != null && !value.isBlank() && value.length() <= 1024); return value; }
     private NativeAudit auditRecord(String subject, String event, String reference) {

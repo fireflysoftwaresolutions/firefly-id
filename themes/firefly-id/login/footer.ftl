@@ -6,6 +6,9 @@
     <#if (properties.nativeRecoveryEnabled!"false") == "true" && (pageId!"") == "login" && url.loginUrl?? && url.loginUrl?contains("/login-actions/")>
       <a class="ffid-recovery-entry" href="${url.loginUrl?keep_before('/login-actions/')}/firefly-recovery">${msg("ffidRecoveryTitle")}</a>
     </#if>
+    <#if (realm.attributes['firefly.reproofing.enabled']!"false") == "true" && (realm.attributes['firefly.reproofing.population']!"") == "HUMAN" && (realm.attributes['firefly.reproofing.domain-origin']!"")?has_content && (pageId!"") == "login" && url.loginUrl?? && url.loginUrl?contains("/login-actions/")>
+      <a class="ffid-lost-credentials-entry" href="${url.loginUrl?keep_before('/login-actions/')}/firefly-recovery/lost-credentials">${msg("ffidLostTitle")}</a>
+    </#if>
     <#if realm.internationalizationEnabled && locale.supported?size gt 1>
       <select
         class="ffid-locale-selector"

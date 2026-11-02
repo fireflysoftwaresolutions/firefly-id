@@ -1,69 +1,82 @@
 # Deployment and operations
 
-The repository supplies a pinned Keycloak theme distribution, an isolated synthetic Compose sandbox, and production reference configuration. Production realm/client/provisioning generation intentionally fails closed until the actual platform contract is approved. A successful source test, theme package build, or registry metadata check does not qualify a running identity deployment.
+Operate Firefly Identity as a dedicated identity service: pinned server image, protected database, private administration and monitored communications. Use [local sandbox](sandbox.md) for evaluation and [deployment setup](regulated-deployment.md) for the institution's topology.
 
-## Supported baseline and provenance
+## Build the distribution
 
 | Component | Pinned release | Purpose |
 | --- | --- | --- |
-| Keycloak | 26.8.1 | Public upstream identity distribution |
-| PostgreSQL | 17.11, Debian bookworm image | Dedicated identity database |
-| Mailpit | 1.31.3 | Synthetic local SMTP sink only |
+| Keycloak | 26.8.1 | Identity server |
+| PostgreSQL | 17.11, Debian bookworm image | Dedicated identity storage |
+| Mailpit | 1.31.3 | Local sandbox SMTP sink |
 
-Exact OCI manifest digests and registry endpoints are in [deploy/images.lock.json](../deploy/images.lock.json). On 2026-10-31 each registry manifest response was fetched and its SHA-256 compared with `Docker-Content-Digest`; no image layers were downloaded. Digest pinning provides byte identity, not a signature or vulnerability assessment. Verify upstream advisories and rescan the built image before each deployment. Use the same pinned version for theme compatibility review and runtime acceptance; changing a tag alone does not constitute an upgrade.
+Exact OCI references are in [images.lock.json](../deploy/images.lock.json). Keep digest pins, scan the built image and review upstream advisories before deployment. Native providers target Keycloak 26.8.1 and Java 21; the separate Core/Domain services use Java 25.
 
-Keycloak **26.8.1** was reconfirmed as the latest stable release on October 31, 2026 against both the [official download page](https://www.keycloak.org/downloads) and [official release metadata](https://github.com/keycloak/keycloak/releases/tag/26.8.1). It was published on October 13, 2026 and is neither a draft nor a prerelease. The native extension must use this exact API baseline and its Java 21 runtime; platform integration services retain their separate Java 25/Jafly train. A newer stable release requires an explicit compatibility/security review, pinned digest update, original-template comparison, native extension build and complete real-provider regression before adoption. Avoid floating `latest` image tags.
-
-Keycloak's [download page](https://www.keycloak.org/downloads) and [26.8.1 database guide](https://github.com/keycloak/keycloak/blob/26.8.1/docs/guides/server/db.adoc) define the baseline; its [database support template](https://github.com/keycloak/keycloak/blob/26.8.1/docs/guides/server/templates/databases.adoc) includes PostgreSQL 17. PostgreSQL 17 remains supported through November 2029 under the [official versioning policy](https://www.postgresql.org/support/versioning/). Mailpit publishes exact release tags in its [official Docker instructions](https://mailpit.axllent.org/docs/install/docker/) and [release history](https://github.com/axllent/mailpit/releases/tag/v1.31.3).
-
-## Local and production artifacts
-
-Follow [sandbox.md](sandbox.md) for the synthetic local lifecycle. Offline validation uses Python's standard library and does not require Docker or package installation:
+Build and check the theme from the repository root:
 
 ```sh
-python3 -m unittest discover -s tests -v
+make check
 python3 tooling/build_theme.py
-bash -n deploy/keycloak-entrypoint.sh deploy/postgres/init.sh
+docker build --file deploy/Containerfile --tag firefly-id:local .
 ```
 
-[deploy/Containerfile](../deploy/Containerfile) builds an optimized production image from the pinned upstream digest and the built theme JAR. Its build requires the approved capacity window, access to the pinned image, and the previously built `dist/firefly-id-theme.jar`. It does not copy realm exports, credentials, or local state. Build-time options are PostgreSQL, health, and metrics; runtime starts with `start --optimized`. The sandbox uses upstream `start --import-realm` without `--optimized` so the same build-time options can be applied on local startup; it does not use `start-dev` or the development database.
+Use Python 3.11+, Node.js 22 and a container engine on the build host. The image build retrieves the pinned upstream image and runs Keycloak's optimized build inside the container; the ordinary theme build does not require a host JDK. Replace the local tag with your deployment's unique image tag and retain the resulting digest.
 
-[deploy/Containerfile.native](../deploy/Containerfile.native) additionally consumes the two explicitly packaged native providers. It is an optional installation reference, with separate database-migration, Core/Domain integration and runtime acceptance gates. Follow [native recovery](native-recovery.md) for its version pin, immutable artifact manifest, managed-realm settings and retry handling, and [support PIN](support-pin.md) for external pepper provisioning/rotation. Neither image build enables or qualifies production recovery on its own.
+[Containerfile](../deploy/Containerfile) consumes `dist/firefly-id-theme.jar` and the password blocklist, enables PostgreSQL/health/metrics at build time, and starts with `start --optimized`. [Containerfile.native](../deploy/Containerfile.native) also consumes the packaged native providers. Follow [native installation](native-recovery.md) before using it: the JARs add database mappings, and the selected recovery journey needs its own service configuration.
 
-[deploy/keycloak.production.conf.example](../deploy/keycloak.production.conf.example) is an unrendered reference for TLS re-encryption. It requires the operator to choose the public and private administration URLs, exact proxy CIDRs, database endpoint/user, mounted TLS files, and runtime secrets. It is not a deployable production environment and does not provision production clients. Run the production image with the reference mounted as its Keycloak configuration only after all required values and policy are reviewed.
+In the deployment workload, mount the rendered server configuration read-only at `/opt/keycloak/conf/keycloak.conf`, mount the certificate/key/database CA at the paths it declares, and supply the database secret through the supported secret mechanism below. Keep the image's default startup command, including its native provider selection when applicable. Configure the dedicated database and private/public ingress before starting the workload; building the image alone does not start or configure those services.
 
-Use one dedicated PostgreSQL database owned by the Keycloak login, separate from all application databases. The sandbox initializer creates `firefly_id` with no superuser, role/database creation, or replication privilege; it revokes public database access and public schema creation. Keycloak retains DDL rights within its own database/schema because schema migration needs them. The database bootstrap superuser is not the runtime application login and its secret is not accessible to the Keycloak container. Production can use a managed PostgreSQL service with the same isolation, backups, encryption, restricted network access, and a JDBC URL requiring certificate/hostname verification (`sslmode=verify-full` with the appropriate trusted CA). Never point sandbox initialization at a shared or existing production database.
+Prepare production realm/client registrations through the Admin Console or authorized Admin API and render the server configuration through your deployment process; do not copy synthetic users or generated sandbox state.
 
-Inject the database password through `KCRAW_DB_PASSWORD` or a supported PKCS12 Keycloak configuration keystore. Inject the keystore's password through the secret manager if that path is used. Do not invent generic Keycloak `*_FILE` variables. See [pinned configuration guidance](https://github.com/keycloak/keycloak/blob/26.8.1/docs/guides/server/configuration.adoc). Run temporary bootstrap administration only during initial setup, remove it after permanent least-privileged MFA administration is established, and remove bootstrap credentials from subsequent deployments. Runtime secret rotation requires explicit database/client/admin operations; editing a mounted secret alone does not update a retained database identity.
+## Configure storage and secrets
 
-## Network and health
+Use a dedicated PostgreSQL database and a nonsuperuser runtime login, separate from application databases. Keycloak needs schema migration rights in its own schema. Restrict database networking, encrypt backups and review actual role privileges. The sandbox initializer creates a dedicated `firefly_id` login and is intended only for a new sandbox database.
 
-Production browser and backend consumers must agree on the exact public issuer URL per approved realm. Prefer the same HTTPS issuer reachable from both networks through appropriate DNS/routing. If a private backchannel transport is needed, explicitly configure and test hostname/backchannel behavior; do not change token issuer validation to accept an internal service URL. The sample keeps dynamic backchannel disabled in production. See [the pinned hostname guide](https://github.com/keycloak/keycloak/blob/26.8.1/docs/guides/server/hostname.adoc).
+The [production reference](../deploy/keycloak.production.conf.example) uses `db-tls-mode=verify-server` and `/run/secrets/database-ca.pem`. Supply a plain PostgreSQL JDBC URL without competing driver/TLS parameters. Check the real database certificate chain and hostname; use [the configuration checker](production-readiness.md) to catch unsupported input combinations before rollout.
 
-Terminate browser TLS at a controlled ingress and re-encrypt traffic to Keycloak. Restrict service access to that ingress and private operations networks. Overwrite incoming `X-Forwarded-*` headers and configure exact trusted proxy CIDRs. The sample's HTTP listener is disabled; certificates and private keys are runtime mounts. A separate administration hostname does not restrict the Admin REST API by itself: enforce private-only `/admin/` and administrative-realm routes at ingress. Never expose a database, SMTP sink, health, or metrics listener to the public internet. These requirements follow [Keycloak 26.8.1 reverse-proxy guidance](https://github.com/keycloak/keycloak/blob/26.8.1/docs/guides/server/reverseproxy.adoc).
+Inject `KCRAW_DB_PASSWORD` or a supported PKCS12 Keycloak configuration keystore through the secret manager. There is no generic `KC_DB_PASSWORD_FILE` loader. Restrict ownership of TLS private keys, workload credentials and encryption/PIN keys. Keep all secrets out of image layers, build arguments, tickets and diagnostic output. [Keycloak configuration mechanisms](https://github.com/keycloak/keycloak/blob/26.8.1/docs/guides/server/configuration.adoc).
 
-Enable health and metrics in the optimized image. Probe the private management port 9000: `/health/started` for startup, `/health/ready` for traffic admission, and `/health/live` for process liveness. Readiness may include the database pool when metrics are enabled; a failed readiness check must not itself cause a restart loop. Scrape `/metrics` only from authenticated/restricted monitoring infrastructure. The reference uses HTTP on a private management network; use the platform's mTLS/network controls where needed. Keycloak's slim image has no curl; use an external probe or the documented bash TCP readiness check. See [official health guidance](https://www.keycloak.org/observability/health).
+Changing an initialization secret does not rotate the password stored in PostgreSQL. Coordinate a database credential change with the runtime secret and restart/reconnect behavior. For clients, update the registered client credential and its consumers together. Test old-credential refusal and new-credential access.
 
-Bound CPU/memory and logs according to load tests. The sandbox bounds service memory and log rotation, stores at most 100 messages with 24-hour mail retention, and keeps the mail sink's default in-memory storage. Production needs database pool sizing, connection budget, cache/cluster topology, load-balanced routing, and HA/failure testing based on the actual workload; the single-node sandbox proves none of those.
+## Expose only the intended interfaces
 
-## Backup, restore, and upgrade
+Use the same canonical HTTPS issuer from browser and backend networks where possible. The production reference disables dynamic backchannel hostnames. A private transport address must not become another accepted token issuer.
 
-Back up the database with the platform's supported PostgreSQL physical/PITR process or a consistent logical dump, along with encrypted secrets, signing material, deployment manifests, theme artifact checksum, and exact image digests. Protect backups as credential-bearing personal data. A realm export is a configuration aid, not a complete database/session backup. Do not print passwords on command lines or place backup files in the public checkout.
+Re-encrypt traffic from ingress to Keycloak. The ingress must overwrite forwarded headers, and Keycloak must trust only its exact proxy addresses. Restrict `/admin/` and administrative-realm routes to private administration; `hostname-admin` alone does not enforce that restriction. Firewall direct service access. See [reverse proxy setup](https://github.com/keycloak/keycloak/blob/26.8.1/docs/guides/server/reverseproxy.adoc).
 
-For a logical sandbox rehearsal, an operator can run `pg_dump -Fc` inside only the owned PostgreSQL service with its local application login and redirect the resulting bytes into a protected backup directory. Verify the exit status and dump with `pg_restore --list`. Identify the project from `ownership.json`; never substitute an unreviewed global container selector. The lifecycle helper deliberately does not offer a backup deletion or database reset command.
+Management port 9000 inherits HTTPS and belongs only on the private monitoring network. Use an HTTPS-capable probe that verifies the certificate and hostname; the slim server image has no curl.
 
-Restore into a new, explicitly disposable dedicated PostgreSQL instance/database, never over retained or production data. Apply the approved database ownership and privileges first, restore with the supported PostgreSQL tools, then start the matching old Keycloak version against that restored copy. Verify discovery/JWKS and signing continuity, users/credentials, clients, protected attributes, sessions, roles, recovery emails, and a real code/PKCE application login. Record restore time and data loss window. A backup is unqualified until this restore rehearsal succeeds.
+| Probe | Use |
+| --- | --- |
+| `/health/started` | Allow startup time before applying steady-state checks |
+| `/health/ready` | Admit traffic only when dependencies are ready |
+| `/health/live` | Detect a process that cannot continue |
+| `/metrics` | Scrape from the restricted monitoring system |
 
-Before an upgrade:
+A failed readiness check should remove traffic rather than cause an immediate restart loop. Size CPU, memory, database pools, connection budgets and cluster routing from the expected workload. See [health guidance](https://www.keycloak.org/observability/health) and [observability](observability-incidents.md).
 
-1. Review Keycloak and PostgreSQL release/migration notes and security advisories. Choose supported exact versions and refresh registry digests by metadata inspection. Do not change major PostgreSQL versions by swapping an image over the same data directory.
-2. Build the theme and optimized image against the new Keycloak version; review inherited template/API changes. Scan the result and keep the previous package and image digests.
-3. Back up and restore the current database into an isolated rehearsal environment. Do not replay real external mail or client traffic.
-4. Run the target Keycloak migration only on the rehearsal database, then execute all protocol, profile-forgery, population-isolation, visual, recovery, and restore acceptance checks in [sandbox.md](sandbox.md).
-5. Schedule a controlled maintenance/rollout plan appropriate to the approved cluster topology. Record pre-change backups and checkpoints, deployment identity, new image/theme hashes, and acceptance evidence.
+## Rotate keys and preserve access
 
-If an upgrade changes the schema, restarting an older image against the migrated database is not a rollback plan. Stop writers and restore the pre-upgrade backup into a separate reviewed target with the matching previous image, keys, and configuration, then verify it before switching traffic. Preserve failed-upgrade data/evidence. Never run automatic broad cleanup, migrations against unknown endpoints, or destructive restore flags without explicit approval.
+For routine signing-key rotation, introduce a new signing key through the supported realm key provider, keep prior verification keys available for the required overlap, and test JWKS refresh in every consumer. Emergency key compromise needs a separate revocation and session-containment procedure; do not rely on the routine overlap.
 
-## Current acceptance boundary
+PIN peppers and recovery encryption keys have different rotation rules. Retain versioned material needed by stored records, respect old-PIN verification deadlines and never replace bytes under an existing version name. Follow [support PIN](support-pin.md) and [credential-loss keys](credential-loss-recovery.md).
 
-The source generator, policy-output tests, shell syntax, and theme build are lightweight checks. Actual container import/startup, PostgreSQL privilege enforcement, host/container issuer reachability, code/PKCE, mail recovery, logout, forged-attribute rejection, visual review, persistence, backup restore, production ingress/TLS, and actual OpenPlatform consumer acceptance require separate recorded runtime evidence. Do not label them passed because source CI is green.
+Use bootstrap administration only to establish permanent named administrators and their factors. Remove temporary accounts and bootstrap secret injection after verifying permanent access and emergency recovery.
+
+## Back up and restore
+
+Back up the database using the platform's consistent logical or physical/PITR process, together with protected keys, secrets and deployment configuration. A realm export does not include a complete database/session backup.
+
+In a sandbox, `pg_dump -Fc` can run inside the exact owned PostgreSQL service and write into a protected backup directory. Check its exit status and inspect the dump using `pg_restore --list`. Select the service/project from `ownership.json`; do not use a broad global container selector.
+
+Restore to a new isolated database with compatible server images and keys, block real external mail/provider traffic, and verify sign-in, factors, links, holds, sessions and pending recovery work. Measure recovery time and data loss against your objectives. [Retained data](retained-data.md) gives the full sequence.
+
+## Upgrade and roll back
+
+1. Review supported server/database upgrade paths, release notes and security advisories.
+2. Build an immutable image against the selected version; compare inherited templates and native APIs, scan it and retain the previous image/configuration.
+3. Restore the current database into an isolated rehearsal environment and run the migration there first.
+4. Exercise sign-in, factor enrollment/challenge, profile protection, client integration, recovery, localization and application authorization.
+5. Schedule rollout with named operators, database checkpoints, traffic-switch criteria and an explicit rollback path.
+
+After a schema change, restarting the old image against the migrated database is unsafe. Restore the pre-change database into a compatible target with matching keys/configuration, verify it, then switch traffic. Preserve the failed-upgrade state for diagnosis.

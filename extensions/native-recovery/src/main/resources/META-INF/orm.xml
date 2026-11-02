@@ -8,4 +8,9 @@
   <entity class="io.firefly.id.nativeauth.NativeIssuedChallenge" access="FIELD"/>
   <entity class="io.firefly.id.nativeauth.NativeSupportProof" access="FIELD"/>
   <entity class="io.firefly.id.nativeauth.NativeTotpReplay" access="FIELD"/>
+  <entity class="io.firefly.id.nativeauth.impl.ReproofingStateImpl" access="FIELD"/>
+  <entity class="io.firefly.id.nativeauth.impl.ReproofingCeremonyImpl" access="FIELD"/>
+  <entity class="io.firefly.id.nativeauth.impl.ReproofingExecutionImpl" access="FIELD"/>
+  <entity class="io.firefly.id.nativeauth.impl.ReproofingNotificationImpl" access="FIELD"/>
+  <entity class="io.firefly.id.nativeauth.impl.ReproofingRealmPolicyEntityImpl" access="FIELD"/>
 </entity-mappings>

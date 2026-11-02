@@ -128,4 +128,37 @@
   <changeSet id="firefly-native-admin-pin-audit-check-1" author="firefly-id" dbms="postgresql">
     <sql>ALTER TABLE ff_native_audit ADD CONSTRAINT ff_native_admin_pin_actor CHECK (event_type &lt;&gt; 'PIN_REVOKED_ADMINISTRATIVE' OR (actor_realm_id IS NOT NULL AND actor_subject IS NOT NULL AND actor_client_id IS NOT NULL AND admin_event_id IS NOT NULL))</sql>
   </changeSet>
+  <changeSet id="firefly-native-support-evidence-2" author="firefly-id">
+    <!-- Nullable additions preserve historical rows, which lack binding and cannot be consumed. -->
+    <addColumn tableName="ff_native_support_proof">
+      <column name="nonce_digest" type="VARCHAR(128)"/>
+      <column name="target_issuer" type="VARCHAR(512)"/>
+      <column name="pin_credential_id" type="VARCHAR(1024)"/>
+      <column name="pin_key_version" type="VARCHAR(64)"/>
+      <column name="staff_issuer" type="VARCHAR(512)"/>
+      <column name="staff_subject" type="VARCHAR(512)"/>
+      <column name="case_id" type="VARCHAR(512)"/>
+      <column name="call_id" type="VARCHAR(512)"/>
+      <column name="tenant" type="VARCHAR(512)"/>
+      <column name="customer_link" type="VARCHAR(512)"/>
+      <column name="permitted_action" type="VARCHAR(64)"/>
+      <column name="purpose" type="VARCHAR(64)"/>
+      <column name="reserved_at" type="BIGINT"/>
+      <column name="status" type="VARCHAR(16)"/>
+      <column name="consumed_at" type="BIGINT"/>
+    </addColumn>
+    <addUniqueConstraint tableName="ff_native_support_proof" columnNames="nonce_digest" constraintName="ff_native_support_nonce_once"/>
+    <addColumn tableName="ff_native_audit">
+      <column name="actor_issuer" type="VARCHAR(512)"/>
+      <column name="support_grant_digest" type="VARCHAR(128)"/>
+      <column name="support_nonce_digest" type="VARCHAR(128)"/>
+      <column name="support_case_id" type="VARCHAR(512)"/>
+      <column name="support_call_id" type="VARCHAR(512)"/>
+      <column name="support_tenant" type="VARCHAR(512)"/>
+      <column name="support_customer_link" type="VARCHAR(512)"/>
+      <column name="support_action" type="VARCHAR(64)"/>
+      <column name="support_purpose" type="VARCHAR(64)"/>
+      <column name="support_pin_generation" type="VARCHAR(128)"/>
+    </addColumn>
+  </changeSet>
 </databaseChangeLog>

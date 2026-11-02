@@ -48,15 +48,20 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
+      - name: Prepare native password matcher from exact pinned image
+        run: python3 tooling/hosted_password_preflight.py
       - name: Prepare owned synthetic runtime
         id: owned-runtime
         run: |
           python3 tooling/build_theme.py
-          python3 scripts/generate.py --mode sandbox --configuration-lookup-client-id configuration-lookup --configuration-lookup-realm customers --configuration-lookup-tenant synthetic-platform-namespace
+          python3 scripts/generate.py --mode sandbox --hosted-startup-diagnostics --hosted-password-preflight --configuration-lookup-client-id configuration-lookup --configuration-lookup-realm customers --configuration-lookup-tenant synthetic-platform-namespace
           printf '\n127.0.0.1 id.firefly.test\n' | sudo tee -a /etc/hosts >/dev/null
           python3 scripts/sandbox.py preflight
           python3 scripts/sandbox.py pull
           python3 scripts/sandbox.py up
+      - name: Diagnose only an owned startup failure
+        if: ${{ failure() && steps.owned-runtime.outcome == 'failure' && hashFiles('.state/sandbox/ownership.json') != '' }}
+        run: python3 tooling/startup_diagnostics.py
       - name: Install pinned browser test tools
         id: browser-tools
         working-directory: tooling
@@ -115,6 +120,8 @@ jobs:
             .work/localization-runtime/*.png
             .work/localization-runtime/summary.json
             .work/configuration-lookup/*.json
+            .work/startup-diagnostics/summary.json
+            .work/password-preflight/summary.json
           if-no-files-found: ignore
           retention-days: 7
       - name: Stop only the owned runtime

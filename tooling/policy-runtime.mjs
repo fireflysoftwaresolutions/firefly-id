@@ -14,9 +14,156 @@ const pause = milliseconds => new Promise(ok => setTimeout(ok, milliseconds));
 
 export const normalizePublicText = value => value.replace(/\s+/g, ' ').trim();
 
+export async function readAdminValidation(response) {
+  const fixed = category => ({ categories: [category], fields: [] });
+  const messages = new Map([
+    ['invalidPasswordMinLengthMessage', 'PASSWORD_MIN_LENGTH'],
+    ['invalidPasswordMaxLengthMessage', 'PASSWORD_MAX_LENGTH'],
+    ['invalidPasswordBlacklistedMessage', 'PASSWORD_DENYLIST'],
+    ['invalidPasswordNotUsernameMessage', 'PASSWORD_USERNAME'],
+    ['invalidPasswordNotEmailMessage', 'PASSWORD_EMAIL'],
+    ['invalidPasswordHistoryMessage', 'PASSWORD_HISTORY'],
+    ['error-invalid-length', 'PROFILE_LENGTH'],
+    ['error-invalid-length-too-short', 'PROFILE_LENGTH'],
+    ['error-invalid-length-too-long', 'PROFILE_LENGTH'],
+    ['error-invalid-email', 'PROFILE_EMAIL'],
+    ['error-non-ascii-local-part-email', 'PROFILE_EMAIL'],
+    ['missingUsernameMessage', 'PROFILE_REQUIRED'],
+    ['missingEmailMessage', 'PROFILE_REQUIRED'],
+    ['missingFirstNameMessage', 'PROFILE_REQUIRED'],
+    ['missingLastNameMessage', 'PROFILE_REQUIRED'],
+    ['updateReadOnlyAttributesRejectedMessage', 'PROFILE_READ_ONLY'],
+    ['User name is missing', 'PROFILE_REQUIRED'],
+    ['User exists with same username', 'DUPLICATE_USER'],
+    ['User exists with same email', 'DUPLICATE_USER'],
+    ['User exists with same username or email', 'DUPLICATE_USER'],
+    ['Could not create user', 'USER_CREATION_FAILURE'],
+  ]);
+  const allowedFields = new Set(['username', 'email', 'firstName', 'lastName',
+    'tenant_id', 'party_id', 'staff_actor_id', 'password']);
+  let content;
+  try {
+    const reader = response.body.getReader();
+    const chunks = [];
+    let length = 0;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        length += value.byteLength;
+        if (length > 16384) {
+          await reader.cancel();
+          return fixed('ADMIN_BODY_TOO_LARGE');
+        }
+        chunks.push(value);
+      }
+    } finally { reader.releaseLock(); }
+    content = Buffer.concat(chunks).toString('utf8');
+  } catch { return fixed('ADMIN_BODY_UNREADABLE'); }
+  let body;
+  try { body = JSON.parse(content); }
+  catch { return fixed('ADMIN_BODY_NOT_JSON'); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return fixed('UNKNOWN_ADMIN_VALIDATION');
+  const categories = new Set();
+  const fields = new Set();
+  if (Object.hasOwn(body, 'errors') && (!Array.isArray(body.errors) || body.errors.length > 32)) {
+    categories.add('UNKNOWN_ADMIN_VALIDATION');
+  }
+  const records = [body, ...(Array.isArray(body.errors) ? body.errors.slice(0, 32) : [])];
+  for (const record of records) {
+    if (!record || typeof record !== 'object' || Array.isArray(record)) {
+      categories.add('UNKNOWN_ADMIN_VALIDATION');
+      continue;
+    }
+    if (record !== body && !Object.hasOwn(record, 'error') && !Object.hasOwn(record, 'errorMessage')) {
+      categories.add('UNKNOWN_ADMIN_VALIDATION');
+    }
+    for (const key of ['error', 'errorMessage']) {
+      if (messages.has(record[key])) categories.add(messages.get(record[key]));
+      else if (Object.hasOwn(record, key)) categories.add('UNKNOWN_ADMIN_VALIDATION');
+    }
+    if (allowedFields.has(record.field)) fields.add(record.field);
+  }
+  if (!categories.size) categories.add('UNKNOWN_ADMIN_VALIDATION');
+  return { categories: [...categories].sort(), fields: [...fields].sort() };
+}
+
+export async function submitPolicyFixture(fixture, { persist, create, readUsers, recordValidation, expectDenylist = false }) {
+  fixture.operations = [];
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const operation = { operation: 'create', attempt, password: fixture.password };
+    fixture.operations.push(operation);
+    await persist();
+    const response = await create();
+    operation.status = response.status;
+    if (response.status === 201) {
+      recordValidation(undefined);
+      await persist();
+      assert.equal(expectDenylist, false, 'Baseline denylist password was accepted');
+      return response;
+    }
+    const validation = await readAdminValidation(response);
+    recordValidation(validation);
+    operation.validation = validation;
+    await persist();
+    assert.equal(response.status, 400, 'Fresh synthetic policy fixture creation refused');
+    assert.deepEqual(validation.categories, ['PASSWORD_DENYLIST'], 'Fixture refusal is not exclusively password denylist policy');
+    fixture.operations.push({ operation: 'confirm-absent', attempt });
+    await persist();
+    const users = await readUsers();
+    assert.ok(Array.isArray(users) && users.length === 0, 'Refused fixture absence could not be confirmed');
+    fixture.operations.at(-1).absent = true;
+    await persist();
+    if (expectDenylist) {
+      recordValidation(undefined);
+      return null;
+    }
+    assert.ok(attempt < 3, 'Random fixture password denylist retry bound exhausted');
+    fixture.password = randomBytes(36).toString('base64url');
+  }
+}
+
 export function assertPermanentBlock(user) {
   assert.equal(user.enabled, false, 'Expected a disabled user after permanent blocking');
   assert.deepEqual(user.attributes?.disabledReason, ['permanentLockout'], 'Expected the native permanent-lock reason');
+}
+
+export async function replacePolicyPassword(fixture, { value, expectedStatus, boundary, persist, replace, regenerate, recordValidation }) {
+  const length = value.length;
+  const refusalCategories = {
+    'below-minimum': 'PASSWORD_MIN_LENGTH', 'above-maximum': 'PASSWORD_MAX_LENGTH',
+    denylist: 'PASSWORD_DENYLIST', username: 'PASSWORD_USERNAME', email: 'PASSWORD_EMAIL', history: 'PASSWORD_HISTORY',
+  };
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    const operation = { operation: 'reset-password', boundary, attempt, password: value };
+    fixture.operations.push(operation);
+    await persist();
+    const response = await replace(value);
+    const validation = response.status === 204 ? { categories: [], fields: [] } : await readAdminValidation(response);
+    operation.status = response.status;
+    operation.validation = validation;
+    recordValidation({ boundary, attempt, status: response.status, ...validation });
+    await persist();
+    if (response.status === expectedStatus) {
+      if (expectedStatus === 204) {
+        fixture.password = value;
+        await persist();
+      } else {
+        assert.equal(expectedStatus, 400, 'Unsupported password policy refusal status');
+        assert.ok(Object.hasOwn(refusalCategories, boundary), 'Expected password refusal category is missing');
+        assert.deepEqual(validation.categories, [refusalCategories[boundary]], 'Password refusal differs from the intended policy');
+      }
+      return value;
+    }
+    assert.equal(expectedStatus, 204, 'Password policy response differs from expected boundary');
+    assert.equal(response.status, 400, 'Password policy response differs from expected boundary');
+    assert.deepEqual(validation.categories, ['PASSWORD_DENYLIST'], 'Boundary refusal is not exclusively password denylist policy');
+    assert.ok(attempt < 8, 'Random boundary password denylist retry bound exhausted');
+    const replacement = regenerate(length);
+    assert.ok(typeof replacement === 'string' && replacement.length === length && replacement !== value,
+      'Boundary regeneration must preserve exact length and change the candidate');
+    value = replacement;
+  }
 }
 
 export async function waitForPermanentBlock(readState, { maxPolls = 30, intervalMs = 100 } = {}) {
@@ -77,7 +224,9 @@ async function main() {
   let browser;
   let server;
   let phase = 'policy setup';
+  let adminValidation;
   const results = [];
+  const passwordPolicyAttempts = [];
   const pending = new Map();
   const passed = name => { results.push(name); console.log(`PASS ${name}`); };
   try {
@@ -229,22 +378,28 @@ async function main() {
     }
     passed('actual customer, workforce and institutional policies match selected profiles; workforce OTP required');
 
-    async function freshFixture(population, purpose, enabled = true) {
+    async function freshFixture(population, purpose, enabled = true, deniedPassword) {
       assert.ok(credentials[`policy_${population}`], 'Missing separate fixture seed');
       const username = `${credentials[`policy_${population}`].username}-${purpose}-${runId}`;
       const fixture = { population, username, email: `policy-${runId.replaceAll('-', '')}-${manifest.users.length}@example.invalid`,
-        password: randomBytes(36).toString('base64url'), enabled };
+        password: deniedPassword ?? randomBytes(36).toString('base64url'), enabled };
       // Persist intent before creation so an interrupted response does not orphan an unrecorded fixture.
       manifest.users.push(fixture);
-      await protectedJson(manifestFile, manifest);
-      const response = await admin(api(population, '/users'), 'POST', {
-        username, email: fixture.email, enabled, emailVerified: true,
-        firstName: 'Synthetic', lastName: 'Policy qualification', requiredActions: [],
-        attributes: { tenant_id: ['synthetic-tenant'],
-          [population === 'workforce' ? 'staff_actor_id' : 'party_id']: [randomUUID()] },
-        credentials: [{ type: 'password', value: fixture.password, temporary: false }],
+      const attributes = { tenant_id: ['synthetic-tenant'],
+        [population === 'workforce' ? 'staff_actor_id' : 'party_id']: [randomUUID()] };
+      const response = await submitPolicyFixture(fixture, {
+        persist: () => protectedJson(manifestFile, manifest),
+        recordValidation: validation => { adminValidation = validation; },
+        expectDenylist: deniedPassword !== undefined,
+        readUsers: () => adminJson(api(population, `/users?username=${encodeURIComponent(username)}&exact=true`)),
+        create: () => admin(api(population, '/users'), 'POST', {
+          username, email: fixture.email, enabled, emailVerified: true,
+          firstName: 'Synthetic', lastName: 'Policy qualification', requiredActions: [],
+          attributes,
+          credentials: [{ type: 'password', value: fixture.password, temporary: false }],
+        }),
       });
-      assert.equal(response.status, 201, 'Fresh synthetic policy fixture creation refused');
+      if (response === null) return fixture;
       assert.ok(response.headers.get('location'), 'Created fixture has no resource location');
       const location = new URL(response.headers.get('location'), BASE);
       assert.equal(location.origin, BASE);
@@ -254,6 +409,18 @@ async function main() {
       await protectedJson(manifestFile, manifest);
       return fixture;
     }
+
+    const denied = (await readFile(new URL('../config/password-blacklist.txt', import.meta.url), 'utf8')).trim().split('\n');
+    for (const population of ['customers', 'workforce']) {
+      phase = `real ${population} fixture-creation denylist refusal and rollback`;
+      const policy = policies.profiles[population].realmSettings.passwordPolicy;
+      const minimum = Number(policy.match(/(?:^| and )length\((\d+)\)/)?.[1]);
+      const maximum = Number(policy.match(/(?:^| and )maxLength\((\d+)\)/)?.[1]);
+      const deniedPassword = denied.find(value => value.length >= minimum && value.length <= maximum);
+      assert.ok(deniedPassword, 'No denylist entry exercises this population boundary');
+      await freshFixture(population, 'denylist-probe', true, deniedPassword);
+    }
+    passed('actual customer and workforce fixture creation rejects a baseline denylist password with the exact policy category and leaves no user');
 
     const metadataCache = new Map();
     async function begin(population) {
@@ -528,29 +695,26 @@ async function main() {
     passed('clearing only the fresh owned fixture counter and replacing its password both leave enabled=false and the permanent-lock reason intact');
 
     phase = 'real password length, denylist, identity and history policies';
-    const denied = (await readFile(new URL('../config/password-blacklist.txt', import.meta.url), 'utf8')).trim().split('\n');
     for (const population of ['customers', 'workforce']) {
       const fixture = await freshFixture(population, 'passwords');
       const policy = policies.profiles[population].realmSettings.passwordPolicy;
       const minimum = Number(policy.match(/(?:^| and )length\((\d+)\)/)?.[1]);
       const maximum = Number(policy.match(/(?:^| and )maxLength\((\d+)\)/)?.[1]);
       assert.ok(minimum >= 16 && maximum === 128);
+      const phrase = size => (`${randomBytes(7).toString('hex')} ${'calm words '.repeat(20)}`).slice(0, size);
       async function replacePassword(value, expectedStatus, boundary) {
         phase = `real password policy ${population} ${boundary}`;
-        const response = await admin(api(population, `/users/${fixture.id}/reset-password`), 'PUT',
-          { type: 'password', value, temporary: false });
-        assert.equal(response.status, expectedStatus, 'Password policy response differs from expected boundary');
-        if (expectedStatus === 204) {
-          fixture.password = value;
-          await protectedJson(manifestFile, manifest);
-        }
+        return replacePolicyPassword(fixture, { value, expectedStatus, boundary,
+          persist: () => protectedJson(manifestFile, manifest),
+          replace: candidate => admin(api(population, `/users/${fixture.id}/reset-password`), 'PUT',
+            { type: 'password', value: candidate, temporary: false }),
+          regenerate: phrase,
+          recordValidation: outcome => { passwordPolicyAttempts.push({ population, ...outcome }); },
+        });
       }
-      const phrase = size => (`${randomBytes(7).toString('hex')} ${'calm words '.repeat(20)}`).slice(0, size);
       await replacePassword(phrase(minimum - 1), 400, 'below-minimum');
-      const minimumPassword = phrase(minimum);
-      await replacePassword(minimumPassword, 204, 'at-minimum');
-      const maximumPassword = phrase(maximum);
-      await replacePassword(maximumPassword, 204, 'at-maximum');
+      const minimumPassword = await replacePassword(phrase(minimum), 204, 'at-minimum');
+      const maximumPassword = await replacePassword(phrase(maximum), 204, 'at-maximum');
       await replacePassword(phrase(maximum + 1), 400, 'above-maximum');
       const deniedPassword = denied.find(value => value.length >= minimum && value.length <= maximum);
       assert.ok(deniedPassword, 'No denylist entry exercises this population boundary');
@@ -629,7 +793,7 @@ async function main() {
 
     const evidence = resolve('.work/policy-runtime');
     await mkdir(evidence, { recursive: true });
-    await writeFile(`${evidence}/summary.json`, JSON.stringify({ results,
+    await writeFile(`${evidence}/summary.json`, JSON.stringify({ results, passwordPolicyAttempts,
       pending: ['permanent-lock retention across restart and clock advance', 'concurrent lockout races',
         'timing side-channel analysis', 'workforce passkeys and lost-factor recovery',
         'permanent administrator phishing-resistant MFA and bootstrap removal',
@@ -645,8 +809,9 @@ async function main() {
       return frame ? [`policy-runtime.mjs:${frame[1]}:${frame[2]}`] : [];
     }).slice(0, 4);
     const evidence = resolve('.work/policy-runtime'); await mkdir(evidence, { recursive: true });
-    await writeFile(`${evidence}/summary.json`, JSON.stringify({ status: 'FAILED', results, phase, sourceFrames,
+    await writeFile(`${evidence}/summary.json`, JSON.stringify({ status: 'FAILED', results, phase, sourceFrames, passwordPolicyAttempts,
       actual: scalar(error?.actual), expected: scalar(error?.expected),
+      ...(adminValidation ? { adminValidation } : {}),
       scope: 'Bounded policy failure diagnostics; no credential values, bodies or raw errors.' }, null, 2) + '\n');
     process.exitCode = 1;
   } finally {

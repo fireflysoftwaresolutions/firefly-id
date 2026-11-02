@@ -1,0 +1,37 @@
+# Firefly Identity documentation and regulated deployment design
+
+## Authorized outcome
+
+The owner requested complete implementation/configuration review and a comprehensive MkDocs website explaining the solution, Keycloak selection, setup, shipped defaults, customizations and regulated use. The owner explicitly requires EU and US coverage. This continues the existing authorized feature branch and draft-PR workflow; no CIAM production activation, merge, release, real provider approval or legal certification is authorized. Routine site structure, MkDocs theme/build and private documentation publication are implementation choices delegated by the website request, not new approval gates.
+
+## Product and reading experience
+
+This is a Read surface within the existing Firefly visual world: canonical Material documentation navigation, search, breadcrumbs, section tables of contents and previous/next navigation. Preserve the approved symbol beside identity, canonical Manrope, paper/charcoal/amber palettes and light/dark preferences. Use an editorial index with an architecture illustration and audience-oriented reading paths, then readable 65–75ch guides, clear reference tables and copyable bounded examples. No redesign of the existing login/admin themes, marketing claims, stock imagery, advertising, analytics, tracking or runtime font/CDN dependencies. The author's choice is English repository/site content, consistent with current documentation; actual identity journeys retain English/Spanish localization.
+
+## Content authority and completeness
+
+The implementation is the source of truth: config/authentication-policies.json, generators, production configuration example, theme/provider sources, current integration receipts and the qualified Core/Domain candidates. Audit existing pages for stale statements and correct them without erasing historical failures. Explain upstream behavior separately from Firefly configuration and custom extensions. Readers must be able to follow a safe sandbox start, understand why production generation refuses, integrate a client, operate/recover the identity service and identify what a regulated deployment still needs.
+
+Cover: decision/tradeoffs; architecture/ownership and inventory; setup/build; exact policy/configuration reference; all customer/workforce/admin journeys; themes/font/tokens/locales; protocol/client/service integration and independent Jafly; zero trust; known-password and lost-factor recovery; KYC/KYB system of record/third-party assurance; PIN/BPO boundaries; notification operations; TLS/ingress/database/secrets/keys/bootstrap; retained-data migrations/backups/restore/HA; observability/incidents/upgrades; EU/US applicability matrix; evidence/acceptance; glossary/FAQ/contribution.
+
+Each security claim identifies source/default, enforcement owner, verification and remaining gate. Current customer MFA is optional in the synthetic profile; workforce password+OTP is required; permanent-admin phishing-resistant MFA remains a production gate. Do not relabel optional MFA or a generic login as banking SCA. Three-failure permanent blocking is the selected product policy, not a universal legislative number. The static baseline denylist is not a maintained compromised-password feed. Separate verified authentication, legal-person mandates, KYC evidence, consent and financial authority.
+
+## EU and US treatment
+
+Use current primary sources, scope-aware mappings and a dated review. EU: GDPR, PSD2/2018-389 where applicable, DORA/RTS, eIDAS and relevant NIS2 scope. US: FFIEC banking authentication guidance and banking information-security requirements; distinguish GLBA banking regulators from FTC Safeguards applicability, and explicitly identify state/sector overlays rather than claim one federal configuration fits every entity. NIST is technical guidance, not automatic law. Include MFA/phishing resistance, recovery/lifecycle, incident ownership, privacy/biometrics/cross-border retention, third parties and evidence. No certification statement or legal assurance may be inferred from passing tests. Jurisdiction/entity-specific policy remains an approval responsibility.
+
+## Implementation and publication
+
+Canonical MkDocs source remains in this Identity repository, with pinned MkDocs 1.6.1 and a verified current compatible Material version, strict build, self-hosted canonical font/brand assets, source links and a small documentation build hook. Do not duplicate policy values manually where a generated reference can derive them. Public prose remains maintained source; generated site/assets/reference output is ignored. Exclude internal plans/specs from the reader navigation and site publication. Retain historical progress as evidence with a clear latest-result page.
+
+Use hosted GitHub Actions for dependency installation, strict MkDocs generation, link/anchor/output checks and Playwright desktop/mobile light/dark/search/navigation/font/overflow checks. Local commands are lightweight Python/Node/source checks only; no local JVM/Maven/DB/Docker/clones/dependency install or cleanup. Existing source-parent/Jafly compatibility fixtures remain unchanged. Dependencies or server configuration are not upgraded as a side effect of documentation.
+
+If Sites publication is supported, create one private documentation Site and persist its returned ID. Preserve the canonical GitHub checkout/remotes. A dedicated new ignored publication directory may contain a bounded source-only snapshot and the matching ignored hosted build; this necessary new Site directory is authorized by the new website request and does not replace any retained checkout. The Sites helper may initialize/push this documentation source, never generated site files. Package only the matching built static output plus hosting manifest; no credentials, state, raw logs, internal plans or customer data. Native tool approvals still apply. A successful private documentation deployment is not a CIAM production deployment. If publishing is blocked, retain the complete validated source/build and report the specific blocker.
+
+## Independent work and review
+
+Parallel read-only regulatory research and configuration/documentation audit are independent. Content writers receive disjoint page ownership; root owns MkDocs/theme/hooks/workflow/integration and shared navigation. A builder checks this design before implementation; focused source/content review and bounded desktop/mobile visual review precede completion. Record exact build source and distinguish its documentation-only successor from runtime-qualified identity binaries.
+
+## Acceptance
+
+Strict MkDocs build and all local links/anchors/source mappings pass; page inventory covers all stated areas; generated policy reference equals catalogue; no external runtime assets or secret/state files enter output; real search/nav work; canonical Manrope loads; desktop/mobile in both modes have no clipped navigation/main text or page-level horizontal overflow; code/tables can scroll within their own region; footer identifies Firefly Software Foundation Inc., Keycloak and documentation tooling without implying license requirements that do not exist. Existing source presubmit passes and no runtime/policy/JPA/SPI bytes change unless a separately diagnosed defect requires a scoped tested fix. Final evidence lists actual implementation limits and site publication/visibility status.

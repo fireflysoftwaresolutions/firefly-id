@@ -13,7 +13,7 @@ class NativeExecutionReconciliationTest {
             Instant.ofEpochSecond(Instant.now().getEpochSecond() - 60, 123456789));
     private NativeCeremony ceremony() {
         var c = new NativeCeremony(); c.id = "original-ceremony"; c.realmId = "realm-id"; c.subject = binding.actorSubject();
-        c.generation = binding.lockGeneration(); c.operationId = receipt.operationId().toString(); c.bindingJson = NativeActor.json(binding);
+        c.generation = binding.lockGeneration(); c.operationId = receipt.operationId().toString(); c.bindingJson = NativeActorImpl.json(binding);
         c.expiresAt = System.currentTimeMillis() + 60000; return c;
     }
     private NativeExecution journal() { return NativeExecution.committed(ceremony(), receipt, "SUCCEEDED", System.currentTimeMillis()); }
@@ -47,7 +47,7 @@ class NativeExecutionReconciliationTest {
         final var otherCeremony = c; assertThrows(NativeRefusal.class, () -> journal.authorization(otherCeremony));
         c = ceremony(); c.operationId = UUID.randomUUID().toString(); final var otherOperation = c;
         assertThrows(NativeRefusal.class, () -> journal.authorization(otherOperation));
-        c = ceremony(); c.bindingJson = NativeActor.json(new Binding(binding.issuer(), "another-tenant", binding.clientId(), null,
+        c = ceremony(); c.bindingJson = NativeActorImpl.json(new Binding(binding.issuer(), "another-tenant", binding.clientId(), null,
                 binding.actorSubject(), binding.targetIssuer(), binding.targetRealm(), binding.targetSubject(), binding.population(), PURPOSE, binding.lockGeneration()));
         final var otherBinding = c; assertThrows(NativeRefusal.class, () -> journal.authorization(otherBinding));
         assertThrows(NativeRefusal.class, () -> journal.requireAuthorization(ceremony(),

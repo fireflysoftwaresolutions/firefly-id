@@ -1,37 +1,73 @@
 # Architecture and identity lifecycle
 
-Firefly Identity owns authentication and identity sessions. A dedicated PostgreSQL database stores credentials, authenticators, identity-provider links and identity configuration. It must never become the banking customer, product, employee or consent database.
+Firefly Identity provides a shared authentication service for customer applications, workforce tools and identity administrators. Applications use OpenID Connect to sign people in and validate their access tokens. Identity stores credentials and sessions in a dedicated PostgreSQL database; customer records, employment, consent and business permissions stay with their application owners.
 
-## Identity and resource ownership
+## Components and responsibilities
 
-The identity key is `(verified issuer, opaque subject)`. A username or email is mutable and does not replace that key. An institution's platform tenant namespace is a string scoped by issuer. Core's resource tenant is a separately typed UUID obtained through the currently authorized Configuration binding. Preserve both throughout calls and audit records.
+The standard identity service needs Keycloak, its dedicated database and the selected themes and policies. Any compatible OIDC application can connect, regardless of its framework or internal architecture.
 
-Server-managed party and staff references link the identity to authoritative Core records. Customers use party relationships; workforce uses a staff actor relationship and employment/membership status. Institutional users need their own authoritative organization/membership permissions. A realm name, email domain, organization label or realm role cannot establish those relationships.
+The diagram below also shows the optional platform integration used for native recovery. Experience, Domain, Core and Configuration describe those external service responsibilities; they are not prerequisites for ordinary sign-in. See [components](solution-overview.md) for the dependencies of each optional journey.
 
-Keep customers, workforce, service accounts and administrators in separate trust profiles. Use institution-specific realms and issuer allowlists, and separate instances/databases where the operational isolation requirement exceeds a logical realm. The sandbox's three population realms demonstrate separation for synthetic data; they are not a multi-institution production topology. The master realm is administrative only. Production administrators use a private ingress, least-privilege roles and phishing-resistant MFA.
+```mermaid
+flowchart TD
+    People[Customers and workforce] --> Identity[Firefly Identity · Keycloak]
+    Identity --> IdentityDB[(Identity PostgreSQL)]
+    People --> Experience[Experience · application interface]
+    Identity -->|OIDC sign-in and tokens| Experience
+    Experience -->|Authenticated request| Domain[Domain · orchestration]
+    Domain -->|Producer SDK| Core[Core · business services]
+    Core --> BusinessDB[(Business records)]
+    Domain --> Provider[Independent verification provider]
+    Core --> Configuration[Configuration · tenant binding]
+```
 
-## Application calls
+| Component | Responsibility | Keep outside this component |
+| --- | --- | --- |
+| Firefly Identity | Authentication, enrolled factors, identity sessions, protected identity links and native credential operations | Banking customer records, employment decisions, consent and financial authority |
+| Experience | Application interaction, session handling and orchestration of user requests | Authoritative business persistence |
+| Domain | Business orchestration, provider adapters and calls through producer SDKs | A competing copy of Core's business ledger |
+| Core | Authoritative business records, current business rules and operation decisions | Raw customer passwords or authenticator secrets |
+| Configuration | Current mapping between an identity tenant namespace and a resource tenant | Replacing the original authenticated identity |
+| Verification provider | Independent evidence under the selected assurance policy | Authorizing a native credential mutation directly from a browser callback |
 
-Experience orchestrates Domain; Domain orchestrates Core through genuine original-producer OpenAPI-generated SDKs. Core owns business persistence through Spring Data. Domain and Experience may cache and orchestrate but cannot take ownership of business records. Generic Jafly business interfaces carry verified principals and purpose-specific authorization inputs, with no Keycloak administration models leaking into them.
+Core KYCB is the KYC/KYB system of record. Customer Domain integrates independent third-party verification. A real provider must be selected and configured before documentary or biometric verification can be used; Identity does not include a biometric engine. See [the proofing provider contract](assurance-provider-contract.md).
 
-Every receiver validates the signature, exact trusted issuer, intended audience, approved algorithms, expiration and applicable not-before. It reads a verified framework principal, never identity headers supplied by a browser. Machine OAuth authenticates the calling service; approved signed human delegation separately binds original subject, tenant, purpose, delegating client and bounded lifetime. Where that exchange/verification contract is not implemented, the path stays unavailable. Do not forward arbitrary bearer tokens across audiences or simulate human proof with client credentials.
+## Separate populations and issuers
 
-Coarse identity roles classify access. The current business PDP, consent and authoritative resource ownership determine financial actions. Fulfill policy obligations or refuse the operation. Authentication, email verification and MFA do not imply KYC, AML screening, consent or transaction authority.
+Customers, employees, institutional users and administrators have different identity policies. The sandbox demonstrates separate customer, workforce and institution realms. Each realm has its own issuer and users. The master realm is reserved for administration.
 
-## Provisioning and linking
+Use an exact issuer allowlist for each application. A customer token must not authenticate a staff route merely because the username, email or tenant resembles a staff identity. A realm is a logical boundary; choose separate instances and databases when the institution's isolation requirement extends to operations, storage or failure domains.
 
-1. Receive an approved joiner/onboarding request through the owning application API. Validate institution, population, identity-proofing status and required consent there.
-2. Obtain/create the Core party or employee record through its actual owner API. Persist business state in Core and record an idempotent provisioning intent through the application's existing durable workflow/outbox mechanisms.
-3. A narrowly privileged provisioning adapter creates or links the identity using approved issuer/subject and authoritative business identifiers. It must not resolve a person by email alone or attach arbitrary user-supplied tenant attributes.
-4. Complete credential enrollment and verified communications through identity required actions. Keep enrollment success separate from business onboarding approval.
-5. Reconcile partial failure with explicit retry/idempotency and compensation policy. Do not silently provision broad realm administration or financial roles to make a retry succeed.
+Customer MFA is optional in the generated customer profile. Fresh workforce browser authentication requires password and TOTP. Permanent administrators require a separately configured phishing-resistant MFA policy and private administration. [Authentication policies](authentication-policies.md) and [workforce administration](workforce-administration.md) explain those differences.
 
-For a mover, revalidate membership and business policy before changing tenant/staff/party linkage. Revoke affected sessions and grants where required and record both old and new authoritative links. For a leaver, disable access, revoke identity sessions/refresh credentials and business grants, remove federation access where applicable, and preserve required audit/retention. Short-lived JWTs remain cryptographically valid until expiry unless the receiver uses the approved revocation/current-policy mechanism; logout alone does not promise instant offline JWT invalidation.
+## Link an identity to a business actor
 
-Password replacement and permanent-account unlocking are separate operations. The selected unlock policy requires previously enrolled independent knowledge and possession evidence, a purpose-bound single-use recovery transaction, and current authorization of the exact lock state. Email, a party/staff identifier, an SCA CRUD status or service authentication alone cannot authorize unlocking. Lost knowledge or possession requires approved assisted identity reproofing; it must not silently lower the assurance level. Recovery cannot rewrite business ownership or grant financial authority. See [permanent blocking and recovery](permanent-recovery.md) for the exact provider limitations and implementation gates.
+The stable identity key is the pair **verified issuer and opaque subject**. Do not use an email address as that key or require the subject to be a UUID.
 
-## Audit and operations
+Server-managed attributes connect an identity to its actual owner:
 
-Deliver identity and administration events to the broader audit pipeline through a reviewed collector or supported event-listener extension. Specify authenticated transport, bounded retries/backpressure, deduplication, event ordering and failure handling before deploying it. The repository does not ship a durable immutable-audit bridge yet. Keycloak's mutable event tables, application logs and unit tests do not prove immutable custody or regulatory compliance.
+- `tenant_id` identifies the issuer-scoped platform namespace as an opaque string.
+- `party_id` links a customer or institutional human to an authoritative party record.
+- `staff_actor_id` links an employee to the authoritative staff actor.
 
-Use the [operations guide](operations.md) for protected backups, restore rehearsals, key/client rotation and upgrade review. Review real consumer behavior before accepting any lifecycle change.
+These links identify an actor; they do not grant access to a bank account, establish a company's representative mandate or authorize a transaction. The receiving service resolves the current relationship and permission for the requested resource. Configuration's resource-tenant UUID remains a separate value from the original `tenant_id`. See [the claim reference](provider-claim-profile.md) and [service authorization](zero-trust.md).
+
+## Provision and maintain the lifecycle
+
+For a joiner, first create or resolve the customer/employee through its owning business API. Validate the institution, membership, onboarding requirements and consent there. An authorized provisioning adapter then creates or links the identity, writes the approved protected attributes and requests the appropriate enrollment/verification actions.
+
+Make provisioning idempotent. Record an intent through the application's durable workflow so a failed identity call can be reconciled without creating another business person or granting broad administrator roles. The sandbox generator creates synthetic links; it is not a production onboarding connector.
+
+For a mover, re-evaluate membership and policy before changing identity links or roles. Retire affected sessions and delegated grants as required. For a leaver or suspension, disable identity access, terminate sessions/refresh authority and withdraw business permissions through their respective owners. Where an external corporate provider owns the credential, include that provider in the lifecycle.
+
+## Recover credentials without changing business ownership
+
+Known-password unlock verifies an existing password and previously enrolled TOTP against a specific authentication lock. Lost-credential recovery uses a separate proofing case and one-time authority before replacing supported local customer credentials. Neither process changes party ownership, restores an employment hold or creates financial permission.
+
+Both finish with fresh sign-in. Previously issued self-contained JWTs need receiving-service current-state enforcement when immediate revocation is required. [Choose a recovery journey](access-recovery.md) before enabling the [native protocol](native-recovery.md) or [credential-loss recovery](credential-loss-recovery.md).
+
+## Operate the owners together
+
+Protect and back up identity storage independently from Core-owned business/recovery stores. Forward identity and administrative events through an authenticated collector with an explicit retention and failure policy. A durable immutable-audit bridge is not included; configure the institution's audit integration rather than treating mutable identity events as immutable custody.
+
+Use [deployment and operations](operations.md), [retained data](retained-data.md) and [observability and incidents](observability-incidents.md) for database, key, recovery and operating procedures.

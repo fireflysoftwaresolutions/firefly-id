@@ -7,21 +7,21 @@ import static org.junit.jupiter.api.Assertions.*;
 class NativeSecurityTest {
     @Test void pinRejectsSequencesRepetitionAndNonNumericInput() {
         for (String pin : new String[]{"12345678", "87654321", "11111111", "12121212", "1234567", "12a45678"})
-            assertThrows(NativeRefusal.class, () -> NativeSecurity.requirePin(pin));
-        assertDoesNotThrow(() -> NativeSecurity.requirePin("40592817"));
+            assertThrows(NativeRefusal.class, () -> NativeSecurityImpl.requirePin(pin));
+        assertDoesNotThrow(() -> NativeSecurityImpl.requirePin("40592817"));
     }
     @Test void csrfTokensAreUnpredictableAndComparedWithoutPlaintextPersistence() {
-        String token = NativeSecurity.randomToken();
-        assertNotEquals(token, NativeSecurity.randomToken());
-        assertTrue(NativeSecurity.matches(token, NativeSecurity.digest(token)));
-        assertFalse(NativeSecurity.matches("other", NativeSecurity.digest(token)));
+        String token = NativeSecurityImpl.randomToken();
+        assertNotEquals(token, NativeSecurityImpl.randomToken());
+        assertTrue(NativeSecurityImpl.matches(token, NativeSecurityImpl.digest(token)));
+        assertFalse(NativeSecurityImpl.matches("other", NativeSecurityImpl.digest(token)));
     }
     @Test void originsRequireExactHttpsOriginAndRejectSuffixConfusion() {
-        assertDoesNotThrow(() -> NativeSecurity.requireOrigin("https://identity.example", "https://identity.example"));
-        assertThrows(NativeRefusal.class, () -> NativeSecurity.requireOrigin("https://identity.example.evil", "https://identity.example"));
-        assertThrows(NativeRefusal.class, () -> NativeSecurity.requireOrigin(null, "https://identity.example"));
-        assertThrows(NativeRefusal.class, () -> NativeSecurity.requireOrigin("null", "https://identity.example"));
-        assertThrows(NativeRefusal.class, () -> NativeSecurity.requireOrigin("http://identity.example", "http://identity.example"));
+        assertDoesNotThrow(() -> NativeSecurityImpl.requireOrigin("https://identity.example", "https://identity.example"));
+        assertThrows(NativeRefusal.class, () -> NativeSecurityImpl.requireOrigin("https://identity.example.evil", "https://identity.example"));
+        assertThrows(NativeRefusal.class, () -> NativeSecurityImpl.requireOrigin(null, "https://identity.example"));
+        assertThrows(NativeRefusal.class, () -> NativeSecurityImpl.requireOrigin("null", "https://identity.example"));
+        assertThrows(NativeRefusal.class, () -> NativeSecurityImpl.requireOrigin("http://identity.example", "http://identity.example"));
     }
     @Test void secretBearingRecordsAreAlwaysRedacted() {
         var binding = new NativeContracts.Binding("issuer", "tenant", "client", null, "subject", "issuer", "realm", "subject", "HUMAN", NativeContracts.PURPOSE, "generation");

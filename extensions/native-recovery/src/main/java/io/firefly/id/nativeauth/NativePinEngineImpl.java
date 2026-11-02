@@ -9,7 +9,7 @@ import org.keycloak.services.managers.BruteForceProtector;
 import java.time.Instant;
 import java.util.UUID;
 import static io.firefly.id.nativeauth.NativeContracts.*;
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
 /** PIN is a native knowledge credential. It never authorizes login, recovery or business operations. */
 final class NativePinEngineImpl {
@@ -17,7 +17,7 @@ final class NativePinEngineImpl {
     private final KeycloakSession request;
     NativePinEngineImpl(KeycloakSession request) { this.request = request; }
     PinStatus status(String subject) {
-        return NativePhases.run(request, session -> {
+        return NativePhasesImpl.run(request, session -> {
             NativeStoreImpl store = new NativeStoreImpl(session); var user = store.local(subject, true); store.requireSelfService(user);
             require(user.isEnabled() && "HUMAN".equals(NativeProfile.of(session.getContext().getRealm()).population()));
             NativeState state;
@@ -28,7 +28,7 @@ final class NativePinEngineImpl {
     }
     boolean replace(String subject, String password, String otp, String pin, String confirmation, boolean revoke) {
         if (!revoke) { requirePin(pin); require(pin.equals(confirmation)); }
-        return NativePhases.run(request, session -> {
+        return NativePhasesImpl.run(request, session -> {
             NativeStoreImpl store = new NativeStoreImpl(session); var user = store.local(subject, true); store.requireSelfService(user);
             require(user.isEnabled() && "HUMAN".equals(NativeProfile.of(session.getContext().getRealm()).population()));
             NativeState state = store.state(subject, true);
@@ -37,7 +37,7 @@ final class NativePinEngineImpl {
                     .filter(c -> OTPCredentialModel.TOTP.equals(OTPCredentialModel.createFromCredentialModel(c).getOTPCredentialData().getSubType()))
                     .findFirst().orElseThrow(NativeRefusal::new);
             boolean valid = NativeEngineImpl.passwordValid(session, user, password)
-                    && otp != null && NativeCredentials.totp(session, user, totp.getId(), otp);
+                    && otp != null && NativeCredentialsImpl.totp(session, user, totp.getId(), otp);
             if (!valid) {
                 session.getProvider(BruteForceProtector.class).failedLogin(session.getContext().getRealm(), user,
                         request.getContext().getConnection(), request.getContext().getUri(), java.util.Set.of("password", OTPCredentialModel.TYPE));
@@ -50,8 +50,8 @@ final class NativePinEngineImpl {
                 state.pinCredentialId = null; state.pinRevokedAt = now; store.invalidateCache(user);
                 store.audit(subject, "PIN_REVOKED", state.pinGeneration); return true;
             }
-            String version = NativePinProtection.activeVersion();
-            String keyed = NativePinProtection.keyed(session.getContext().getRealm().getId(), subject, pin, version);
+            String version = NativePinProtectionImpl.activeVersion();
+            String keyed = NativePinProtectionImpl.keyed(session.getContext().getRealm().getId(), subject, pin, version);
             PasswordHashProvider hash = session.getProvider(PasswordHashProvider.class, "argon2"); require(hash != null);
             PasswordCredentialModel credential = hash.encodedCredential(keyed, 5); credential.setType(TYPE); credential.setCreatedDate(now);
             var stored = user.credentialManager().createStoredCredential(credential);

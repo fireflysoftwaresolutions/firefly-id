@@ -5,7 +5,7 @@ import jakarta.ws.rs.core.*;
 import org.keycloak.forms.login.LoginFormsProvider;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.services.managers.AuthenticationManager;
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
 public final class NativePinResource {
     private static final String COOKIE = "FF_NATIVE_PIN";
@@ -44,7 +44,7 @@ public final class NativePinResource {
             requireOrigin(session.getContext().getRequestHeaders().getHeaderString("Origin"), profile.origin());
             var cookie = session.getContext().getRequestHeaders().getCookies().get(COOKIE); require(cookie != null);
             phase = Phase.CEREMONY_CONSUME;
-            boolean revoke = NativePhases.run(session, child -> {
+            boolean revoke = NativePhasesImpl.run(session, child -> {
                 NativeStoreImpl store = new NativeStoreImpl(child); NativeCeremony ceremony = store.ceremony(cookie.getValue());
                 require(subject.equals(ceremony.subject) && matches(csrf, ceremony.csrfDigest)
                         && ("PIN_SET".equals(ceremony.stage) || "PIN_REVOKE".equals(ceremony.stage)));
@@ -56,7 +56,7 @@ public final class NativePinResource {
             catch (Exception unavailable) { diagnostic(unavailable); success = false; }
             boolean failed = !success;
             phase = Phase.FEEDBACK;
-            NativePhases.run(session, child -> {
+            NativePhasesImpl.run(session, child -> {
                 NativeCeremony ceremony = new NativeStoreImpl(child).storedCeremony(cookie.getValue());
                 setFeedback(ceremony, subject, failed); return null;
             });
@@ -71,7 +71,7 @@ public final class NativePinResource {
         var cookie = session.getContext().getRequestHeaders().getCookies().get(COOKIE);
         if (cookie == null) return false;
         try {
-            return NativePhases.run(session, child -> {
+            return NativePhasesImpl.run(session, child -> {
                 NativeCeremony ceremony = new NativeStoreImpl(child).ceremony(cookie.getValue());
                 return subject.equals(ceremony.subject) && "USED".equals(ceremony.stage) && ceremony.failed;
             });
@@ -80,7 +80,7 @@ public final class NativePinResource {
     private Response view(String subject, String stage, String message) {
         phase = Phase.CEREMONY_CREATE;
         String csrf = "STATUS".equals(stage) ? "" : randomToken();
-        String ceremonyId = "STATUS".equals(stage) ? null : NativePhases.run(session, child -> {
+        String ceremonyId = "STATUS".equals(stage) ? null : NativePhasesImpl.run(session, child -> {
             NativeStoreImpl store = new NativeStoreImpl(child); var user = store.local(subject, true); require(user.isEnabled());
             NativeCeremony c = new NativeCeremony(); c.id = randomToken(); c.realmId = child.getContext().getRealm().getId(); c.subject = subject;
             c.csrfDigest = digest(csrf); c.stage = "REVOKE".equals(stage) ? "PIN_REVOKE" : "PIN_SET";

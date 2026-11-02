@@ -1,10 +1,12 @@
-# Optional Configuration lookup service client
+# Configure a service client for tenant lookup
 
-This opt-in sandbox profile prepares a noninteractive application to obtain its own client-credentials token for the current Configuration tenant-binding lookup. It leaves browser, confidential interactive and introspection clients unchanged. Default sandbox generation still provisions no service accounts; production provisioning requires its reviewed deployment contract.
+An unattended application uses its own client-credentials identity. It does not sign in as an employee or borrow a customer's refresh token. Firefly Identity provides an optional sandbox profile for a service that needs Configuration's current tenant-resource binding.
 
-## Provision a fresh synthetic profile
+This profile creates the identity client only. To perform the business lookup, deploy Configuration with the current-binding API enabled, register the exact service identity in its authorization policy and configure the appropriate generated producer SDK.
 
-After building the theme, explicitly select the existing realm, a distinct client ID and the opaque namespace:
+## Create the optional sandbox client
+
+Build the theme and choose a new owned state directory as described in [sandbox setup](sandbox.md). Supply all three client inputs together:
 
 ```sh
 python3 scripts/generate.py --mode sandbox \
@@ -14,20 +16,59 @@ python3 scripts/generate.py --mode sandbox \
   --configuration-lookup-tenant synthetic-platform-namespace
 ```
 
-The generator refuses incomplete/conflicting arguments and existing output. It creates a random credential under `secrets/configuration-lookup-client-secret` in the protected state directory. `configuration-lookup-client.json` contains configuration and a credential-file reference, never its value or an invented subject. Keep all generated state private. Preserve retained data and follow the normal sandbox lifecycle with the selected `--state` path.
+| Input | Meaning |
+| --- | --- |
+| `--configuration-lookup-client-id` | Distinct nonreserved service client ID |
+| `--configuration-lookup-realm` | Existing generated population realm: `customers`, `workforce` or `institutions` |
+| `--configuration-lookup-tenant` | Nonblank bounded opaque platform namespace, not an invented resource-tenant UUID |
+| `--output` | New state directory; generation refuses an existing path |
 
-The client permits client credentials only. Standard, implicit, password/direct access, device, CIBA and standard token-exchange grants are disabled. It has no redirects, optional scopes, authorization-service grant, human links or reused operator role. The built-in `basic` scope preserves the actual issuer-generated subject. Its access-token mappers emit the configured opaque `tenant_id`, its own `client_id`, truthful `principal_kind=MACHINE` and the existing receiver audience `sandbox-api`.
+The generated `configuration-lookup-client.json` supplies issuer, client ID, tenant, audience, token endpoint, JWKS URI and a relative `secret_file` reference. The random secret is stored at `secrets/configuration-lookup-client-secret` inside the protected state directory. Read it only in the service process or secret-management integration; do not print it or put it in browser configuration.
 
-## Verify actual issuance
+Start the matching owned stack using the normal lifecycle and selected state:
 
-The hosted qualification workflow selects this profile explicitly in its fresh owned sandbox. It obtains a real client-credentials token, checks signature against the actual JWKS, verifies issuer/audience/tenant and absence of `party_id`/`staff_actor_id`, and exercises wrong-secret, password-grant and cross-realm refusals. A separate fixture passes that issued token through the genuine published Jafly 26.10.23 decoder and principal converter. It checks opaque subject preservation, normalized `Instant` expiry, honest optional `nbf` and absence of financial authorities. Tests do not skip when their required token is missing.
+```sh
+python3 scripts/sandbox.py preflight --state .state/configuration-example
+python3 scripts/sandbox.py pull --state .state/configuration-example
+python3 scripts/sandbox.py up --state .state/configuration-example
+```
 
-Only safe metadata and the bounded framework summary are eligible for evidence upload. The token stays in a mode-0600 state file and its credential is never uploaded. Read the actual workflow result before claiming successful issuance or decoder acceptance; source implementation is not runtime proof.
+Use an environment meeting the sandbox resource requirements. A different output creates a different isolated environment; it does not migrate an existing realm.
 
-## Configuration authorization remains independent
+## Request a machine access token
 
-The actual Configuration lookup identifies the caller by exact issuer, observed opaque service subject and opaque tenant. Obtain the subject from verified issuance; never derive it from a client ID, username, party ID or Core UUID. Concrete deployment issuer/audience, namespace and current policy data remain deployment inputs.
+Configure the service's OAuth client with the descriptor's issuer/token endpoint, registered client ID and protected secret. Send a token-endpoint POST using confidential client authentication and form field `grant_type=client_credentials`. Use the client's supported HTTP Basic client authentication; do not place its secret in a URL or command-line argument.
 
-For the reviewed current-binding contract, the owning authorization policy must permit only the exact `GET /api/v1/tenant-resource-bindings/current` URL decision and `configuration.tenant-resource-binding.current` action at its required phases, with the actual namespace and finite budget. A token does not establish a binding or grant an insurance, payment or other business command. The reviewed generic OPA input does not forward `client_id` or `principal_kind`; their presence in evidence does not prove that Configuration enforces them. Do not invent OAuth scopes or reuse an operator role to bypass that contract.
+A successful response contains a bearer `access_token` and its lifetime. The client-credentials profile does not issue a refresh token; obtain a new token with the same workload credential before expiry. Verify the response and use the token only at the intended API.
 
-This profile qualifies synthetic issuance separately from Configuration service, policy and generated-SDK consumer acceptance. It does not enable machine-to-human recovery, customer impersonation or BPO delegation.
+| Issued field | Meaning |
+| --- | --- |
+| `sub` | Actual issuer-generated opaque service subject; discover from a verified token, never derive from the client ID |
+| `tenant_id` | Exact configured namespace |
+| `client_id` | This service's registered client ID |
+| `principal_kind` | `MACHINE` |
+| `aud` | Includes the sandbox receiver `sandbox-api` |
+| `party_id`, `staff_actor_id` | Absent: the workload is not a human |
+
+Only this opt-in profile enables its service account. It disables standard interactive, direct password, implicit, device, CIBA and standard token-exchange grants, has no callbacks and retains only the `basic` client scope. [Claims](provider-claim-profile.md) explains the common token format and [application integration](integration-contract.md) explains receiver validation.
+
+## Authorize the Configuration lookup
+
+Configure the receiving service's exact HTTPS issuer/audience and authorization policy for the verified service subject and namespace. The relevant operation is:
+
+```http
+GET /api/v1/tenant-resource-bindings/current
+Authorization: Bearer <service-access-token>
+```
+
+The current-binding API must be present in the installed Configuration version and enabled through `firefly.configuration.tenant-resource-binding.enabled`. Configure current policy for the action `configuration.tenant-resource-binding.current` and the exact allowed URL/operation at the receiver's required phases. Use a finite request/decision budget and refuse unavailable or stale decisions.
+
+The lookup maps the identity namespace `(verified issuer, platform tenant string)` to a separately typed resource-tenant UUID and its current binding metadata. Preserve the original namespace in the caller; do not rewrite its principal into the returned resource UUID. Use the installed producer SDK's response model and validate the returned namespace, resource UUID, binding version/digest, eligibility and observation deadline according to that API's contract.
+
+The generic policy input does not automatically forward every custom claim. Do not assume that `client_id` or `principal_kind` is enforced merely because it appears in a token; bind the actual verified issuer/subject/tenant used by the receiving policy. A token authenticates the service but cannot create a missing tenant binding.
+
+## Restrict the service identity
+
+Grant only the current-binding lookup needed by the application. Do not reuse a workforce/operator role or invent OAuth scopes to bypass policy. A Configuration lookup grants no payment, insurance, document-signing or recovery command by itself.
+
+Rotate the client secret through the issuer and service secret store with an explicit cutover procedure. Do not modify an initialization file and expect a retained realm's credential to change automatically. Keep the workload separate from human delegation, support case authorization and native recovery clients. See [service authorization](zero-trust.md) and [operations](operations.md).

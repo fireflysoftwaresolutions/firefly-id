@@ -72,6 +72,17 @@ def main():
         held = json.loads(json.dumps(user)); held.update(id=str(uuid.uuid4()), username='manual-' + kind, email='manual-' + kind + '@example.invalid', enabled=False, requiredActions=[])
         held['attributes']['party_id' if population == 'HUMAN' else 'staff_actor_id'] = [str(uuid.uuid4())]
         realm['users'].append(held)
+        expiry_people = {}
+        if os.environ.get('FIREFLY_NATIVE_AUTHORITY_EXPIRY') == 'true':
+            for role in ('expiry_actor', 'expiry_receipt'):
+                identity = {'id': str(uuid.uuid4()), 'username': role + '-' + kind,
+                            'email': role + '-' + kind + '@example.invalid', 'password': secrets.token_urlsafe(32)}
+                entry = json.loads(json.dumps(user))
+                entry.update({key: identity[key] for key in ('id', 'username', 'email')})
+                entry['credentials'] = [{'type': 'password', 'value': identity['password'], 'temporary': False}]
+                entry['attributes']['party_id' if population == 'HUMAN' else 'staff_actor_id'] = [str(uuid.uuid4())]
+                realm['users'].append(entry)
+                expiry_people[role] = identity
         for field in ('id', 'username', 'email'):
             values_for_field = [entry[field].casefold() for entry in realm['users']]
             if len(values_for_field) != len(set(values_for_field)):
@@ -81,7 +92,7 @@ def main():
         protected(output / 'secrets' / ('domain-' + kind), domain_secret)
         profiles.append({'kind': kind, 'population': population, 'realm': realm_name, 'issuer': issuer,
                          'core': core_origin, 'domain': domain_origin, 'core_port': core_port, 'domain_port': domain_port, 'domain_backend_port': domain_port + 4,
-                         'person': person, 'manual': {'id': held['id'], 'username': held['username']},
+                         'person': person, 'manual': {'id': held['id'], 'username': held['username']}, **expiry_people,
                          'core_secret_file': str(output / 'secrets' / ('core-' + kind)),
                          'domain_secret_file': str(output / 'secrets' / ('domain-' + kind))})
     protected(output / 'credentials.json', {'profiles': profiles, **values})

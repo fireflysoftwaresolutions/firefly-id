@@ -32,7 +32,7 @@ public final class NativeBruteForceFactoryImpl implements BruteForceProtectorFac
             @Override public void failure(KeycloakSession current, RealmModel realm, String subject, String address, long time, Set<String> categories) {
                 if (managed(realm)) {
                     var user = new NativeStoreImpl(current).local(subject, false);
-                    current.setAttribute(NativeLockCapture.TRANSITION + subject, user.isEnabled());
+                    current.setAttribute(NativeLockCaptureImpl.TRANSITION + subject, user.isEnabled());
                     if (!user.isEnabled()) return;
                 }
                 super.failure(current, realm, subject, address, time, categories);
@@ -42,7 +42,7 @@ public final class NativeBruteForceFactoryImpl implements BruteForceProtectorFac
                 super.success(current, realm, subject, categories);
             }
             @Override protected void sendEvent(KeycloakSession current, RealmModel realm, UserLoginFailureModel failure, EventType type) {
-                if (managed(realm) && type == EventType.USER_DISABLED_BY_PERMANENT_LOCKOUT) NativeLockCapture.capture(current, failure.getUserId());
+                if (managed(realm) && type == EventType.USER_DISABLED_BY_PERMANENT_LOCKOUT) NativeLockCaptureImpl.capture(current, failure.getUserId());
                 super.sendEvent(current, realm, failure, type);
             }
         };

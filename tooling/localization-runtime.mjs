@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { reportFailure } from './safe-errors.mjs';
+import { assertIdentityArtworkReady } from './identity-artwork.mjs';
 
 const base = 'http://id.firefly.test:8180';
 const issuer = `${base}/realms/sandbox-customers`;
@@ -68,11 +69,65 @@ async function captureMobile(page, locale, surface) {
       const action = await page.locator('#kc-logout').boundingBox();
       assert.ok(description && action && action.y - description.y - description.height >= 20, 'Logout action lacks separation from its instruction');
     }
+    await assertIdentityArtworkReady(page, scheme);
     await page.screenshot({ path: `${directory}/${locale}-${surface}-mobile-${scheme}.png`, fullPage: true });
   }
 }
 
 try {
+  const canonicalFont = await readFile(resolve('assets/brand/fonts/manrope-latin-wght-normal.woff2'));
+  for (const scenario of [
+    { browserLocale: 'en-US', expected: 'en' },
+    { browserLocale: 'es-ES', expected: 'es' },
+    { browserLocale: 'fr-FR', expected: 'en' },
+  ]) {
+    const context = await browser.newContext({ locale: scenario.browserLocale });
+    try {
+      const page = await context.newPage();
+      page.setDefaultTimeout(20000);
+      for (const width of [390, 1440]) {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
+        for (const scheme of ['light', 'dark']) {
+          const welcomeStage = `welcome ${scenario.browserLocale} ${width} ${scheme}`;
+          phase = `${welcomeStage} navigation`;
+          await page.emulateMedia({ colorScheme: scheme });
+          const response = await page.goto(`${base}/`);
+          assert.equal(response.status(), 200);
+          assert.equal(page.url(), `${base}/`, 'Welcome localization must preserve the requested URL');
+          phase = `${welcomeStage} localized content`;
+          await page.waitForFunction(language => document.documentElement.lang === language, scenario.expected);
+          const spanish = scenario.expected === 'es';
+          assert.equal((await page.locator('h1').innerText()).replace(/\s+/g, ' ').trim(),
+            spanish ? 'Identidad y acceso, conectados.' : 'Identity and access, connected.');
+          assert.equal((await page.locator('main > p').innerText()).trim(), spanish
+            ? 'Tus aplicaciones te llevan al inicio de sesión adecuado. Abre tu aplicación para continuar.'
+            : 'Your applications connect you to the right sign-in experience. Open your application to continue.');
+          assert.equal((await page.locator('main > a').innerText()).trim(), spanish ? 'Abrir administración' : 'Open administration');
+          assert.equal((await page.locator('footer a').innerText()).trim(), spanish ? 'Con tecnología de Keycloak' : 'Powered by Keycloak');
+          assert.equal(await page.locator('select').count(), 0);
+          phase = `${welcomeStage} layout and assets`;
+          await page.evaluate(() => document.fonts.ready);
+          const measured = await page.evaluate(() => ({
+            overflow: document.documentElement.scrollWidth > innerWidth,
+            background: getComputedStyle(document.body).backgroundColor,
+            fontLoaded: [...document.fonts].some(face => face.family.replace(/["']/g, '') === 'Manrope' && face.status === 'loaded'),
+            fontUrl: performance.getEntriesByType('resource').find(entry => new URL(entry.name).pathname.endsWith('/manrope.woff2'))?.name,
+            logo: document.querySelector('picture img').currentSrc,
+          }));
+          assert.equal(measured.overflow, false);
+          assert.equal(measured.background, scheme === 'dark' ? 'rgb(16, 17, 15)' : 'rgb(243, 241, 235)');
+          assert.ok(measured.logo.endsWith(`/wordmark-${scheme}.svg`));
+          assert.ok(measured.fontLoaded && measured.fontUrl);
+          assert.equal(new URL(measured.fontUrl).origin, base);
+          const servedFont = await context.request.get(measured.fontUrl);
+          assert.equal(servedFont.status(), 200);
+          assert.deepEqual(await servedFont.body(), canonicalFont);
+          await page.screenshot({ path: `${directory}/welcome-${scenario.browserLocale}-${width}-${scheme}.png`, fullPage: true });
+        }
+      }
+      results.push(`welcome ${scenario.browserLocale}: ${scenario.expected} automatic language, responsive light/dark and exact self-hosted Manrope`);
+    } finally { await context.close(); }
+  }
   for (const scenario of [
     { browserLocale: 'fr-FR', expected: 'en', label: 'unsupported browser language defaults to English', extra: {} },
     { browserLocale: 'en-US', expected: 'es', label: 'explicit application language overrides browser', extra: { ui_locales: 'es' } },
@@ -88,6 +143,7 @@ try {
       await page.goto(auth.url.href);
       await page.locator('#username').waitFor();
       await assertLocale(page, scenario.expected);
+      await assertIdentityArtworkReady(page, 'light');
       await page.screenshot({ path: `${directory}/${scenario.extra.ui_locales ? 'application-override' : 'browser-fallback'}-login.png`, fullPage: true });
       results.push(scenario.label);
     } finally { await context.close(); }
@@ -104,10 +160,12 @@ try {
       await page.goto(auth.url.href);
       await page.locator('#username').waitFor();
       await assertLocale(page, locale);
+      await assertIdentityArtworkReady(page, 'light');
       await page.screenshot({ path: `${directory}/${locale}-login-desktop-light.png`, fullPage: true });
       await page.emulateMedia({ colorScheme: 'dark' });
       await page.waitForFunction(() => document.documentElement.classList.contains('pf-v5-theme-dark'));
       await assertLocale(page, locale);
+      await assertIdentityArtworkReady(page, 'dark');
       await page.screenshot({ path: `${directory}/${locale}-login-desktop-dark.png`, fullPage: true });
       await captureMobile(page, locale, 'login');
 
@@ -129,6 +187,7 @@ try {
         await assertLocale(page, selected);
       }
       await page.locator('.ffid-footer #login-select-toggle').focus();
+      await assertIdentityArtworkReady(page, 'dark');
       await page.screenshot({ path: `${directory}/${locale}-locale-footer-mobile-dark.png`, fullPage: true });
 
       phase = `localized ${locale} generic sign-in refusal`;

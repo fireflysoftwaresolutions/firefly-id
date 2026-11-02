@@ -154,6 +154,7 @@ input::placeholder { color: var(--ffid-muted); opacity: 1; }
 .ffid-native-journey > p { margin: 0 0 24px; color: var(--ffid-muted); }
 .ffid-native-journey > .pf-v5-c-alert { margin-bottom: 24px; }
 .ffid-native-journey .pf-v5-c-alert { gap: 8px; align-items: start; }
+.ffid-native-journey[data-stage="COMPLETE"] > #ffid-lost-credentials { margin-block-start: 16px; }
 .ffid-journey-return { display: flex; align-items: center; width: fit-content; max-width: 100%; min-height: 44px; margin-top: 16px; }
 .ffid-journey-return + .ffid-journey-return { margin-top: 4px; }
 .ffid-credential-status { margin: 0 0 24px; }
@@ -179,3 +180,12 @@ input::placeholder { color: var(--ffid-muted); opacity: 1; }
   }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+.ffid-enrollment-secret {
+  display: block;
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+  user-select: all;
+  font-weight: 650;
+  letter-spacing: .08em;
+}

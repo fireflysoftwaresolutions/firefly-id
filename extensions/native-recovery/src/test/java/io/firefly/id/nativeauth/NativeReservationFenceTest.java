@@ -19,24 +19,24 @@ class NativeReservationFenceTest {
         proof.expiresAt = System.currentTimeMillis() + 60000; proof.completed = true; proof.verified = false; return proof;
     }
     @Test void completedNegativeReusesExactOpaqueResultWithoutAnotherVerificationDecision() {
-        var prepared = NativeReservationFence.reuse(proof(), ceremony(), state(), reservation(), "credential");
+        var prepared = NativeReservationFenceImpl.reuse(proof(), ceremony(), state(), reservation(), "credential");
         assertEquals("opaque-negative", prepared.attestationId()); assertFalse(prepared.verify());
     }
     @Test void completedPositiveAlsoReusesResultWithoutRecheckingSecret() {
         var proof = proof(); proof.verified = true;
-        assertFalse(NativeReservationFence.reuse(proof, ceremony(), state(), reservation(), "credential").verify());
+        assertFalse(NativeReservationFenceImpl.reuse(proof, ceremony(), state(), reservation(), "credential").verify());
     }
     @Test void pendingReservationCannotAllocateAnotherCredentialCheck() {
         var proof = proof(); proof.completed = false;
-        assertThrows(NativeRefusal.class, () -> NativeReservationFence.reuse(proof, ceremony(), state(), reservation(), "credential"));
+        assertThrows(NativeRefusal.class, () -> NativeReservationFenceImpl.reuse(proof, ceremony(), state(), reservation(), "credential"));
     }
     @Test void challengeProviderReferenceCredentialAndGenerationSubstitutionAreRejected() {
         var proof = proof(); proof.challengeId = UUID.randomUUID().toString(); final var otherChallenge = proof;
-        assertThrows(NativeRefusal.class, () -> NativeReservationFence.reuse(otherChallenge, ceremony(), state(), reservation(), "credential"));
+        assertThrows(NativeRefusal.class, () -> NativeReservationFenceImpl.reuse(otherChallenge, ceremony(), state(), reservation(), "credential"));
         proof = proof(); proof.providerChallengeId = "other"; final var otherProvider = proof;
-        assertThrows(NativeRefusal.class, () -> NativeReservationFence.reuse(otherProvider, ceremony(), state(), reservation(), "credential"));
+        assertThrows(NativeRefusal.class, () -> NativeReservationFenceImpl.reuse(otherProvider, ceremony(), state(), reservation(), "credential"));
         proof = proof(); proof.generation = "other"; final var otherGeneration = proof;
-        assertThrows(NativeRefusal.class, () -> NativeReservationFence.reuse(otherGeneration, ceremony(), state(), reservation(), "credential"));
-        assertThrows(NativeRefusal.class, () -> NativeReservationFence.reuse(proof(), ceremony(), state(), reservation(), "other-credential"));
+        assertThrows(NativeRefusal.class, () -> NativeReservationFenceImpl.reuse(otherGeneration, ceremony(), state(), reservation(), "credential"));
+        assertThrows(NativeRefusal.class, () -> NativeReservationFenceImpl.reuse(proof(), ceremony(), state(), reservation(), "other-credential"));
     }
 }

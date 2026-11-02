@@ -7,7 +7,7 @@ import org.keycloak.forms.login.LoginFormsProvider;
 import org.keycloak.models.KeycloakSession;
 import java.util.ServiceLoader;
 import static io.firefly.id.nativeauth.NativeContracts.*;
-import static io.firefly.id.nativeauth.NativeSecurity.*;
+import static io.firefly.id.nativeauth.NativeSecurityImpl.*;
 
 /** Synchronous native pages. Every HTTP callback runs after the preceding native phase committed. */
 @Provider
@@ -48,7 +48,7 @@ public final class NativeResource {
             NativeProfile profile = NativeProfile.of(session.getContext().getRealm());
             requireOrigin(session.getContext().getRequestHeaders().getHeaderString("Origin"), profile.origin());
             String id = cookie();
-            String stage = NativePhases.run(session, child -> new NativeStoreImpl(child).ceremony(id).stage);
+            String stage = NativePhasesImpl.run(session, child -> new NativeStoreImpl(child).ceremony(id).stage);
             require(NativeEngineImpl.PASSWORD.equals(stage) || NativeEngineImpl.TOTP.equals(stage) || NativeEngineImpl.COMPLETE.equals(stage));
             view = engine.consumeCsrf(id, csrf, stage);
             if (NativeEngineImpl.COMPLETE.equals(stage)) return complete(engine, id, view.csrf());
@@ -85,9 +85,10 @@ public final class NativeResource {
     }
     @POST @Path("rpc/{route}") @Consumes(MediaType.APPLICATION_JSON) @Produces(MediaType.APPLICATION_JSON)
     public Response rpc(@PathParam("route") String route, Rpc rpc) {
-        try { return Response.ok(NativeWire.json(new NativeRpcServiceImpl(session).call(route, rpc))).header("Cache-Control", "no-store").build(); }
+        try { return Response.ok(NativeWireImpl.json(new NativeRpcServiceImpl(session).call(route, rpc))).header("Cache-Control", "no-store").build(); }
         catch (Exception refusal) { return Response.status(403).entity(java.util.Map.of("error", "native_recovery_refused")).header("Cache-Control", "no-store").build(); }
     }
+    @Path("lost-credentials") public io.firefly.id.nativeauth.impl.ReproofingResourceImpl lostCredentials() { return new io.firefly.id.nativeauth.impl.ReproofingResourceImpl(session); }
     @Path("support-pin") public NativePinResource supportPin() { return new NativePinResource(session); }
     private NativeCeremonyGateway gateway() {
         var factories = ServiceLoader.load(NativeCeremonyGateway.Factory.class, getClass().getClassLoader()).stream().map(ServiceLoader.Provider::get).filter(NativeCeremonyGateway.Factory::isQualified).toList();

@@ -1,0 +1,13 @@
+{# A grouped index is not MkDocs' top-level homepage; keep an explicit root. #}
+{% import "partials/path-item.html" as item with context %}
+{% if page and page.file.src_uri != "index.md" %}
+<nav class="md-path" aria-label="Breadcrumb">
+  <ol class="md-path__list">
+    <li class="md-path__item"><a class="md-path__link" href="{{ base_url }}/">Handbook</a></li>
+    {% for ancestor in page.ancestors | reverse %}
+      {{ item.render(ancestor) }}
+    {% endfor %}
+    <li class="md-path__item"><span class="md-path__link" aria-current="page">{{ page.title | e }}</span></li>
+  </ol>
+</nav>
+{% endif %}
