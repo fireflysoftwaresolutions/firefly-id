@@ -111,6 +111,46 @@ export async function privilegedWriteDiagnostic(response, { operation, clientId,
   return finish();
 }
 
+export async function hardenPrivilegedFixtureClients({ read, write }) {
+  const clients = await read('clients');
+  const expected = ['account', 'account-console', 'admin-cli', 'broker', 'realm-management', 'security-admin-console', CLIENT].sort();
+  assert.deepEqual(clients.map(client => client.clientId).sort(), expected, 'Owned client inventory is incomplete or unsupported');
+  const internal = clients.find(client => client.clientId === 'realm-management');
+  assert.equal(internal.protocol, 'openid-connect');
+  assert.equal(internal.bearerOnly, true, 'Internal role resource must remain bearer-only');
+  assert.equal(internal.publicClient, false, 'Internal role resource must not be public');
+  for (const key of ['directAccessGrantsEnabled', 'implicitFlowEnabled', 'serviceAccountsEnabled']) {
+    assert.equal(internal[key], false, 'Internal role resource has an unsafe grant capability');
+  }
+  assert.notEqual(internal.authorizationServicesEnabled, true, 'Unexpected internal authorization services');
+  assert.deepEqual(internal.authenticationFlowBindingOverrides || {}, {}, 'Internal flow override refused');
+  for (const key of ['oauth2.device.authorization.grant.enabled', 'oidc.ciba.grant.enabled',
+    'standard.token.exchange.enabled', 'oauth2.token.exchange.grant.enabled']) {
+    assert.ok(internal.attributes?.[key] === undefined || internal.attributes[key] === 'false', 'Internal alternate grant refused');
+  }
+  for (const client of clients) {
+    // Keycloak 26.8.1 forbids configuring this internal role resource, even for the master administrator.
+    if (client.clientId === 'realm-management') continue;
+    const body = { ...client, directAccessGrantsEnabled: false, implicitFlowEnabled: false, serviceAccountsEnabled: false,
+      enabled: client.clientId === CLIENT, standardFlowEnabled: client.clientId === CLIENT };
+    await write(`clients/${client.id}`, body);
+  }
+  const effective = await read('clients');
+  assert.deepEqual(effective.map(client => client.clientId).sort(), expected, 'Owned client inventory changed during transition');
+  for (const client of effective) {
+    if (client.clientId === 'realm-management') {
+      assert.deepEqual(client, internal, 'Internal role resource changed during transition');
+      continue;
+    }
+    assert.equal(client.enabled, client.clientId === CLIENT, 'Owned client controls were not retained');
+    assert.equal(client.standardFlowEnabled, client.clientId === CLIENT, 'Owned client controls were not retained');
+    for (const key of ['directAccessGrantsEnabled', 'implicitFlowEnabled', 'serviceAccountsEnabled']) {
+      assert.equal(client[key], false, 'Owned client controls were not retained');
+    }
+    assert.deepEqual(client.authenticationFlowBindingOverrides || {}, {}, 'Client flow override remained after transition');
+  }
+}
+
 /** Hosted synthetic qualification only; all mutations are fenced to a newly created realm owned by this invocation. */
 export async function qualifyPrivilegedAdministration({ browser, origin, callback, request, adminToken, pending, passed, stage }) {
   assert.ok(process.env.GITHUB_ACTIONS === 'true' && process.env.RUNNER_OS === 'Linux'
@@ -249,11 +289,7 @@ export async function qualifyPrivilegedAdministration({ browser, origin, callbac
     record('privileged-real-two-factor-webauthn-enrollment-completed-before-transition');
 
     stage('privileged-owned-profile-transition');
-    for (const client of await read('clients')) {
-      const body = { ...client, directAccessGrantsEnabled: false, implicitFlowEnabled: false, serviceAccountsEnabled: false,
-        ...(client.clientId === CLIENT ? {} : { enabled: false, standardFlowEnabled: false }) };
-      await write(`clients/${client.id}`, body);
-    }
+    await hardenPrivilegedFixtureClients({ read, write });
     for (const action of await read('authentication/required-actions')) {
       await write(`authentication/required-actions/${encodeURIComponent(action.alias)}`, { ...action, enabled: false, defaultAction: false });
     }
@@ -267,6 +303,16 @@ export async function qualifyPrivilegedAdministration({ browser, origin, callbac
     assert.deepEqual(steps.map(step => [step.providerId, step.requirement]),
       [['auth-username-password-form', 'REQUIRED'], ['firefly-privileged-webauthn', 'REQUIRED']]);
     record('privileged-owned-flow-readback-confirms-required-password-and-native-guard-with-no-setup');
+
+    stage('privileged-preserved-internal-resource-cannot-issue-credentials');
+    const resourceAuthorization = new URL(metadata.authorization_endpoint);
+    resourceAuthorization.search = new URLSearchParams({ client_id: 'realm-management', response_type: 'code', redirect_uri: callback });
+    assert.equal((await request(resourceAuthorization.href)).status, 403, 'Internal bearer-only resource accepted browser authorization');
+    const resourceToken = await request(metadata.token_endpoint, { method: 'POST', body: new URLSearchParams({
+      grant_type: 'password', client_id: 'realm-management', username: 'named-admin', password }) });
+    assert.ok([400, 401].includes(resourceToken.status), 'Internal bearer-only resource accepted token request');
+    assert.ok(!(await resourceToken.json()).access_token, 'Internal role resource issued an access token');
+    record('privileged-internal-role-resource-preserved-and-browser-token-issuance-refused');
 
     stage('privileged-missing-key-refusal');
     let before = await snapshot(missing.id);

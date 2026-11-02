@@ -111,3 +111,49 @@ test('privileged update diagnostics stop reading oversized responses and classif
   assert.deepEqual(malformed.categories, ['BODY_NOT_JSON', 'HTTP_SERVER_ERROR']);
   assert.doesNotMatch(JSON.stringify([oversized, malformed]), /PRIVATE/);
 });
+
+function clientInventory() {
+  return ['account', 'account-console', 'admin-cli', 'broker', 'realm-management', 'security-admin-console', 'privileged-fixture-browser'].map(clientId => ({
+    id: `synthetic-${clientId}`, clientId, protocol: 'openid-connect', enabled: true,
+    bearerOnly: clientId === 'realm-management', publicClient: clientId !== 'realm-management',
+    standardFlowEnabled: true, directAccessGrantsEnabled: clientId === 'admin-cli',
+    implicitFlowEnabled: false, serviceAccountsEnabled: false, authenticationFlowBindingOverrides: {},
+    attributes: clientId === 'realm-management' ? { realm_client: 'true' } : {},
+  }));
+}
+
+test('client transition preserves the internal bearer-only resource without a forbidden PUT and verifies every readback', async () => {
+  const { hardenPrivilegedFixtureClients } = await fixture();
+  assert.equal(typeof hardenPrivilegedFixtureClients, 'function');
+  const inventory = clientInventory();
+  const retained = structuredClone(inventory.find(client => client.clientId === 'realm-management'));
+  const writes = [];
+  await hardenPrivilegedFixtureClients({ read: async () => structuredClone(inventory), write: async (path, body) => {
+    writes.push(path); Object.assign(inventory.find(client => path === `clients/${client.id}`), body);
+  } });
+  assert.equal(writes.length, 6);
+  assert.ok(!writes.includes(`clients/${retained.id}`));
+  assert.deepEqual(inventory.find(client => client.clientId === 'realm-management'), retained);
+  for (const client of inventory.filter(client => client.clientId !== 'realm-management')) {
+    assert.equal(client.enabled, client.clientId === 'privileged-fixture-browser');
+    assert.equal(client.standardFlowEnabled, client.clientId === 'privileged-fixture-browser');
+    assert.equal(client.directAccessGrantsEnabled, false);
+  }
+});
+
+test('unsafe internal resources and incomplete or ineffective client readbacks refuse transition', async () => {
+  const { hardenPrivilegedFixtureClients } = await fixture();
+  assert.equal(typeof hardenPrivilegedFixtureClients, 'function');
+  for (const mutation of [{ bearerOnly: false }, { publicClient: true }, { serviceAccountsEnabled: true },
+    { directAccessGrantsEnabled: true }, { implicitFlowEnabled: true }, { authenticationFlowBindingOverrides: { browser: 'weak' } },
+    { attributes: { 'oidc.ciba.grant.enabled': 'true' } }]) {
+    const inventory = clientInventory(); Object.assign(inventory[4], mutation); let writes = 0;
+    await assert.rejects(hardenPrivilegedFixtureClients({ read: async () => inventory, write: async () => { writes++; } }));
+    assert.equal(writes, 0);
+  }
+  await assert.rejects(hardenPrivilegedFixtureClients({ read: async () => clientInventory(), write: async () => {} }),
+    /client controls were not retained/);
+  let reads = 0;
+  await assert.rejects(hardenPrivilegedFixtureClients({ read: async () => ++reads === 1 ? clientInventory() : clientInventory().slice(1),
+    write: async () => {} }), /client inventory changed/);
+});

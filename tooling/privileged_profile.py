@@ -141,6 +141,16 @@ def target(document, realm, origin):
     return hostname
 
 
+def internal_role_resource(document, client):
+    realm = document['realm']
+    name = client.get('clientId', '')
+    identifier = (realm != 'master' and name == 'realm-management') or (
+        realm == 'master' and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}-realm', name) is not None)
+    roles = document.get('roles', {}).get('client', {}).get(name, [])
+    return identifier and client.get('attributes', {}).get('realm_client') == 'true' and (
+        {'view-realm', 'manage-realm'} <= {role.get('name') for role in roles})
+
+
 def prerequisites(document, realm, origin, admin_origin=None):
     target(document, realm, origin)
     existing_flows(document)
@@ -191,6 +201,9 @@ def prerequisites(document, realm, origin, admin_origin=None):
             require(attrs.get('pkce.code.challenge.method') == 'S256', 'Console PKCE S256 required')
             require(client.get('redirectUris') == [admin_origin + '/admin/' + realm + '/console/*']
                     and client.get('webOrigins') == [admin_origin], 'Exact administrative console origin and redirect required')
+        elif internal_role_resource(document, client):
+            require(client.get('bearerOnly') is True and client.get('publicClient') is False,
+                    'Internal administrative role resource must remain confidential and bearer-only')
         else:
             require(client.get('enabled') is False or (client.get('bearerOnly') is True
                     and client.get('standardFlowEnabled') is False), 'Other interactive clients must already be disabled')

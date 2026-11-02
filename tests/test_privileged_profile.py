@@ -54,6 +54,22 @@ class PrivilegedProfileTest(unittest.TestCase):
         self.assertEqual(result['webAuthnPolicyUserVerificationRequirement'], 'required')
         self.assertFalse(result['webAuthnPolicyPasswordlessPasskeysEnabled'])
 
+    def test_real_master_internal_role_resource_preserves_inert_standard_flow_default(self):
+        document = source()
+        resource = next(client for client in document['clients'] if client['clientId'] == 'realm-management')
+        resource.update(clientId='master-realm', enabled=True, publicClient=False, bearerOnly=True,
+                        standardFlowEnabled=True, attributes={'realm_client': 'true'})
+        document['roles']['client'] = {'master-realm': [{'name': 'view-realm'}, {'name': 'manage-realm'}]}
+        candidate = self.candidate(document)
+        self.assertEqual(candidate['clients'], document['clients'])
+        self.module.validate_profile(candidate, realm='master', origin='https://id.example.test')
+        for mutation in ({'bearerOnly': False}, {'publicClient': True}, {'directAccessGrantsEnabled': True},
+                         {'authenticationFlowBindingOverrides': {'browser': 'weak'}}, {'attributes': {}},
+                         {'clientId': 'masquerading-realm'}):
+            invalid = copy.deepcopy(document)
+            next(client for client in invalid['clients'] if client['clientId'] == 'master-realm').update(mutation)
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError): self.candidate(invalid)
+
     def test_master_requires_explicit_acknowledgment_and_exact_target(self):
         with self.assertRaises(ValueError):
             self.candidate(acknowledge_master=False)
