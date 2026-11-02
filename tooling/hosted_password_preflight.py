@@ -18,6 +18,7 @@ LAST_PROCESS = None
 LIBRARIES = None
 PHASES = {'HOSTED_GUARDS', 'FRESH_STATE', 'IMAGE_PULL', 'IMAGE_INSPECT', 'CONTAINER_ABSENCE',
           'CONTAINER_CREATE', 'CONTAINER_INSPECT', 'LIBRARY_EXTRACTION', 'LIBRARY_INSPECTION',
+          'BOOT_LIBRARY_EXTRACTION',
           'NATIVE_COMPILATION', 'BASELINE_MATCH', 'RECEIPT_WRITE', 'READY', 'RECEIPT_READ',
           'INPUT_INTEGRITY', 'CANDIDATE_MATCH'}
 
@@ -59,13 +60,27 @@ def inspect_libraries(directory):
     expected = {'NATIVE_FACTORY': 'org/keycloak/policy/DenylistPasswordPolicyProviderFactory.class',
                 'NATIVE_FILE_MATCHER': 'org/keycloak/policy/DenylistPasswordPolicyProviderFactory$FileBasedPasswordDenylist.class',
                 'GUAVA_BLOOM': 'com/google/common/hash/BloomFilter.class', 'JBOSS_LOGGING': 'org/jboss/logging/Logger.class'}
-    jars = list((directory / 'libraries').iterdir())
+    jars = []
+    for folder in ('boot-libraries', 'libraries'):
+        base = directory / folder
+        require(base.is_dir() and not base.is_symlink(), 'Owned native library directory required')
+        jars.extend(base.iterdir())
     found = set()
     for path in jars:
         require(path.is_file() and not path.is_symlink() and path.suffix == '.jar', 'Unexpected native library file')
         with zipfile.ZipFile(path) as archive:
             found.update(set(archive.namelist()) & set(expected.values()))
     return {'jarCount': len(jars), 'classesPresent': {name: path in found for name, path in expected.items()}}
+
+
+def require_native_libraries(directory):
+    global LIBRARIES
+    LIBRARIES = inspect_libraries(directory)
+    require(all(LIBRARIES['classesPresent'].values()), 'Required pinned native classes are missing')
+
+
+def native_classpath(directory):
+    return os.pathsep.join(str(directory / path) for path in ('classes', 'boot-libraries/*', 'libraries/*'))
 
 
 def require(value, message):
@@ -119,7 +134,7 @@ def digest(path):
 
 def inventory(directory):
     result = {}
-    for folder, suffix in (('libraries', '.jar'), ('classes', '.class')):
+    for folder, suffix in (('libraries', '.jar'), ('boot-libraries', '.jar'), ('classes', '.class')):
         base = directory / folder
         require(base.is_dir() and not base.is_symlink(), 'Owned native files missing')
         for path in base.iterdir():
@@ -134,7 +149,7 @@ def match(directory, values):
     global LAST_PROCESS
     require(0 < len(values) <= 64 and all(isinstance(value, str) and 0 < len(value) <= 128
             and all(32 <= ord(char) <= 126 for char in value) for value in values), 'Bounded fixture candidates required')
-    classpath = str(directory / 'classes') + os.pathsep + str(directory / 'libraries/*')
+    classpath = native_classpath(directory)
     result = subprocess.run(['java', '-cp', classpath, 'SyntheticPasswordDenylist', str(DENYLIST.parent)],
                             input=('\n'.join(values) + '\n').encode(), capture_output=True, timeout=30)
     LAST_PROCESS = process_diagnostic(result)
@@ -172,11 +187,14 @@ def prepare():
     (directory / 'ownership.json').write_text(json.dumps(owner))
     PHASE = 'LIBRARY_EXTRACTION'
     command(['docker', 'cp', name + ':/opt/keycloak/lib/lib/main', str(directory / 'libraries')])
+    PHASE = 'BOOT_LIBRARY_EXTRACTION'
+    inspect_container(owner)
+    command(['docker', 'cp', name + ':/opt/keycloak/lib/lib/boot', str(directory / 'boot-libraries')])
     PHASE = 'LIBRARY_INSPECTION'
-    LIBRARIES = inspect_libraries(directory)
+    require_native_libraries(directory)
     (directory / 'classes').mkdir(mode=0o700)
     PHASE = 'NATIVE_COMPILATION'
-    command(['javac', '-cp', str(directory / 'libraries/*'), '-d', str(directory / 'classes'), str(JAVA_SOURCE)])
+    command(['javac', '-cp', native_classpath(directory), '-d', str(directory / 'classes'), str(JAVA_SOURCE)])
     PHASE = 'BASELINE_MATCH'
     baseline = DENYLIST.read_text().splitlines()
     require(baseline and not any(match(directory, baseline)), 'Native baseline denylist sanity check refused')

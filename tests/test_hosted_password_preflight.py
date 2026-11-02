@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -104,11 +105,35 @@ class HostedPasswordPreflightTest(unittest.TestCase):
                 self.assertEqual(helper.match(directory, ['PRIVATE-ONE', 'PRIVATE-TWO']), [True, False])
                 args, kwargs = process.call_args
                 self.assertNotIn('PRIVATE', str(args))
+                self.assertIn(str(directory / 'boot-libraries/*'), args[0][2].split(os.pathsep))
                 self.assertEqual(kwargs['input'], b'PRIVATE-ONE\nPRIVATE-TWO\n')
             for returncode, stdout in [(1, b'ACCEPT\n'), (0, b'PRIVATE\n'), (0, b'ACCEPT\nACCEPT\n')]:
                 with patch.object(helper.subprocess, 'run', return_value=subprocess.CompletedProcess([], returncode, stdout, b'PRIVATE')):
                     with self.assertRaises(ValueError) as error: helper.match(directory, ['PRIVATE'])
                     self.assertNotIn('PRIVATE', str(error.exception))
+
+    def test_native_library_gate_requires_boot_logging_before_java_execution(self):
+        helper = self.helper()
+        self.assertTrue(hasattr(helper, 'require_native_libraries'), 'Required native library gate is missing')
+        with tempfile.TemporaryDirectory() as parent:
+            directory = Path(parent)
+            (directory / 'libraries').mkdir(); (directory / 'boot-libraries').mkdir()
+            with zipfile.ZipFile(directory / 'libraries/native.jar', 'w') as archive:
+                for name in ['org/keycloak/policy/DenylistPasswordPolicyProviderFactory.class',
+                             'org/keycloak/policy/DenylistPasswordPolicyProviderFactory$FileBasedPasswordDenylist.class',
+                             'com/google/common/hash/BloomFilter.class']:
+                    archive.writestr(name, b'fixture')
+            boot = directory / 'boot-libraries/logging.jar'
+            with zipfile.ZipFile(boot, 'w') as archive: archive.writestr('other.class', b'fixture')
+            with patch.object(helper.subprocess, 'run') as process:
+                with self.assertRaises(ValueError): helper.require_native_libraries(directory)
+                process.assert_not_called()
+            self.assertFalse(helper.LIBRARIES['classesPresent']['JBOSS_LOGGING'])
+            with zipfile.ZipFile(boot, 'w') as archive:
+                archive.writestr('org/jboss/logging/Logger.class', b'fixture')
+            helper.require_native_libraries(directory)
+            self.assertTrue(all(helper.LIBRARIES['classesPresent'].values()))
+            self.assertEqual(helper.LIBRARIES['jarCount'], 2)
 
     def test_container_guard_refuses_running_foreign_or_wrong_image(self):
         helper = self.helper()
@@ -129,13 +154,16 @@ class HostedPasswordPreflightTest(unittest.TestCase):
             root = Path(parent).resolve()
             directory = root / '.state/password-preflight-123-1'
             (directory / 'libraries').mkdir(parents=True)
+            (directory / 'boot-libraries').mkdir()
             (directory / 'classes').mkdir()
             library = directory / 'libraries/native.jar'; library.write_bytes(b'library')
+            boot = directory / 'boot-libraries/logging.jar'; boot.write_bytes(b'boot')
             (directory / 'classes/SyntheticPasswordDenylist.class').write_bytes(b'class')
             denylist = root / 'denylist.txt'; denylist.write_bytes(b'baseline')
             source = root / 'helper.java'; source.write_bytes(b'source')
             owner = {'run': '123-1', 'root': str(directory), 'container': 'ff-password-preflight-123-1', 'image': 'pinned-image',
                      'files': {'libraries/native.jar': hashlib.sha256(b'library').hexdigest(),
+                               'boot-libraries/logging.jar': hashlib.sha256(b'boot').hexdigest(),
                                'classes/SyntheticPasswordDenylist.class': hashlib.sha256(b'class').hexdigest()},
                      'denylist_sha256': hashlib.sha256(b'baseline').hexdigest(), 'source_sha256': hashlib.sha256(b'source').hexdigest()}
             receipt = directory / 'ownership.json'; receipt.write_text(json.dumps(owner))
