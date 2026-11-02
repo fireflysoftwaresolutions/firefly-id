@@ -63,13 +63,41 @@ export function retainedControlDiagnostic(candidate) {
       : candidate.webAuthnPolicyPasswordlessMediation === null ? 'NULL' : 'PRESENT' };
 }
 
+const RETRYABLE_SOCKET_CODES = new Set(['UND_ERR_SOCKET', 'ECONNRESET', 'EPIPE']);
+const TRANSPORT_CODES = new Set([...RETRYABLE_SOCKET_CODES, 'ECONNREFUSED', 'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN',
+  'CERT_HAS_EXPIRED', 'CERT_NOT_YET_VALID', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'ERR_TLS_CERT_ALTNAME_INVALID']);
+const transportCode = error => TRANSPORT_CODES.has(error?.cause?.code) ? error.cause.code : 'OTHER';
+
+export async function retiredAccessRequest(request, bearer, onAttempt = () => {}) {
+  const options = { method: 'GET', headers: { Authorization: 'Bearer ' + bearer }, signal: AbortSignal.timeout(30000) };
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    options.signal.throwIfAborted();
+    let response;
+    try {
+      response = await request(ORIGIN + '/admin/realms/master', options);
+    } catch (error) {
+      const code = transportCode(error);
+      onAttempt({ attempt, outcome: 'TRANSPORT_FAILURE', transportCode: code });
+      if (attempt === 2 || error?.name !== 'TypeError' || !RETRYABLE_SOCKET_CODES.has(code)) throw error;
+      // Let closed pooled sockets be observed after the synchronous owned-server restart.
+      await new Promise(resolve => setImmediate(resolve));
+      continue;
+    }
+    onAttempt({ attempt, outcome: 'HTTP_RESPONSE', status: response.status });
+    return response;
+  }
+}
+
 export function safeRuntimeFailure(error) {
   const names = new Set(['TimeoutError', 'AssertionError', 'TypeError', 'RangeError', 'SyntaxError', 'Error']);
   const frames = String(error?.stack || '').split('\n').flatMap(line => {
     const matched = line.match(/tooling\/(master-transition-runtime|master-action-links)\.mjs:(\d{1,6}):(\d{1,5})/);
     return matched ? [matched[1] + '.mjs:' + matched[2] + ':' + matched[3]] : [];
   }).slice(0, 6);
-  return { errorKind: names.has(error?.name) ? error.name : 'OTHER', sourceFrames: frames };
+  return { errorKind: names.has(error?.name) ? error.name : 'OTHER', sourceFrames: frames,
+    ...(error?.cause ? { transportCode: transportCode(error) } : {}) };
 }
 
 export function classifyAuthenticationMessage(value) {
@@ -540,9 +568,10 @@ async function qualify() {
     lifecycle('restart');
     report.retained = lifecycle('verify_state');
     pass('original-database-users-credential-hashes-roles-and-nonempty-audit-rows-preserved-before-new-assertions');
-    stage = 'retire-old-authority'; save();
+    stage = 'retire-old-authority'; report.retiredAccessTransport = []; save();
     for (const old of [ordinaryOld, emergencyOld, bootstrapTokens]) {
-      const access = await request(ORIGIN + '/admin/realms/master', { headers: { Authorization: 'Bearer ' + old.access_token } });
+      const attempts = []; report.retiredAccessTransport.push(attempts);
+      const access = await retiredAccessRequest(request, old.access_token, value => { attempts.push(value); save(); });
       assert.ok([401, 403].includes(access.status), 'Old access token still authorizes master administration');
       const refreshed = await request(metadata.token_endpoint, { method: 'POST', body: new URLSearchParams({
         grant_type: 'refresh_token', client_id: old === bootstrapTokens ? 'admin-cli' : CLIENT, refresh_token: old.refresh_token }) });

@@ -83,6 +83,55 @@ test('runtime failure diagnostics expose only whitelisted class and owned source
   const error = { name: 'TimeoutError', message: 'PRIVATE-TOKEN', stack: 'TimeoutError PRIVATE-TOKEN\n at start (file:///owned/tooling/master-transition-runtime.mjs:145:21)\n at other (file:///PRIVATE-PATH/file.mjs:12:3)' };
   assert.deepEqual(safeRuntimeFailure(error), { errorKind: 'TimeoutError', sourceFrames: ['master-transition-runtime.mjs:145:21'] });
   assert.deepEqual(safeRuntimeFailure({ name: 'PRIVATE-TYPE', message: 'PRIVATE-TOKEN', stack: 'PRIVATE' }), { errorKind: 'OTHER', sourceFrames: [] });
+  assert.deepEqual(safeRuntimeFailure({ name: 'TypeError', cause: { code: 'UND_ERR_SOCKET', message: 'PRIVATE' } }),
+    { errorKind: 'TypeError', sourceFrames: [], transportCode: 'UND_ERR_SOCKET' });
+  assert.equal(safeRuntimeFailure({ name: 'TypeError', cause: { code: 'PRIVATE' } }).transportCode, 'OTHER');
+});
+
+test('retired authority GET retries only one named socket failure and returns actual HTTP evidence', async () => {
+  const { retiredAccessRequest } = await runtime();
+  assert.equal(typeof retiredAccessRequest, 'function');
+  const failure = code => Object.assign(new TypeError('PRIVATE'), { cause: { code, message: 'PRIVATE' } });
+  for (const code of ['UND_ERR_SOCKET', 'ECONNRESET', 'EPIPE']) {
+    const calls = []; const events = []; const response = { status: 401 };
+    assert.equal(await retiredAccessRequest(async (url, options) => {
+      calls.push({ url, options }); if (calls.length === 1) throw failure(code); return response;
+    }, 'PRIVATE-TOKEN', event => events.push(event)), response);
+    assert.equal(calls.length, 2); assert.equal(calls[0].url, 'https://id.firefly.test:8443/admin/realms/master');
+    assert.equal(calls[1].url, calls[0].url); assert.equal(calls[0].options.method, 'GET');
+    assert.equal(calls[1].options, calls[0].options); assert.equal(calls[0].options.headers.Authorization, 'Bearer PRIVATE-TOKEN');
+    assert.equal(events[0].transportCode, code); assert.equal(events[1].status, 401);
+    assert.doesNotMatch(JSON.stringify(events), /PRIVATE/);
+  }
+  for (const status of [200, 401, 403, 503]) {
+    let attempts = 0;
+    assert.equal((await retiredAccessRequest(async () => { attempts++; return { status }; }, 'PRIVATE')).status, status);
+    assert.equal(attempts, 1);
+  }
+  for (const error of [failure('ERR_TLS_CERT_ALTNAME_INVALID'), failure('UND_ERR_CONNECT_TIMEOUT'), failure('ECONNREFUSED'),
+    failure('PRIVATE'), Object.assign(new Error('PRIVATE'), { name: 'AbortError' }), Object.assign(new Error('PRIVATE'), { cause: { code: 'ECONNRESET' } })]) {
+    let attempts = 0;
+    await assert.rejects(retiredAccessRequest(async () => { attempts++; throw error; }, 'PRIVATE'), value => value === error);
+    assert.equal(attempts, 1);
+  }
+  let attempts = 0; const error = failure('UND_ERR_SOCKET');
+  await assert.rejects(retiredAccessRequest(async () => { attempts++; throw error; }, 'PRIVATE'), value => value === error);
+  assert.equal(attempts, 2);
+});
+
+test('retired authority GET uses one bounded deadline and cannot retry after it expires', async context => {
+  const { retiredAccessRequest } = await runtime();
+  const controller = new AbortController(); const expired = new DOMException('PRIVATE', 'TimeoutError');
+  let deadlines = 0; let attempts = 0;
+  context.mock.method(AbortSignal, 'timeout', milliseconds => {
+    assert.equal(milliseconds, 30000); deadlines++; return controller.signal;
+  });
+  await assert.rejects(retiredAccessRequest(async (_url, options) => {
+    attempts++; assert.equal(options.signal, controller.signal); assert.equal(options.method, 'GET');
+    controller.abort(expired);
+    throw Object.assign(new TypeError('PRIVATE'), { cause: { code: 'ECONNRESET' } });
+  }, 'PRIVATE'), error => error === expired);
+  assert.equal(deadlines, 1); assert.equal(attempts, 1);
 });
 
 test('authentication diagnostics classify known messages without returning arbitrary page or form text', async () => {
