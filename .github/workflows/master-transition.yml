@@ -2,6 +2,14 @@ name: Synthetic master profile import and retained transition
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/master-transition.yml'
+      - 'tooling/master_transition_fixture.py'
+      - 'tooling/master-transition-runtime.mjs'
+      - 'tooling/privileged_profile.py'
+      - 'tests/test_master_transition.py'
+      - 'tests/master-transition-runtime.test.mjs'
 
 permissions:
   contents: read
