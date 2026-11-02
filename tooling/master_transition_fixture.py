@@ -66,7 +66,8 @@ UPSTREAM_ATTRIBUTES.update(IMPORTED_REALM_ATTRIBUTE_FIELDS)
 NATIVE_OIDC_MAPPERS = set('''oidc-usermodel-attribute-mapper oidc-usermodel-property-mapper oidc-full-name-mapper
 oidc-address-mapper oidc-usermodel-realm-role-mapper oidc-usermodel-client-role-mapper oidc-audience-resolve-mapper
 oidc-audience-mapper oidc-sha256-pairwise-sub-mapper oidc-hardcoded-claim-mapper oidc-group-membership-mapper
-oidc-allowed-origins-mapper oidc-acr-mapper oidc-amr-mapper oidc-sub-mapper'''.split())
+oidc-allowed-origins-mapper oidc-acr-mapper oidc-amr-mapper oidc-sub-mapper
+oidc-usersessionmodel-note-mapper oidc-organization-membership-mapper'''.split())
 
 
 def require(value, message):
@@ -490,6 +491,8 @@ address.locality address.region address.postal_code address.country'''.split())
             changed = differences(config, observed_config)
             result.append({'index': index, 'sameId': item.get('id') == observed.get('id'),
                            'provider': item.get('protocolMapper') if item.get('protocolMapper') in NATIVE_OIDC_MAPPERS else 'OTHER',
+                           'protocol': item.get('protocol') if item.get('protocol') in ('openid-connect', 'saml') else 'OTHER',
+                           'actualProtocol': observed.get('protocol') if observed.get('protocol') in ('openid-connect', 'saml') else 'OTHER',
                            'knownFields': sorted(differences(item, observed) & mapper_fields),
                            'knownConfig': [{'key': key, 'expected': category(config, key), 'actual': category(observed_config, key)}
                                            for key in sorted(changed & config_keys)],

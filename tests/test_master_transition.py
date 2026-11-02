@@ -137,6 +137,27 @@ class MasterTransitionTest(unittest.TestCase):
                 else: original[location][0]['protocolMappers'][0]['config']['userinfo.token.claim'] = '' if mutation == 'empty-source' else None
                 with self.subTest(location=location, mutation=mutation), self.assertRaises(ValueError):
                     module.verify_effective(original, invalid, import_window={'minimum': 99, 'maximum': 101})
+    def test_session_note_and_organization_mappers_use_exact_native_userinfo_fallback(self):
+        module = self.module()
+        for provider in ('oidc-usersessionmodel-note-mapper', 'oidc-organization-membership-mapper'):
+            for claim in ('true', 'false'):
+                document = source()
+                document['clientScopes'] = [{'id': 'scope', 'name': 'basic', 'protocol': 'openid-connect', 'protocolMappers': [
+                    {'id': 'mapper', 'name': 'retained', 'protocol': 'openid-connect', 'protocolMapper': provider,
+                     'config': {'id.token.claim': claim}}]}]
+                candidate = module.profile.build_profile(document, realm='master', origin='https://id.example.test', acknowledge_master=True)
+                effective = copy.deepcopy(candidate)
+                effective['clientScopes'][0]['protocolMappers'][0]['config']['userinfo.token.claim'] = claim
+                with self.subTest(provider=provider, claim=claim):
+                    module.verify_effective(candidate, effective, import_window={'minimum': 99, 'maximum': 101})
+                for mutation in ('opposite', 'saml', 'custom'):
+                    invalid = copy.deepcopy(effective); mapper = invalid['clientScopes'][0]['protocolMappers'][0]
+                    if mutation == 'opposite': mapper['config']['userinfo.token.claim'] = 'false' if claim == 'true' else 'true'
+                    elif mutation == 'saml': mapper['protocol'] = 'saml'
+                    else: mapper['protocolMapper'] = 'unreviewed'
+                    with self.subTest(provider=provider, mutation=mutation), self.assertRaises(ValueError):
+                        module.verify_effective(candidate, invalid, import_window={'minimum': 99, 'maximum': 101})
+
     def test_all_native_registration_policies_require_exact_database_and_api_retention(self):
         module = self.module(); document = source(); document['id'] = 'realm-id'
         kind = module.profile.REGISTRATION_POLICY_PROVIDER
