@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { reportFailure } from './safe-errors.mjs';
 import { isAuthorizationRefusal } from './protocol-assertions.mjs';
-import { selectNewRecoveryMessage } from './recovery-mail.mjs';
+import { selectNewRecoveryMessage, passwordResetOutcome } from './recovery-mail.mjs';
 import { observeConsole } from './console-diagnostics.mjs';
 import { assertIdentityArtworkReady } from './identity-artwork.mjs';
 
@@ -326,7 +326,8 @@ try {
   passed('RP initiated logout invalidates refresh session');
 
   phase = 'password recovery';
-  const recoveryAuth = authorization({ challenge: 'a'.repeat(43), state: 'recovery', nonce: 'recovery' });
+  const recoveryState = randomBytes(24).toString('base64url');
+  const recoveryAuth = authorization({ challenge: 'a'.repeat(43), state: recoveryState, nonce: 'recovery' });
   await page.goto(recoveryAuth);
   const priorMailbox = await (await fetch('http://localhost:8025/api/v1/messages')).json();
   const priorMessageIds = new Set((priorMailbox.messages || []).map(message => message.ID));
@@ -346,15 +347,40 @@ try {
   const recoveryLink = mail.HTML.match(/href="([^"\s]*\/login-actions\/action-token[^"\s]*)"/);
   assert.ok(recoveryLink, 'Missing server-generated recovery link');
   await page.goto(recoveryLink[1].replaceAll('&amp;', '&'));
-  const newPassword = `Aa1${randomBytes(30).toString('base64url')}`;
-  await writeFile(`${stateDir}/pending-recovery-password.txt`, newPassword, { mode: 0o600 });
+  // Qualification prevalidates this unused candidate during fixture generation.
+  const newPassword = await readFile(`${stateDir}/pending-recovery-password.txt`, 'utf8');
+  assert.ok(newPassword.length >= 16 && newPassword.length <= 128 && newPassword !== credentials.customers.password,
+    'Unused recovery candidate is unavailable');
   await page.locator('#password-new').fill(newPassword);
   await page.locator('#password-confirm').fill(newPassword);
+  phase = 'password recovery provider outcome';
+  const recoveryDiagnostic = { outcome: 'UNCONFIRMED', freshLoginSucceeded: false, currentPasswordPersisted: false };
+  const saveRecoveryDiagnostic = () => writeFile(`${evidence}/recovery-diagnostics.json`, JSON.stringify(recoveryDiagnostic, null, 2));
+  await saveRecoveryDiagnostic();
   await page.getByRole('button', { name: 'Submit' }).click();
+  for (let attempt = 0; attempt < 150; attempt++) {
+    const observed = await page.evaluate(() => {
+      const visible = element => element.getClientRects().length > 0;
+      const texts = selector => [...document.querySelectorAll(selector)].filter(visible).map(element => element.textContent);
+      return { url: location.href, passwordForm: [...document.querySelectorAll('#password-new')].some(visible),
+        errors: texts('.pf-m-danger .kc-feedback-text, [id^="input-error-"]:not([id^="input-error-container-"])'),
+        success: texts('.pf-m-success .kc-feedback-text, #kc-info-message > p.instruction') };
+    });
+    recoveryDiagnostic.outcome = passwordResetOutcome(observed, { issuer, redirect, state: recoveryState });
+    if (recoveryDiagnostic.outcome !== 'UNCONFIRMED') break;
+    await new Promise(ok => setTimeout(ok, 200));
+  }
+  await saveRecoveryDiagnostic();
+  assert.ok(['ACCEPTED_CALLBACK', 'ACCEPTED_MESSAGE'].includes(recoveryDiagnostic.outcome),
+    'Provider did not confirm the submitted password reset');
   await context.clearCookies();
   credentials.customers.password = newPassword;
   await login();
+  recoveryDiagnostic.freshLoginSucceeded = true;
+  await saveRecoveryDiagnostic();
   await writeFile(`${stateDir}/credentials.json`, JSON.stringify(credentials, null, 2) + '\n', { mode: 0o600 });
+  recoveryDiagnostic.currentPasswordPersisted = true;
+  await saveRecoveryDiagnostic();
   passed('synthetic recovery email, password reset and fresh credential login');
 
   phase = 'master administration console';

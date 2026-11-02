@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 import zipfile
 from unittest.mock import patch
@@ -85,6 +86,37 @@ class HostedPasswordPreflightTest(unittest.TestCase):
                  patch.object(generator, 'synthetic_password', side_effect=ValueError('matcher refused')):
                 with self.assertRaises((ValueError, SystemExit)): generator.main()
             self.assertFalse(output.exists())
+
+    def test_unused_recovery_candidate_is_prechecked_private_and_not_imported(self):
+        generator = module('password_generator', 'scripts/generate.py')
+        with tempfile.TemporaryDirectory() as parent:
+            root = Path(parent)
+            theme = root / 'theme'
+            for kind in ('login', 'account', 'admin', 'email', 'welcome'):
+                (theme / kind).mkdir(parents=True)
+                (theme / kind / 'theme.properties').write_text('parent=base\n')
+            output = root / 'fixture'
+            accepted = []
+            def check(value):
+                accepted.append(value)
+                return True
+            helper = SimpleNamespace(load_checker=lambda: check)
+            spec = SimpleNamespace(loader=SimpleNamespace(exec_module=lambda _: None))
+            hosted = {'GITHUB_ACTIONS': 'true', 'RUNNER_ENVIRONMENT': 'github-hosted', 'RUNNER_OS': 'Linux'}
+            with patch.object(sys, 'argv', ['generate.py', '--mode', 'sandbox', '--output', str(output),
+                                           '--theme-dir', str(theme), '--hosted-password-preflight']), \
+                 patch.dict(os.environ, hosted), \
+                 patch.object(generator.importlib.util, 'spec_from_file_location', return_value=spec), \
+                 patch.object(generator.importlib.util, 'module_from_spec', return_value=helper):
+                generator.main()
+            pending = output / 'pending-recovery-password.txt'
+            self.assertTrue(pending.is_file(), 'Unused recovery candidate is missing')
+            candidate = pending.read_text().strip()
+            self.assertIn(candidate, accepted)
+            self.assertEqual(pending.stat().st_mode & 0o777, 0o600)
+            self.assertNotIn(candidate, (output / 'credentials.json').read_text())
+            for realm in (output / 'realms').glob('*.json'):
+                self.assertNotIn(candidate, realm.read_text())
 
     def test_generator_opt_in_refuses_nonhosted_before_output(self):
         with tempfile.TemporaryDirectory() as parent:

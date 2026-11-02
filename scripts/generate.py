@@ -333,7 +333,7 @@ def main():
             parser.error('Owned native password preflight is unavailable; no state was generated.')
     try:
         fixture_passwords = {name: synthetic_password(password_check) for name in (
-            'verify_email', 'customers', 'workforce', 'institutions', 'policy_customers', 'policy_workforce')}
+            'verify_email', 'customers', 'workforce', 'institutions', 'policy_customers', 'policy_workforce', 'recovery_customers')}
     except Exception:
         parser.error('Fresh fixture password prevalidation refused; no state was generated.')
     os.umask(0o077)
@@ -378,6 +378,7 @@ def main():
     # remain owner-only on the host; local Compose does not remap secret-file ownership.
     (output / 'realms').chmod(0o755)
     write(output / 'credentials.json', json.dumps(credentials, indent=2) + '\n', 0o600)
+    write(output / 'pending-recovery-password.txt', fixture_passwords['recovery_customers'], 0o600)
     write(output / 'compose.json', json.dumps(compose(output, project, theme_dir,
           startup_diagnostics=args.hosted_startup_diagnostics), indent=2) + '\n', 0o600)
     write(output / 'ownership.json', json.dumps({'project': project, 'mode': 'sandbox',
