@@ -12,6 +12,7 @@ check:
 	node --check tooling/configuration-lookup-runtime.mjs
 	node --check tooling/native-runtime.mjs
 	node --check tooling/privileged-runtime.mjs
+	node --check tooling/master-transition-runtime.mjs
 	node --check tooling/reproofing-runtime.mjs
 	node --check tooling/documentation-runtime.mjs
 	node --check tooling/documentation-diagrams.mjs

@@ -90,6 +90,54 @@ Capture the PIN through an approved private customer input channel, not through 
 
 ## Activation and acceptance
 
-The institution still needs to name the genuine case/authorization owner and protocol, establish tenant/delegation mappings and permitted consultation actions, approve private PIN collection with recording suppression, define independent possession evidence, and assign audit and incident custody. Support PIN evidence cannot be substituted for forgotten-password recovery, lost-authenticator recovery, payment approval or customer impersonation.
+The approved initial use is consultation/support only. The institution has not yet selected the genuine case/authorization owner or its protocol, and this distribution supplies neither a production factory nor a public verification route. Complete the steps below in order before offering telephone or BPO verification. Keep the decisions and evidence in the institution's controlled [decision record](production-decisions.md#maintain-one-decision-record).
+
+### 1. Assign the owner and define the permitted consultation
+
+The customer-service owner appoints the team and service accountable for genuine cases and current authorization. Workforce security and outsourcing management establish who may act for each provider and tenant. Name the approver, implementation owner, operating contact and outage escalation; a team name without an operating service is not a completed integration.
+
+Record the customer and workforce issuers, customer-link source, staff/employment source, provider/delegation identifiers, tenant mapping, genuine case/call source, and the exact read operations and resources allowed. Include the approval rule, revocation source and maximum permitted authorization staleness for each operation. Leave account changes, payments, impersonation and customer-token handoff outside this scope. The native `VERIFY_SUPPORT_PIN` action only checks knowledge; the receiving application must independently authorize the selected consultation operation.
+
+### 2. Select customer evidence and the private input channel
+
+The customer-service and security owners select an independent possession check and a private customer PIN-entry channel. Record how possession is established, its freshness limit, its binding to the same customer and call, and how its result reaches the authorization owner. Possession must be independently verified; the PIN, caller ID, staff sign-in or account history cannot stand in for it. A PIN check alone is not MFA, and adding another knowledge question does not provide a possession factor.
+
+The channel owner records the customer interaction, service authentication, transport protection, recording/transcription suppression, screen/access restrictions, permitted telemetry and failure behavior. Privacy and operations owners review the customer notice and applicable consent procedure. Demonstrate that the operator, recordings, transcripts, analytics and error logs cannot receive the PIN. If the selected channel cannot preserve that boundary, keep verification unavailable.
+
+### 3. Implement and qualify the authorization owner
+
+The integration owner implements exactly one qualifying `NativeSupportAuthorization.Factory` and the private caller integration. This is development and deployment work; completing this checklist does not provide a production factory or create an HTTP endpoint. Authenticate the requesting service and actual operator, and check current employment, delegation, case, customer, tenant, approvals and possession evidence before admitting a check.
+
+Record the protocol/version, authenticated caller identities, signing/key custody and rotation, allowed receivers, expiry and revocation checks, outage behavior and reconciliation contact. The native grant must contain the exact `nonce`, `targetIssuer`, `realm`, `subject`, `tenant`, `customerLink`, `staffIssuer`, `staffSubject`, `caseId`, `callId`, `permittedAction`, `purpose` and `expiresAt` described above. Employer/delegation, possession and approval evidence remain the owner's responsibility; inventing extra native grant fields does not enforce them. The original grant must survive reauthorization unchanged, with at most 120 seconds remaining at admission. An unavailable owner or indeterminate authorization must refuse.
+
+The service returns an opaque reference to scoped knowledge evidence. The authorized consumer must use native one-time consumption and receive a committed result before relying on that evidence. Each consultation receiver still checks current permission for its own resource. Do not turn a successful PIN result into a customer session or a general support entitlement.
+
+### 4. Prepare operations and reconcile uncertain outcomes
+
+The security and service-operations owners assign pepper-key custody, native journal access, case/audit correlation, incident response and approved retention. Record the evidence-reference lookup procedure, responsible reconciliation team, response deadline and behavior while the outcome is unknown. Keep PINs, signed contexts, tokens and raw provider payloads out of those records.
+
+Rehearse a lost response after verification and after consumption. Reconcile the original reference with the owner and journal; do not repeat proof, mint a new nonce, refund a reserved slot or reset counters. If the journal cannot establish the result, suspend the dependent consultation. Preserve the original proof, case, grant identity, generation, attempts and audit so the uncertainty can be resolved.
+
+### 5. Run acceptance before enabling the selected scope
+
+The integration, security and receiving-application owners run these exercises against the complete candidate in an isolated environment with representative retained state. Record the deployed versions/configuration, scenario, expected result, observed result, timestamp, evidence location and accepting owner. Never include the supplied PIN or authorization secret in acceptance evidence.
+
+| Exercise | Required observation |
+| --- | --- |
+| Eligible consultation | The actual operator and service, genuine case/call, current delegation, independent possession and correct PIN produce one consumable knowledge result; only the approved read operation succeeds |
+| Missing authority | Missing case, approval or possession; revoked employment/delegation; wrong customer, tenant, issuer or purpose; and owner outage all refuse without business access |
+| Replay and expiry | Reused nonce, altered grant, expired context/proof and a second consumption refuse; reauthorization cannot extend the original expiry |
+| Attempt and concurrency limits | Same-nonce attempts across customers cannot create multiple reservations; concurrent different-nonce attempts respect three slots; bad PINs and pending reservations enforce the documented budget |
+| State changes and races | PIN replacement/revocation, account or PIN hold, credential change and expiry during lock acquisition prevent consumption; concurrent consumers produce at most one committed consumption |
+| Persistence and interruption | Retained legacy rows remain nonconsumable without complete bindings; audit failure rolls back consumption; restart and response loss preserve original state and support reconciliation |
+| Channel and permission separation | Operators and recording/logging systems cannot capture the PIN; PIN evidence cannot unlock an account, replace credentials, impersonate a customer or authorize a financial action |
+
+### 6. Approve activation and define when to stop
+
+The customer-service owner approves only the recorded consultation scope after security, integration, channel and receiver owners accept their results and operations can reconcile failures. Record the exact deployment, enabled providers/tenants/operations, activation time, approver, monitoring limits and stop authority. An isolated source or database test is supporting evidence; it does not accept the actual owner, private channel or destination receivers.
+
+Keep verification disabled while any required owner, dependency or result is unresolved. During operation, suspend new verification and dependent consultations if authorization, possession, private input protection, audit integrity or reconciliation cannot be established. Preserve logs and retained proof/budget state, isolate the affected integration and use its incident owner. Resume only after the failed gate has been reaccepted; do not reopen by deleting nonce history, replaying consumption or creating replacement authority. Support PIN evidence never substitutes for forgotten-password recovery, lost-authenticator recovery, payment approval or customer impersonation.
+
+### Scope of repository checks
 
 Source regression tests cover grant constraints, altered-grant replay identity, reservation budgets, owner refusal/outage, one-time consumption, lock order, audit attribution, expiry and credential/hold invalidation. These tests and the additive migration require actual native compilation and PostgreSQL execution in owned hosted qualification. The native image workflow includes a hosted-only storage probe for cross-customer nonce contention, nullable legacy bindings, proof/audit rollback and append-only attribution on its fresh, empty PostgreSQL database. That probe does not exercise the native service or upgrade retained data. In particular, qualify concurrent same-nonce attempts across different customers, concurrent different-nonce budget exhaustion, consume races, rollback after audit failure, migration over retained legacy rows and response-loss reconciliation. Mocked transaction tests do not prove database uniqueness, atomic commit or concurrency behavior. Production activation remains blocked until the genuine owner and complete channel pass acceptance.

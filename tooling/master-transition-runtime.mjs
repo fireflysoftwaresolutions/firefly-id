@@ -1,0 +1,389 @@
+import assert from 'node:assert/strict';
+import { createHash, generateKeyPairSync, randomBytes } from 'node:crypto';
+import { readFileSync, writeFileSync, mkdirSync, realpathSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
+import { assertionProperties, privilegedWriteDiagnostic } from './privileged-runtime.mjs';
+import { validateJwt } from './extended-runtime.mjs';
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const ORIGIN = 'https://id.firefly.test:8443';
+const ISSUER = ORIGIN + '/realms/master';
+const CALLBACK = ORIGIN + '/admin/master/console/fixture-return';
+const CLIENT = 'security-admin-console';
+const BROWSER = 'firefly-privileged-browser-v1';
+const DENY = 'firefly-privileged-deny-v1';
+export const CONTROL_KEYS = Object.freeze(['attributes', 'registrationAllowed', 'resetPasswordAllowed', 'rememberMe', 'registrationEmailAsUsername',
+  'editUsernameAllowed', 'verifyEmail', 'browserFlow', 'directGrantFlow', 'registrationFlow', 'resetCredentialsFlow',
+  'dockerAuthenticationFlow', 'firstBrokerLoginFlow', 'authenticationFlows', 'requiredActions', 'webAuthnPolicyRpId',
+  'webAuthnPolicyUserVerificationRequirement', 'webAuthnPolicyExtraOrigins', 'webAuthnPolicyPasswordlessPasskeysEnabled',
+  'eventsEnabled', 'adminEventsEnabled', 'adminEventsDetailsEnabled']);
+
+export function ownedRuntime(root, env, owner) {
+  assert.ok(env.GITHUB_ACTIONS === 'true' && env.RUNNER_OS === 'Linux' && env.RUNNER_ENVIRONMENT === 'github-hosted');
+  const run = env.GITHUB_RUN_ID + '-' + env.GITHUB_RUN_ATTEMPT;
+  assert.match(run, /^\d+-\d+$/);
+  const directory = root + '/.state/master-' + run;
+  assert.deepEqual([owner.run, owner.root, owner.kind, owner.project, owner.phase],
+    [run, directory, 'master-transition', 'ff-master-' + run, 'enrollment']);
+  return directory;
+}
+
+export function retainedOperations(candidate) {
+  assert.ok(CONTROL_KEYS.every(key => Object.hasOwn(candidate, key)), 'Complete generated security controls required');
+  const flows = candidate.authenticationFlows.filter(item => [BROWSER, DENY].includes(item.alias));
+  assert.equal(flows.length, 2);
+  assert.ok(flows.every(item => item.providerId === 'basic-flow' && item.topLevel === true && item.builtIn === false));
+  const realm = Object.fromEntries(CONTROL_KEYS.filter(key => !['authenticationFlows', 'requiredActions'].includes(key))
+    .map(key => [key, candidate[key]]));
+  assert.equal(realm.browserFlow, BROWSER);
+  return { realm, flows, actions: candidate.requiredActions };
+}
+
+async function qualify() {
+  const directory = ROOT + '/.state/master-' + process.env.GITHUB_RUN_ID + '-' + process.env.GITHUB_RUN_ATTEMPT;
+  assert.equal(realpathSync(directory), directory);
+  const owner = JSON.parse(readFileSync(directory + '/ownership.json'));
+  ownedRuntime(ROOT, process.env, owner);
+  const evidence = ROOT + '/.work/master-transition'; mkdirSync(evidence, { recursive: true });
+  const report = { status: 'RUNNING', source: process.env.GITHUB_SHA, results: [],
+    boundaries: { import: 'Exact candidate into a new empty owned database; never an overwrite of retained master.',
+      transition: 'Generated settings applied to the original owned master without realm replacement.',
+      pendingActionLinks: 'NOT_QUALIFIED: outstanding emailed action tokens need separate expiry or invalidation acceptance.',
+      leastPrivilege: 'NOT_QUALIFIED: both synthetic accounts hold master admin only to exercise migration and emergency factor enforcement.',
+      physicalKeyCustody: 'NOT_QUALIFIED: Chromium virtual authenticator; no physical custody or institutional activation.' } };
+  let stage = 'ownership';
+  let browser;
+  const save = () => writeFileSync(evidence + '/summary.json', JSON.stringify({ ...report, stage }, null, 2) + '\n');
+  const pass = name => { report.results.push(name); save(); };
+  const lifecycle = (action, input) => {
+    const result = spawnSync('python3', [ROOT + '/tooling/master_transition_fixture.py', action], {
+      cwd: ROOT, input: input === undefined ? undefined : JSON.stringify(input), encoding: 'utf8', maxBuffer: 1024 * 1024, timeout: 240000 });
+    assert.equal(result.status, 0, 'Owned lifecycle operation refused');
+    return result.stdout.trim() ? JSON.parse(result.stdout) : undefined;
+  };
+  lifecycle('check');
+  const credentials = JSON.parse(readFileSync(directory + '/credentials.json'));
+  let token;
+  const request = async (url, options) => {
+    const parsed = new URL(url);
+    assert.equal(parsed.origin, ORIGIN); assert.ok(!parsed.username && !parsed.password);
+    return fetch(url, { signal: AbortSignal.timeout(30000), ...options, redirect: 'manual' });
+  };
+  const admin = async (suffix = '', method = 'GET', body, bearer = token) => {
+    assert.ok(!suffix.startsWith('/') && !suffix.includes('..') && !suffix.includes('\\'));
+    const response = await request(ORIGIN + '/admin/realms/master' + (suffix ? '/' + suffix : ''), {
+      method, headers: { Authorization: 'Bearer ' + bearer, 'Content-Type': 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    if (![200, 201, 204].includes(response.status)) {
+      const failure = new Error('Owned administrative operation refused');
+      failure.diagnostic = await privilegedWriteDiagnostic(response, { body, clientId: body?.clientId,
+        operation: suffix.startsWith('clients/') ? 'CLIENT_UPDATE' : suffix.startsWith('authentication/required-actions/')
+          ? 'REQUIRED_ACTION_UPDATE' : 'REALM_UPDATE' });
+      throw failure;
+    }
+    return response.status === 200 ? response.json() : undefined;
+  };
+  let metadata;
+  const contexts = new Set();
+  const virtual = async (page, credential, scenario) => {
+    const session = await page.context().newCDPSession(page);
+    await session.send('WebAuthn.enable', { enableUI: false });
+    const { authenticatorId } = await session.send('WebAuthn.addVirtualAuthenticator', { options: {
+      protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'usb', hasResidentKey: false,
+      hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
+    if (credential) await session.send('WebAuthn.addCredential', { authenticatorId, credential });
+    if (scenario === 'missing-uv') await session.send('WebAuthn.setResponseOverrideBits', { authenticatorId, isBadUV: true });
+    return { session, authenticatorId };
+  };
+  const startLogin = async (username, password, context, expectPassword = true) => {
+    if (!context) { context = await browser.newContext(); contexts.add(context); }
+    const page = await context.newPage(); page.setDefaultTimeout(25000);
+    const state = randomBytes(24).toString('base64url'); const nonce = randomBytes(24).toString('base64url');
+    const verifier = randomBytes(48).toString('base64url');
+    let received; let complete;
+    const returned = new Promise(ok => { complete = ok; });
+    const routePattern = CALLBACK + '**';
+    await page.route(routePattern, async route => {
+      const value = new URL(route.request().url());
+      if (value.searchParams.get('state') === state) { received = value; complete(value); }
+      await route.fulfill({ contentType: 'text/plain', body: 'Owned synthetic callback.' });
+    });
+    const url = new URL(metadata.authorization_endpoint);
+    url.search = new URLSearchParams({ client_id: CLIENT, redirect_uri: CALLBACK, response_type: 'code', scope: 'openid',
+      state, nonce, code_challenge_method: 'S256', code_challenge: createHash('sha256').update(verifier).digest('base64url') });
+    await page.goto(url.href);
+    if (expectPassword) {
+      await page.locator('#password').waitFor(); assert.ok(!received, 'Cookie bypassed required password');
+      if (await page.locator('#username').isVisible()) await page.locator('#username').fill(username);
+      await page.locator('#password').fill(password); await page.locator('#kc-login').click();
+    }
+    return { page, context, get received() { return received; }, async finish() {
+      const value = await Promise.race([returned, new Promise((_, reject) => { const timer = setTimeout(() => reject(new Error('Owned callback deadline')), 40000); timer.unref(); })]);
+      assert.ok(!value.searchParams.has('error') && value.searchParams.has('code'));
+      const response = await request(metadata.token_endpoint, { method: 'POST', body: new URLSearchParams({
+        grant_type: 'authorization_code', client_id: CLIENT, redirect_uri: CALLBACK, code: value.searchParams.get('code'), code_verifier: verifier }) });
+      assert.equal(response.status, 200); const tokens = await response.json();
+      const identity = await validateJwt(tokens.id_token, metadata, CLIENT); assert.equal(identity.nonce, nonce);
+      return { tokens, identity };
+    } };
+  };
+  const accounts = {};
+  const proveAccess = async value => {
+    const response = await request(ORIGIN + '/admin/realms/master', { headers: { Authorization: 'Bearer ' + value } });
+    assert.equal(response.status, 200, 'Actual master administration permission required');
+  };
+  const freshRefresh = async tokens => {
+    const response = await request(metadata.token_endpoint, { method: 'POST', body: new URLSearchParams({ grant_type: 'refresh_token',
+      client_id: CLIENT, refresh_token: tokens.refresh_token }) });
+    assert.equal(response.status, 200, 'Old refresh token must be usable before retirement');
+    const refreshed = await response.json(); await proveAccess(refreshed.access_token); return refreshed;
+  };
+  let retirementWindow;
+  const readback = async () => {
+    const effective = await admin('partial-export?exportClients=true&exportGroupsAndRoles=true', 'POST');
+    lifecycle('readback', { effective, retirementWindow });
+  };
+  const snapshotUser = async user => ({ account: await admin('users/' + user.id),
+    credentials: await admin('users/' + user.id + '/credentials'), sessions: await admin('users/' + user.id + '/sessions') });
+  const authenticate = async (kind, scenario = 'valid', context) => {
+    const account = accounts[kind];
+    const before = token ? await snapshotUser(account) : undefined;
+    const login = await startLogin(account.username, credentials[kind], context);
+    await login.page.locator('#authenticateWebAuthnButton').waitFor();
+    assert.equal(await login.page.locator('#registerWebAuthn, #otp').count(), 0);
+    if (scenario === 'password-only') {
+      assert.ok(!login.received); assert.deepEqual(await snapshotUser(account), before);
+      await login.page.close(); return;
+    }
+    let presented = account.credential;
+    if (scenario === 'wrong-key') {
+      const key = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey;
+      presented = { ...presented, privateKey: key.export({ format: 'der', type: 'pkcs8' }).toString('base64') };
+    }
+    const authenticator = await virtual(login.page, presented, scenario);
+    const posted = login.page.waitForRequest(value => value.method() === 'POST' && new URL(value.url()).pathname.startsWith('/realms/master/login-actions/authenticate')
+      && new URLSearchParams(value.postData() || '').has('authenticatorData'));
+    await login.page.locator('#authenticateWebAuthnButton').click();
+    const properties = assertionProperties((await posted).postData(), account.credential);
+    assert.equal(properties.signedByEnrolledKey, scenario !== 'wrong-key');
+    assert.equal(properties.userVerified, scenario !== 'missing-uv');
+    if (scenario !== 'valid') {
+      await login.page.locator('#kc-error-message, .kc-feedback-text').first().waitFor();
+      assert.ok(!login.received); assert.equal(await login.page.locator('#registerWebAuthn').count(), 0);
+      assert.deepEqual(await snapshotUser(account), before);
+      await login.page.close(); return;
+    }
+    const result = await login.finish(); assert.equal(result.identity.sub, account.id);
+    await proveAccess(result.tokens.access_token);
+    const listed = await authenticator.session.send('WebAuthn.getCredentials', { authenticatorId: authenticator.authenticatorId });
+    assert.ok(listed.credentials[0].signCount > account.credential.signCount);
+    account.credential = listed.credentials[0];
+    await login.page.close(); return result;
+  };
+  try {
+    stage = 'bootstrap-and-reviewed-prerequisites'; save();
+    const { chromium } = await import('playwright');
+    browser = await chromium.launch({ headless: true });
+    metadata = await (await request(ISSUER + '/.well-known/openid-configuration')).json();
+    assert.equal(metadata.issuer, ISSUER);
+    const bootstrapResponse = await request(metadata.token_endpoint, { method: 'POST', body: new URLSearchParams({
+      grant_type: 'password', client_id: 'admin-cli', username: 'synthetic-bootstrap', password: credentials.bootstrap }) });
+    assert.equal(bootstrapResponse.status, 200);
+    let bootstrapTokens = await bootstrapResponse.json(); token = bootstrapTokens.access_token; await proveAccess(token);
+    await admin('', 'PUT', { sslRequired: 'all', verifyEmail: true, registrationAllowed: false,
+      accessTokenLifespan: 1800, eventsEnabled: true, adminEventsEnabled: true, adminEventsDetailsEnabled: false,
+      eventsExpiration: 86400, eventsListeners: ['jboss-logging'], enabledEventTypes: [],
+      loginTheme: 'firefly-id', accountTheme: 'firefly-id', adminTheme: 'firefly-id', emailTheme: 'firefly-id',
+      webAuthnPolicyRpId: 'id.firefly.test', webAuthnPolicyRpEntityName: 'Owned synthetic master',
+      webAuthnPolicySignatureAlgorithms: ['ES256'], webAuthnPolicyAuthenticatorAttachment: 'cross-platform',
+      webAuthnPolicyUserVerificationRequirement: 'required', webAuthnPolicyAttestationConveyancePreference: 'none',
+      webAuthnPolicyRequireResidentKey: 'No', webAuthnPolicyExtraOrigins: [],
+      webAuthnPolicyCreateTimeout: 20, webAuthnPolicyPasswordlessPasskeysEnabled: false, attributes: {} });
+    const usersBefore = await admin('users');
+    assert.deepEqual(usersBefore.map(value => value.username), ['synthetic-bootstrap']);
+    const bootstrap = usersBefore[0];
+    const clients = await admin('clients');
+    assert.deepEqual(clients.map(value => value.clientId).sort(),
+      ['account', 'account-console', 'admin-cli', 'broker', 'master-realm', CLIENT].sort());
+    const consoleClient = clients.find(value => value.clientId === CLIENT);
+    await admin('clients/' + consoleClient.id, 'PUT', { ...consoleClient, rootUrl: ORIGIN,
+      baseUrl: ORIGIN + '/admin/master/console/', redirectUris: [ORIGIN + '/admin/master/console/*'], webOrigins: [ORIGIN],
+      attributes: { 'pkce.code.challenge.method': 'S256', 'client.use.lightweight.access.token.enabled': 'false' } });
+    const adminRole = await admin('roles/admin');
+    const register = (await admin('authentication/required-actions')).find(value => value.alias === 'webauthn-register');
+    assert.ok(register); await admin('authentication/required-actions/webauthn-register', 'PUT', { ...register, enabled: true, defaultAction: false });
+    for (const kind of ['ordinary', 'emergency']) {
+      stage = 'enroll-' + kind; save();
+      const username = 'synthetic-' + kind;
+      await admin('users', 'POST', { username, enabled: true, firstName: 'Synthetic', lastName: kind,
+        email: kind + '@example.invalid', emailVerified: true, requiredActions: ['webauthn-register'],
+        credentials: [{ type: 'password', value: credentials[kind], temporary: false }] });
+      const users = await admin('users?username=' + username + '&exact=true'); assert.equal(users.length, 1);
+      const user = users[0]; await admin('users/' + user.id + '/role-mappings/realm', 'POST', [adminRole]);
+      const login = await startLogin(username, credentials[kind]);
+      await login.page.locator('#registerWebAuthn').waitFor();
+      const authenticator = await virtual(login.page);
+      login.page.on('dialog', dialog => dialog.accept('Owned synthetic ' + kind + ' key'));
+      await login.page.locator('#registerWebAuthn').click();
+      const result = await login.finish(); assert.equal(result.identity.sub, user.id); await proveAccess(result.tokens.access_token);
+      const listed = await authenticator.session.send('WebAuthn.getCredentials', { authenticatorId: authenticator.authenticatorId });
+      assert.equal(listed.credentials.length, 1); assert.equal(listed.credentials[0].rpId, 'id.firefly.test');
+      const keys = await admin('users/' + user.id + '/credentials');
+      assert.equal(keys.filter(value => value.type === 'webauthn').length, 1);
+      assert.ok(keys.some(value => value.type === 'password')); assert.ok(!keys.some(value => value.type === 'webauthn-passwordless'));
+      assert.deepEqual((await admin('users/' + user.id)).requiredActions, []);
+      accounts[kind] = { id: user.id, username, credential: listed.credentials[0], tokens: await freshRefresh(result.tokens),
+        context: login.context, keys: keys.map(value => [value.id, value.type]).sort() };
+      await login.page.close(); pass(kind + '-real-two-factor-enrollment-and-master-role-before-transition');
+    }
+    token = accounts.ordinary.tokens.access_token;
+    stage = 'explicit-source-prerequisites'; save();
+    const renewedBootstrap = await request(metadata.token_endpoint, { method: 'POST', body: new URLSearchParams({
+      grant_type: 'password', client_id: 'admin-cli', username: 'synthetic-bootstrap', password: credentials.bootstrap }) });
+    assert.equal(renewedBootstrap.status, 200); bootstrapTokens = await renewedBootstrap.json();
+    await proveAccess(bootstrapTokens.access_token);
+    pass('bootstrap-authority-positive-immediately-before-client-and-account-retirement');
+    for (const client of await admin('clients')) {
+      if (client.clientId === 'master-realm') {
+        assert.equal(client.bearerOnly, true); assert.equal(client.publicClient, false);
+        for (const key of ['directAccessGrantsEnabled', 'implicitFlowEnabled', 'serviceAccountsEnabled']) assert.equal(client[key], false);
+        continue;
+      }
+      for (const kind of ['default', 'optional']) {
+        for (const scope of await admin('clients/' + client.id + '/' + kind + '-client-scopes')) {
+          if (scope.name === 'offline_access') await admin('clients/' + client.id + '/' + kind + '-client-scopes/' + scope.id, 'DELETE');
+        }
+      }
+      await admin('clients/' + client.id, 'PUT', { ...client, enabled: client.clientId === CLIENT,
+        standardFlowEnabled: client.clientId === CLIENT, directAccessGrantsEnabled: false, implicitFlowEnabled: false,
+        serviceAccountsEnabled: false, authorizationServicesEnabled: false,
+        authenticationFlowBindingOverrides: {}, attributes: client.clientId === CLIENT
+          ? { 'pkce.code.challenge.method': 'S256', 'client.use.lightweight.access.token.enabled': 'false' } : {} });
+    }
+    // Native dynamic-registration policies are explicitly removed only from this fresh synthetic master.
+    for (const component of await admin('components')) {
+      if (component.providerType === 'org.keycloak.keys.KeyProvider') continue;
+      assert.equal(component.providerType, 'org.keycloak.services.clientregistration.policy.ClientRegistrationPolicy');
+      await admin('components/' + component.id, 'DELETE');
+    }
+    await admin('users/' + bootstrap.id, 'PUT', { ...bootstrap, enabled: false, requiredActions: [] });
+    const sourceOrdinary = structuredClone(accounts.ordinary.credential);
+    const sourceEmergency = structuredClone(accounts.emergency.credential);
+    const retainedTokens = accounts.ordinary.tokens;
+    const retainedEmergencyTokens = accounts.emergency.tokens;
+    pass('reviewed-prerequisites-explicitly-prepared-on-owned-master');
+
+    stage = 'actual-full-export-and-exact-profile-generation'; save();
+    lifecycle('export_candidate');
+    const candidate = JSON.parse(readFileSync(directory + '/candidate.json'));
+    const exported = JSON.parse(readFileSync(directory + '/exchange/source.json'));
+    assert.equal(exported.realm, 'master'); assert.ok(exported.id);
+    for (const kind of ['ordinary', 'emergency']) {
+      const user = exported.users.find(value => value.id === accounts[kind].id);
+      assert.ok(user); assert.ok(user.realmRoles.includes('admin'));
+      const password = user.credentials.find(value => value.type === 'password');
+      assert.ok(password.secretData && JSON.parse(password.secretData).value, 'Actual salted password hash required');
+      assert.ok(user.credentials.some(value => value.type === 'webauthn' && value.credentialData));
+    }
+    assert.deepEqual(candidate.users, exported.users); assert.deepEqual(candidate.roles, exported.roles);
+    pass('actual-master-export-includes-enrolled-keys-password-hashes-and-admin-roles');
+    stage = 'exact-candidate-import-new-empty-database'; save();
+    lifecycle('import_start'); token = undefined;
+    const imported = await authenticate('ordinary'); token = imported.tokens.access_token;
+    await readback();
+    for (const kind of ['ordinary', 'emergency']) {
+      const current = await admin('users/' + accounts[kind].id);
+      assert.equal(current.username, accounts[kind].username);
+      const keys = await admin('users/' + accounts[kind].id + '/credentials');
+      assert.deepEqual(keys.map(value => [value.id, value.type]).sort(), accounts[kind].keys);
+      assert.ok((await admin('users/' + accounts[kind].id + '/role-mappings/realm')).some(value => value.name === 'admin'));
+    }
+    await authenticate('emergency');
+    pass('exact-import-effective-policy-retained-ids-keys-roles-and-both-two-factor-admin-logins');
+
+    stage = 'resume-original-retained-master'; save();
+    lifecycle('retained_start'); token = retainedTokens.access_token;
+    accounts.ordinary.credential = sourceOrdinary; accounts.emergency.credential = sourceEmergency;
+    await proveAccess(token); await proveAccess(retainedEmergencyTokens.access_token);
+    const ordinaryOld = await freshRefresh(retainedTokens); const emergencyOld = await freshRefresh(retainedEmergencyTokens);
+    token = ordinaryOld.access_token;
+    pass('retained-old-access-and-refresh-authority-positive-immediately-before-transition');
+    stage = 'apply-generated-settings-without-realm-replacement'; save();
+    const operations = retainedOperations(candidate);
+    for (const flow of operations.flows) {
+      const { authenticationExecutions, ...representation } = flow;
+      await admin('authentication/flows', 'POST', representation);
+      for (const execution of authenticationExecutions) {
+        await admin('authentication/flows/' + flow.alias + '/executions/execution', 'POST', { provider: execution.authenticator });
+        const found = (await admin('authentication/flows/' + flow.alias + '/executions')).find(value => value.providerId === execution.authenticator);
+        assert.ok(found?.id);
+        await admin('authentication/flows/' + flow.alias + '/executions', 'PUT', { ...found, requirement: execution.requirement, priority: execution.priority });
+      }
+    }
+    for (const action of operations.actions) {
+      await admin('authentication/required-actions/' + encodeURIComponent(action.alias), 'PUT', action);
+    }
+    await admin('', 'PUT', operations.realm); await readback();
+    // Force a later second than all retained tokens; equal iat/notBefore is otherwise ambiguous.
+    const latestIssuedAt = Math.max(...[ordinaryOld, emergencyOld, bootstrapTokens]
+      .map(value => JSON.parse(Buffer.from(value.access_token.split('.')[1], 'base64url')).iat));
+    while (Math.floor(Date.now() / 1000) <= latestIssuedAt) await new Promise(ok => setTimeout(ok, 200));
+    retirementWindow = { minimum: Math.floor(Date.now() / 1000) };
+    await admin('logout-all', 'POST'); retirementWindow.maximum = Math.floor(Date.now() / 1000); token = undefined;
+    lifecycle('restart');
+    report.retained = lifecycle('verify_state');
+    pass('original-database-users-credential-hashes-roles-and-nonempty-audit-rows-preserved-before-new-assertions');
+    stage = 'retire-old-authority'; save();
+    for (const old of [ordinaryOld, emergencyOld, bootstrapTokens]) {
+      const access = await request(ORIGIN + '/admin/realms/master', { headers: { Authorization: 'Bearer ' + old.access_token } });
+      assert.ok([401, 403].includes(access.status), 'Old access token still authorizes master administration');
+      const refreshed = await request(metadata.token_endpoint, { method: 'POST', body: new URLSearchParams({
+        grant_type: 'refresh_token', client_id: old === bootstrapTokens ? 'admin-cli' : CLIENT, refresh_token: old.refresh_token }) });
+      assert.ok([400, 401].includes(refreshed.status)); assert.ok(!(await refreshed.json()).access_token);
+    }
+    pass('old-ordinary-emergency-bootstrap-access-and-refresh-authority-refused');
+    stage = 'retained-ordinary-positive'; save();
+    const ordinary = await authenticate('ordinary', 'valid', accounts.ordinary.context); token = ordinary.tokens.access_token;
+    await readback(); assert.equal((await admin('users/' + bootstrap.id)).enabled, false);
+    pass('old-sso-cookie-requires-password-and-genuine-uv-key-before-new-master-authority');
+    stage = 'retained-emergency-positive'; save();
+    await authenticate('emergency', 'valid', accounts.emergency.context);
+    pass('emergency-requires-same-password-plus-genuine-uv-key-and-master-permission');
+    for (const kind of ['ordinary', 'emergency']) {
+      for (const scenario of ['password-only', 'wrong-key', 'missing-uv']) {
+        stage = kind + '-' + scenario + '-refusal'; save(); await authenticate(kind, scenario);
+        pass(kind + '-' + scenario + '-refused-without-enrollment-credential-or-session-change');
+      }
+    }
+    stage = 'bootstrap-and-alternate-grant-refusal'; save();
+    const disabled = await startLogin('synthetic-bootstrap', credentials.bootstrap);
+    await disabled.page.locator('#input-error, #kc-error-message, .kc-feedback-text').first().waitFor();
+    assert.ok(!disabled.received); await disabled.page.close();
+    for (const client of [CLIENT, 'admin-cli', 'master-realm']) {
+      const response = await request(metadata.token_endpoint, { method: 'POST', body: new URLSearchParams({
+        grant_type: 'password', client_id: client, username: accounts.ordinary.username, password: credentials.ordinary }) });
+      assert.ok([400, 401].includes(response.status)); assert.ok(!(await response.json()).access_token);
+    }
+    const internal = new URL(metadata.authorization_endpoint);
+    internal.search = new URLSearchParams({ client_id: 'master-realm', redirect_uri: CALLBACK, response_type: 'code' });
+    assert.equal((await request(internal.href)).status, 403);
+    pass('disabled-bootstrap-and-direct-grants-refused-internal-role-resource-noninteractive');
+    report.status = 'PASSED'; stage = 'complete'; save();
+    console.log('Owned master import and retained-transition qualification passed; bounded evidence written.');
+  } catch (error) {
+    report.status = 'FAILED';
+    report.failure = { kind: error?.code === 'ERR_ASSERTION' ? 'ASSERTION' : 'RUNTIME',
+      ...(Number.isInteger(error?.actual) ? { actualStatus: error.actual } : {}),
+      ...(error?.diagnostic ? { administrativeWrite: error.diagnostic } : {}) };
+    save(); throw new Error('Owned master qualification refused');
+  } finally {
+    for (const context of contexts) await context.close().catch(() => {});
+    if (browser) await browser.close();
+  }
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  qualify().catch(() => { console.error('Owned master qualification refused; inspect bounded summary only.'); process.exitCode = 1; });
+}

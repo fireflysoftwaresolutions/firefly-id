@@ -191,6 +191,15 @@ class PrivilegedProfileTest(unittest.TestCase):
         self.assertEqual(candidate['authenticatorConfig'], document['authenticatorConfig'])
         self.module.validate_profile(candidate, realm='master', origin='https://id.example.test')
 
+    def test_reviewed_keycloak_26_8_export_policy_fields_are_preserved(self):
+        document = source()
+        document.update(defaultSignatureAlgorithm='RS256', maxSecondaryAuthFailures=0, otpPolicyCodeReusable=False,
+                        localizationTexts={}, webAuthnPolicyPasswordlessMediation='conditional')
+        candidate = self.candidate(document)
+        for key in ('defaultSignatureAlgorithm', 'maxSecondaryAuthFailures', 'otpPolicyCodeReusable',
+                    'localizationTexts', 'webAuthnPolicyPasswordlessMediation'):
+            self.assertEqual(candidate[key], document[key])
+
     def test_nonstandard_json_numbers_are_refused(self):
         for number in ('NaN', 'Infinity', '-Infinity'):
             with self.subTest(number=number), self.assertRaises(ValueError):

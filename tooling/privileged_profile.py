@@ -17,6 +17,7 @@ ACTIONS = ('VERIFY_EMAIL', 'UPDATE_PROFILE', 'CONFIGURE_TOTP', 'UPDATE_PASSWORD'
 BUILTIN_CLIENTS = {'account', 'account-console', 'admin-cli', 'broker', 'security-admin-console'}
 # Explicit support is deliberately narrower than every possible Keycloak export/extension.
 REALM_FIELDS = set('''id realm displayName displayNameHtml enabled sslRequired clients users roles groups
+defaultSignatureAlgorithm maxSecondaryAuthFailures otpPolicyCodeReusable localizationTexts webAuthnPolicyPasswordlessMediation
 scopeMappings clientScopeMappings defaultRole defaultGroups requiredCredentials passwordPolicy otpPolicyType
 otpPolicyAlgorithm otpPolicyInitialCounter otpPolicyDigits otpPolicyLookAheadWindow otpPolicyPeriod otpSupportedApplications
 webAuthnPolicyRpEntityName webAuthnPolicySignatureAlgorithms webAuthnPolicyRpId webAuthnPolicyAttestationConveyancePreference
