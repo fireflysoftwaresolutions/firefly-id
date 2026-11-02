@@ -92,6 +92,8 @@ Capture the PIN through an approved private customer input channel, not through 
 
 The approved initial use is consultation/support only. The institution has not yet selected the genuine case/authorization owner or its protocol, and this distribution supplies neither a production factory nor a public verification route. Complete the steps below in order before offering telephone or BPO verification. Keep the decisions and evidence in the institution's controlled [decision record](production-decisions.md#maintain-one-decision-record).
 
+Start with the [recommended first activation proposal](production-decisions.md#recommended-first-activation-proposal), using its stable `BPO_*` choices to record the institution's selections. Those recommendations do not appoint an owner, supply the missing integration or activate verification.
+
 ### 1. Assign the owner and define the permitted consultation
 
 The customer-service owner appoints the team and service accountable for genuine cases and current authorization. Workforce security and outsourcing management establish who may act for each provider and tenant. Name the approver, implementation owner, operating contact and outage escalation; a team name without an operating service is not a completed integration.

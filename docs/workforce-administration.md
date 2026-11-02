@@ -94,6 +94,8 @@ Enrollment is a separate, controlled preactivation operation. A person who knows
 
 Complete the following steps in order. The approved factor baseline is already selected; the named owners must resolve its deployment choices and record acceptance for the actual destination. Keep account identifiers, device inventories and evidence in a protected [institution decision record](production-decisions.md#maintain-one-decision-record).
 
+Use the [recommended first activation proposal](production-decisions.md#recommended-first-activation-proposal) and its stable `ADMIN_*` choices as the starting record for hardware, roles, ingress, enrollment, emergency custody and operating objectives. The institution must select and accept each choice before opening real access.
+
 #### 1. Approve hardware and administrative roles
 
 The privileged-access and security owners select physical authenticators, supported browsers/platforms, spare-key policy and attestation requirements. Record device model/inventory references, permitted algorithms, authenticator attachment and resident-key choices, acceptable AAGUIDs if used, attestation trust/validation procedure, and replacement criteria. The profile fixes user verification to `required`; it does not select a hardware supplier or establish hardware provenance. An attestation preference alone is not evidence that a device meets the institution's policy. Qualify the actual enrollment policy and devices, including how an unapproved device is refused when restrictions are required.

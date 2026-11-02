@@ -170,6 +170,9 @@ def client_safe(client):
                 'oauth2.device.authorization.grant.enabled', 'oidc.ciba.grant.enabled',
                 'standard.token.exchange.enabled', 'oauth2.jwt.authorization.grant.enabled'))):
         return False
+    bindings = client.get('authenticationFlowBindingOverrides', {})
+    if not isinstance(bindings, dict) or bindings:
+        return False
     # Native console return routes have their own exact-version qualification;
     # their names do not exempt enabled clients from the common grant guards.
     if client['clientId'] in BUILTIN_CLIENTS:

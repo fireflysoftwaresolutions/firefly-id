@@ -35,7 +35,7 @@ class ProductionAuditTest(unittest.TestCase):
             'legacy-observability-interface': 'false',
         }
         self.realms = {}
-        for profile in ('customers', 'workforce', 'administrators'):
+        for profile in ('customers', 'workforce', 'administrators', 'institutions'):
             settings = self.catalogue['profiles'][profile]['realmSettings']
             self.realms[profile] = dict(self.catalogue['defaults'], **settings,
                 realm='master' if profile == 'administrators' else profile,
@@ -301,6 +301,76 @@ class ProductionAuditTest(unittest.TestCase):
                     client = realms['administrators']['clients'][0]
                     client.update(clientId=name, **{key: True})
                     self.assertIn('REALM_CLIENT', self.findings(realms=realms))
+
+    def test_enabled_clients_cannot_override_authentication_flow_bindings(self):
+        for profile in self.realms:
+            for name in ('application', 'account', 'account-console', 'admin-cli', 'broker',
+                         'realm-management', 'security-admin-console'):
+                for binding in ('browser', 'direct_grant', 'unknown'):
+                    with self.subTest(profile=profile, name=name, binding=binding):
+                        realms = copy.deepcopy(self.realms)
+                        client = realms[profile]['clients'][0]
+                        client.update(clientId=name, authenticationFlowBindingOverrides={binding: 'other-flow'})
+                        self.assertEqual(['REALM_CLIENT'], self.findings(realms=realms))
+
+    def test_client_flow_bindings_require_an_object_even_when_false_like(self):
+        for profile in self.realms:
+            for name in ('application', 'account', 'account-console', 'admin-cli', 'broker',
+                         'realm-management', 'security-admin-console'):
+                for value in (None, [], ['other-flow'], '', 'other-flow', False, True, 0, 0.0):
+                    with self.subTest(profile=profile, name=name, value=value):
+                        realms = copy.deepcopy(self.realms)
+                        client = realms[profile]['clients'][0]
+                        client.update(clientId=name, authenticationFlowBindingOverrides=value)
+                        self.assertEqual(['REALM_CLIENT'], self.findings(realms=realms))
+
+    def test_absent_and_empty_client_flow_bindings_remain_valid(self):
+        for profile in self.realms:
+            for name in ('application', 'account', 'account-console', 'admin-cli', 'broker',
+                         'realm-management', 'security-admin-console'):
+                for present in (False, True):
+                    with self.subTest(profile=profile, name=name, present=present):
+                        realms = copy.deepcopy(self.realms)
+                        client = realms[profile]['clients'][0]
+                        client['clientId'] = name
+                        if present:
+                            client['authenticationFlowBindingOverrides'] = {}
+                        self.assertEqual([], self.findings(realms=realms))
+
+    def test_disabled_client_flow_bindings_are_checked_when_reenabled(self):
+        for profile in self.realms:
+            for name in ('application', 'account', 'account-console', 'admin-cli', 'broker',
+                         'realm-management', 'security-admin-console'):
+                with self.subTest(profile=profile, name=name):
+                    realms = copy.deepcopy(self.realms)
+                    client = realms[profile]['clients'][0]
+                    client.update(clientId=name, enabled=False,
+                                  authenticationFlowBindingOverrides={'browser': 'other-flow'})
+                    self.assertEqual([], self.findings(realms=realms))
+                    client['enabled'] = True
+                    self.assertEqual(['REALM_CLIENT'], self.findings(realms=realms))
+
+    def test_cli_flow_binding_refusal_does_not_echo_sensitive_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / 'candidate.conf').write_text('\n'.join(f'{k}={v}' for k, v in self.server.items()))
+            self.realms['administrators']['clients'][0].update(
+                clientId='security-admin-console',
+                authenticationFlowBindingOverrides={'browser': 'SENSITIVE-FLOW-MARKER'})
+            command = [sys.executable, str(ROOT / 'scripts/check_production.py'),
+                       '--server-config', str(path / 'candidate.conf')]
+            for profile, realm in self.realms.items():
+                filename = path / (profile + '.json')
+                filename.write_text(json.dumps(realm))
+                command.extend(['--realm', profile + '=' + str(filename)])
+            clean = {k: v for k, v in os.environ.items() if not k.startswith(('KC_', 'KCRAW_', 'QUARKUS_', 'KEYCLOAK_ADMIN'))
+                     and k not in ('JAVA_OPTS', 'JAVA_OPTS_APPEND', 'JAVA_TOOL_OPTIONS', 'JDK_JAVA_OPTIONS')}
+            result = subprocess.run(command, env=clean, capture_output=True, text=True)
+            self.assertEqual(1, result.returncode)
+            self.assertEqual(['REALM_CLIENT'], json.loads(result.stdout)['findings'])
+            self.assertFalse(json.loads(result.stdout)['production_approved'])
+            for value in ('SENSITIVE-FLOW-MARKER', directory, 'Traceback'):
+                self.assertNotIn(value, result.stdout + result.stderr)
 
     def test_client_token_override_cannot_extend_the_checked_realm_lifetime(self):
         for name in ('application', 'security-admin-console'):
