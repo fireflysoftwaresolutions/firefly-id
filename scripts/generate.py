@@ -2,6 +2,7 @@
 """Create a new, explicitly synthetic sandbox. Never overwrite retained state."""
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -12,6 +13,14 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE_TYPE = 'org.keycloak.userprofile.UserProfileProvider'
 POLICIES_PATH = ROOT / 'config/authentication-policies.json'
+
+
+def synthetic_password(check=None):
+    for _ in range(8):
+        candidate = 'Aa1' + secrets.token_urlsafe(36)
+        if check is None or check(candidate):
+            return candidate
+    raise ValueError('Native fixture password retry bound exhausted')
 
 
 def write(path, content, mode=0o644):
@@ -280,12 +289,17 @@ def main():
     parser.add_argument('--configuration-lookup-tenant')
     parser.add_argument('--hosted-startup-diagnostics', action='store_true',
                         help='Enable private verbose errors only in a GitHub-hosted Linux synthetic sandbox.')
+    parser.add_argument('--hosted-password-preflight', action='store_true',
+                        help='Check fresh fixture passwords using the prepared pinned native denylist matcher.')
     args = parser.parse_args()
     if args.mode == 'production':
         parser.error('Production contract is not selected. Approve realm/client/claim and deployment contracts first; no production generator is enabled.')
     if args.hosted_startup_diagnostics and any(os.environ.get(key) != expected for key, expected in (
             ('GITHUB_ACTIONS', 'true'), ('RUNNER_ENVIRONMENT', 'github-hosted'), ('RUNNER_OS', 'Linux'))):
         parser.error('Hosted startup diagnostics requires GitHub-hosted Linux Actions; no state was generated.')
+    if args.hosted_password_preflight and any(os.environ.get(key) != expected for key, expected in (
+            ('GITHUB_ACTIONS', 'true'), ('RUNNER_ENVIRONMENT', 'github-hosted'), ('RUNNER_OS', 'Linux'))):
+        parser.error('Password preflight requires GitHub-hosted Linux Actions; no state was generated.')
     lookup = (args.configuration_lookup_client_id, args.configuration_lookup_realm, args.configuration_lookup_tenant)
     if any(value is not None for value in lookup):
         if not all(value is not None for value in lookup):
@@ -308,6 +322,20 @@ def main():
         authentication_policy(kind)
     if not (ROOT / 'config/password-blacklist.txt').is_file():
         parser.error('Required baseline password denylist is missing; no state was generated.')
+    password_check = None
+    if args.hosted_password_preflight:
+        spec = importlib.util.spec_from_file_location('hosted_password_preflight', ROOT / 'tooling/hosted_password_preflight.py')
+        helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        try:
+            password_check = helper.load_checker()
+        except Exception:
+            parser.error('Owned native password preflight is unavailable; no state was generated.')
+    try:
+        fixture_passwords = {name: synthetic_password(password_check) for name in (
+            'verify_email', 'customers', 'workforce', 'institutions', 'policy_customers', 'policy_workforce')}
+    except Exception:
+        parser.error('Fresh fixture password prevalidation refused; no state was generated.')
     os.umask(0o077)
     output.mkdir(parents=True, mode=0o700)
     for directory in ('secrets', 'realms'):
@@ -315,20 +343,20 @@ def main():
     project = 'firefly-id-sandbox-' + uuid.uuid4().hex[:10]
     for name in ('postgres-admin-password', 'db-password', 'admin-password'):
         write(output / 'secrets' / name, secrets.token_urlsafe(36) + '\n')
-    verification_password = 'Aa1' + secrets.token_urlsafe(36)
+    verification_password = fixture_passwords['verify_email']
     credentials = {'verify_email': {'username': 'synthetic-verify-email',
                                     'password': verification_password}}
     write(output / 'secrets/workforce-totp.json',
           json.dumps({'status': 'pending-enrollment'}) + '\n', 0o600)
     for kind in ('customers', 'workforce', 'institutions'):
-        password = 'Aa1' + secrets.token_urlsafe(36)
+        password = fixture_passwords[kind]
         backend_secret = secrets.token_urlsafe(36)
         receiver_secret = secrets.token_urlsafe(36)
         policy_fixture = None
         if kind in ('customers', 'workforce'):
             policy_fixture = {'username': 'synthetic-policy-' + kind,
                               'email': 'policy-' + kind + '@example.invalid',
-                              'password': 'Aa1' + secrets.token_urlsafe(36)}
+                              'password': fixture_passwords['policy_' + kind]}
             credentials['policy_' + kind] = policy_fixture
         realm_data = realm(kind, password, backend_secret, verification_password, policy_fixture, receiver_secret)
         if kind == args.configuration_lookup_realm:
