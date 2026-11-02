@@ -111,6 +111,32 @@ class MasterTransitionTest(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 module.verify_effective(candidate, invalid, import_window={'minimum': 99, 'maximum': 101})
 
+    def test_import_mapper_userinfo_mirror_preserves_exact_ids_and_other_configuration(self):
+        module = self.module(); document = source()
+        mapper = {'id': 'mapper-id', 'name': 'retained-name', 'protocol': 'openid-connect',
+                  'protocolMapper': 'oidc-usermodel-property-mapper', 'config': {'id.token.claim': 'true', 'claim.name': 'retained'}}
+        document['clientScopes'] = [{'id': 'scope-id', 'name': 'profile', 'protocol': 'openid-connect', 'protocolMappers': [mapper]}]
+        document['clients'][0]['protocolMappers'] = [copy.deepcopy(mapper)]
+        candidate = module.profile.build_profile(document, realm='master', origin='https://id.example.test', acknowledge_master=True)
+        effective = copy.deepcopy(candidate)
+        for container in (effective['clientScopes'][0], effective['clients'][0]):
+            container['protocolMappers'][0]['config']['userinfo.token.claim'] = 'true'
+        module.verify_effective(candidate, effective, import_window={'minimum': 99, 'maximum': 101})
+        false_candidate = copy.deepcopy(candidate); false_effective = copy.deepcopy(effective)
+        for location in ('clientScopes', 'clients'):
+            false_candidate[location][0]['protocolMappers'][0]['config']['id.token.claim'] = 'false'
+            false_effective[location][0]['protocolMappers'][0]['config'].update({'id.token.claim': 'false', 'userinfo.token.claim': 'false'})
+        module.verify_effective(false_candidate, false_effective, import_window={'minimum': 99, 'maximum': 101})
+        for location in ('clientScopes', 'clients'):
+            for mutation in ('id', 'claim', 'unknown', 'empty-source', 'null-source'):
+                original = copy.deepcopy(candidate); invalid = copy.deepcopy(effective)
+                changed = invalid[location][0]['protocolMappers'][0]
+                if mutation == 'id': changed['id'] = 'changed'
+                elif mutation == 'claim': changed['config']['userinfo.token.claim'] = 'false'
+                elif mutation == 'unknown': changed['config']['unknown'] = ''
+                else: original[location][0]['protocolMappers'][0]['config']['userinfo.token.claim'] = '' if mutation == 'empty-source' else None
+                with self.subTest(location=location, mutation=mutation), self.assertRaises(ValueError):
+                    module.verify_effective(original, invalid, import_window={'minimum': 99, 'maximum': 101})
     def test_all_native_registration_policies_require_exact_database_and_api_retention(self):
         module = self.module(); document = source(); document['id'] = 'realm-id'
         kind = module.profile.REGISTRATION_POLICY_PROVIDER
@@ -354,6 +380,25 @@ class MasterTransitionTest(unittest.TestCase):
         self.assertTrue(all(isinstance(value, int) and 0 < value < 10000 for value in diagnostic['profileSourceLines']))
         self.assertEqual(diagnostic['clients'][0]['scopes']['defaultClientScopes'],
                          {'present': True, 'isList': True, 'count': 0, 'offlineAccessPresent': False})
+
+    def test_readback_diagnostics_collect_all_mismatches_without_private_names_ids_or_values(self):
+        module = self.module()
+        candidate = {'realm': 'PRIVATE', 'sslRequired': 'all', 'enabled': True,
+                     'clients': [{'id': 'PRIVATE-ID', 'clientId': 'PRIVATE-NAME', 'enabled': False}],
+                     'clientScopes': [{'id': 'PRIVATE-SCOPE', 'name': 'PRIVATE-SCOPE-NAME', 'protocolMappers': [
+                         {'id': 'PRIVATE-MAPPER', 'name': 'PRIVATE', 'protocolMapper': 'oidc-usermodel-property-mapper',
+                          'config': {'userinfo.token.claim': 'false', 'PRIVATE-CONFIG': 'PRIVATE'}}]}]}
+        effective = copy.deepcopy(candidate); effective['enabled'] = False; effective['sslRequired'] = 'none'
+        effective['clients'][0]['enabled'] = True
+        effective['clientScopes'][0]['protocolMappers'][0]['config'].update({'userinfo.token.claim': 'true', 'PRIVATE-CONFIG': 'OTHER-PRIVATE'})
+        diagnostic = module.readback_diagnostic(candidate, effective)
+        self.assertEqual(diagnostic['knownRealmFields'], ['clientScopes', 'clients', 'enabled', 'sslRequired'])
+        self.assertEqual(diagnostic['clients'][0]['knownFields'], ['enabled'])
+        mapper = diagnostic['clientScopes'][0]['mappers'][0]
+        self.assertEqual(mapper['knownConfig'][0]['key'], 'userinfo.token.claim')
+        self.assertEqual(mapper['unknownConfigDifferenceCount'], 1)
+        self.assertTrue(mapper['sameId'])
+        self.assertNotIn('PRIVATE', json.dumps(diagnostic))
 
     def test_profile_diagnostic_inventories_later_gates_without_exposing_unknown_names_or_values(self):
         module = self.module()

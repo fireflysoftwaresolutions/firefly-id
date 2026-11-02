@@ -63,6 +63,10 @@ IMPORTED_REALM_ATTRIBUTE_FIELDS = {key: key for key in (
     'clientOfflineSessionMaxLifespan', 'scimApiEnabled')}
 IMPORTED_REALM_ATTRIBUTE_FIELDS['realmReusableOtpCode'] = 'otpPolicyCodeReusable'
 UPSTREAM_ATTRIBUTES.update(IMPORTED_REALM_ATTRIBUTE_FIELDS)
+NATIVE_OIDC_MAPPERS = set('''oidc-usermodel-attribute-mapper oidc-usermodel-property-mapper oidc-full-name-mapper
+oidc-address-mapper oidc-usermodel-realm-role-mapper oidc-usermodel-client-role-mapper oidc-audience-resolve-mapper
+oidc-audience-mapper oidc-sha256-pairwise-sub-mapper oidc-hardcoded-claim-mapper oidc-group-membership-mapper
+oidc-allowed-origins-mapper oidc-acr-mapper oidc-amr-mapper oidc-sub-mapper'''.split())
 
 
 def require(value, message):
@@ -355,6 +359,23 @@ def imported_readback(candidate, effective, window):
                     and window['minimum'] <= int(value) <= window['maximum'] and int(value) <= 2147483647,
                     'Native imported secret metadata outside measured window')
             del actual_attributes[creation]
+    # MigrationUtils materializes the existing OIDCAttributeMapperHelper absent-userinfo fallback.
+    for kind, identity in (('clientScopes', 'id'), ('clients', 'clientId')):
+        containers = {item.get(identity): item for item in candidate.get(kind, [])}
+        for container in restored.get(kind, []):
+            source = containers.get(container.get(identity), {})
+            mappers = {item.get('id'): item for item in source.get('protocolMappers', []) if item.get('id')}
+            for mapper in container.get('protocolMappers', []):
+                original = mappers.get(mapper.get('id'))
+                if original is None or original.get('protocol') != 'openid-connect' or mapper.get('protocol') != 'openid-connect':
+                    continue
+                if original.get('protocolMapper') not in NATIVE_OIDC_MAPPERS or mapper.get('protocolMapper') != original.get('protocolMapper'):
+                    continue
+                config = original.get('config', {})
+                actual_config = mapper.get('config', {})
+                if ('userinfo.token.claim' not in config and config.get('id.token.claim') in ('true', 'false')
+                        and actual_config.get('userinfo.token.claim') == config['id.token.claim']):
+                    del actual_config['userinfo.token.claim']
     return restored
 
 
@@ -424,10 +445,76 @@ def verify_effective(candidate, effective, retirement_window=None, *, import_win
                 default = {} if key in ('attributes', 'authenticationFlowBindingOverrides') else [] if key in (
                     'redirectUris', 'webOrigins', 'defaultClientScopes', 'optionalClientScopes') else False if key == 'authorizationServicesEnabled' else None
                 value = item.get(key, default)
-                normalized[key] = canonical(value, frozenset({'id'}) if key == 'protocolMappers' else frozenset())
+                normalized[key] = canonical(value)
             result[item['clientId']] = normalized
         return result
     require(clients(candidate) == clients(effective), 'Effective client controls differ')
+
+
+def readback_diagnostic(candidate, effective, import_window=None):
+    if 'users' in candidate and 'users' not in effective:
+        effective = dict(effective, users=candidate['users'])
+    normalization_succeeded = True
+    if import_window is not None:
+        try:
+            effective = imported_readback(candidate, effective, import_window)
+        except (ValueError, KeyError, TypeError):
+            normalization_succeeded = False
+    def canonical(value):
+        if isinstance(value, dict):
+            return {key: canonical(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return sorted((canonical(item) for item in value), key=lambda item: json.dumps(item, sort_keys=True))
+        return value
+    def differences(before, after):
+        return {key for key in set(before) | set(after) if canonical(before.get(key)) != canonical(after.get(key))}
+    def category(values, key):
+        if key not in values: return 'ABSENT'
+        value = values[key]
+        return 'NULL' if value is None else 'EMPTY' if value == '' else 'TRUE' if value == 'true' else 'FALSE' if value == 'false' else 'OTHER'
+    mapper_fields = {'id', 'name', 'protocol', 'protocolMapper', 'config', 'consentRequired', 'consentText'}
+    config_keys = set('''id.token.claim access.token.claim userinfo.token.claim introspection.token.claim lightweight.claim
+claim.name user.attribute user.session.note jsonType.label multivalued aggregate.attrs full.path
+usermodel.clientRoleMapping.clientId usermodel.clientRoleMapping.rolePrefix usermodel.realmRoleMapping.rolePrefix
+included.client.audience included.custom.audience access.tokenResponse.claim address.formatted address.street
+address.locality address.region address.postal_code address.country'''.split())
+    def match(before, actual, identity, fallback):
+        return next((item for item in actual if before.get(identity) is not None and item.get(identity) == before[identity]),
+                    next((item for item in actual if before.get(fallback) is not None and item.get(fallback) == before[fallback]), {}))
+    def mappers(before, actual):
+        result = []
+        for index, item in enumerate(before[:64]):
+            observed = match(item, actual, 'id', 'name')
+            if canonical(item) == canonical(observed): continue
+            config = item.get('config', {}); observed_config = observed.get('config', {})
+            changed = differences(config, observed_config)
+            result.append({'index': index, 'sameId': item.get('id') == observed.get('id'),
+                           'provider': item.get('protocolMapper') if item.get('protocolMapper') in NATIVE_OIDC_MAPPERS else 'OTHER',
+                           'knownFields': sorted(differences(item, observed) & mapper_fields),
+                           'knownConfig': [{'key': key, 'expected': category(config, key), 'actual': category(observed_config, key)}
+                                           for key in sorted(changed & config_keys)],
+                           'unknownConfigDifferenceCount': min(len(changed - config_keys), 10000)})
+        return result[:32]
+    def containers(kind, identity, fallback, fields):
+        before = candidate.get(kind, []); actual = effective.get(kind, [])
+        result = []
+        for index, item in enumerate(before[:64]):
+            observed = match(item, actual, identity, fallback)
+            if canonical(item) == canonical(observed): continue
+            result.append({'index': index, 'sameId': item.get('id') == observed.get('id'),
+                           'knownFields': sorted(differences(item, observed) & fields),
+                           'unknownFieldDifferenceCount': min(len(differences(item, observed) - fields), 10000),
+                           'expectedMapperCount': min(len(item.get('protocolMappers', [])), 10000),
+                           'actualMapperCount': min(len(observed.get('protocolMappers', [])), 10000),
+                           'mappers': mappers(item.get('protocolMappers', []), observed.get('protocolMappers', []))})
+        return result[:32]
+    changed = differences(candidate, effective)
+    return {'normalizationSucceeded': normalization_succeeded, 'knownRealmFields': sorted(changed & profile.REALM_FIELDS),
+            'unknownRealmFieldDifferenceCount': min(len(changed - profile.REALM_FIELDS), 10000),
+            'clientCountMatches': len(candidate.get('clients', [])) == len(effective.get('clients', [])),
+            'scopeCountMatches': len(candidate.get('clientScopes', [])) == len(effective.get('clientScopes', [])),
+            'clients': containers('clients', 'id', 'clientId', profile.CLIENT_FIELDS),
+            'clientScopes': containers('clientScopes', 'id', 'name', {'id', 'name', 'description', 'protocol', 'attributes', 'protocolMappers'})}
 
 
 def verify_retained(before, after):
@@ -866,6 +953,7 @@ def readback():
     directory, owner = state()
     verify_candidate(directory, json.loads((directory / 'candidate-receipt.json').read_text()))
     receipt = json.load(sys.stdin)
+    effective = receipt['effective']
     try:
         candidate = profile.parse_document((directory / 'candidate.json').read_bytes())
         effective = verified_component_readback(candidate, receipt['effective'], read_component_rows(directory, owner))
@@ -873,6 +961,8 @@ def readback():
                          import_window=owner['importWindow'] if owner['phase'] == 'imported' else None)
     except (ValueError, TypeError, KeyError) as failure:
         PROFILE_DIAGNOSTIC = profile_diagnostic(receipt['effective'], failure)
+        PROFILE_DIAGNOSTIC['readback'] = readback_diagnostic(candidate, effective,
+            owner.get('importWindow') if owner['phase'] == 'imported' else None)
         raise
 
 
