@@ -108,6 +108,32 @@ export function preparedClientAttributes(client) {
   return attributes;
 }
 
+export function clientAttributeDiagnostic(clientId, requested, actual) {
+  const known = new Set(['realm_client', 'pkce.code.challenge.method', 'client.use.lightweight.access.token.enabled',
+    'post.logout.redirect.uris', 'backchannel.logout.session.required', 'backchannel.logout.revoke.offline.tokens',
+    'oauth2.device.authorization.grant.enabled', 'oidc.ciba.grant.enabled', 'standard.token.exchange.enabled',
+    'oauth2.token.exchange.grant.enabled', 'use.refresh.tokens', 'client.secret.creation.time',
+    'client.secret.rotation.enabled', 'client.secret.expiration.time', 'client.secret.rotated',
+    'client.secret.rotated.creation.time', 'client.secret.rotated.expiration.time', 'client.secret.remaining.expiration.time',
+    'client.secret.authentication.allowed.method']);
+  const expected = Object.fromEntries(Object.entries(requested).filter(([, value]) => value !== null));
+  const effective = actual && typeof actual === 'object' && !Array.isArray(actual) ? actual : {};
+  const classify = (key, value, present) => !present ? 'ABSENT' : value === 'true' ? 'TRUE' : value === 'false' ? 'FALSE'
+    : key === 'pkce.code.challenge.method' && value === 'S256' ? 'S256'
+      : key === 'post.logout.redirect.uris' && value === '+' ? 'PLUS' : 'OTHER';
+  const unknownExpected = Object.keys(expected).filter(key => !known.has(key));
+  const unknownActual = Object.keys(effective).filter(key => !known.has(key));
+  return { clientId: ['account', 'account-console', 'admin-cli', 'broker', CLIENT, 'master-realm'].includes(clientId) ? clientId : 'OTHER',
+    actualObject: actual !== null && typeof actual === 'object' && !Array.isArray(actual),
+    attributes: [...known].filter(key => Object.hasOwn(requested, key) || Object.hasOwn(effective, key)).sort().map(key => {
+      const expectedPresent = Object.hasOwn(expected, key); const actualPresent = Object.hasOwn(effective, key);
+      return { key, expectedPresent, actualPresent, matches: expectedPresent === actualPresent && expected[key] === effective[key],
+        expectedClass: classify(key, expected[key], expectedPresent), actualClass: classify(key, effective[key], actualPresent) };
+    }), unknownExpectedCount: Math.min(unknownExpected.length, 10000), unknownActualCount: Math.min(unknownActual.length, 10000),
+    unknownValuesMatch: unknownExpected.length === unknownActual.length
+      && unknownExpected.every(key => Object.hasOwn(effective, key) && expected[key] === effective[key]) };
+}
+
 async function qualify() {
   const directory = ROOT + '/.state/master-' + process.env.GITHUB_RUN_ID + '-' + process.env.GITHUB_RUN_ATTEMPT;
   assert.equal(realpathSync(directory), directory);
@@ -358,6 +384,8 @@ async function qualify() {
         serviceAccountsEnabled: false, authorizationServicesEnabled: false,
         authenticationFlowBindingOverrides: {}, attributes });
       const effectiveClient = await admin('clients/' + client.id);
+      report.clientAttributeReadbacks ??= [];
+      report.clientAttributeReadbacks.push(clientAttributeDiagnostic(client.clientId, attributes, effectiveClient.attributes)); save();
       assert.deepEqual(effectiveClient.attributes, Object.fromEntries(Object.entries(attributes).filter(([, value]) => value !== null)),
         'Prepared client attribute readback differs');
     }

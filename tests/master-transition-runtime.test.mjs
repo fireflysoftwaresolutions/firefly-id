@@ -83,3 +83,24 @@ test('owned client preparation explicitly retires attributes while preserving un
   assert.equal(preparedClientAttributes({ clientId: 'security-admin-console', attributes: {} })['pkce.code.challenge.method'], 'S256');
   for (const clientId of ['master-realm', 'unreviewed']) assert.throws(() => preparedClientAttributes({ clientId, attributes: {} }));
 });
+
+test('client attribute readback diagnostics report only fixed names and comparison booleans', async () => {
+  const { clientAttributeDiagnostic } = await runtime();
+  assert.equal(typeof clientAttributeDiagnostic, 'function');
+  const expected = { 'realm_client': 'false', 'client.use.lightweight.access.token.enabled': 'false',
+    'client.secret.creation.time': null, PRIVATE: 'PRIVATE' };
+  const actual = { 'realm_client': 'false', 'client.use.lightweight.access.token.enabled': 'true',
+    'client.secret.creation.time': 'PRIVATE', PRIVATE: 'DIFFERENT' };
+  const result = clientAttributeDiagnostic('broker', expected, actual);
+  assert.equal(result.clientId, 'broker');
+  assert.deepEqual(result.attributes.find(item => item.key === 'client.use.lightweight.access.token.enabled'),
+    { key: 'client.use.lightweight.access.token.enabled', expectedPresent: true, actualPresent: true,
+      matches: false, expectedClass: 'FALSE', actualClass: 'TRUE' });
+  assert.deepEqual(result.attributes.find(item => item.key === 'client.secret.creation.time'),
+    { key: 'client.secret.creation.time', expectedPresent: false, actualPresent: true,
+      matches: false, expectedClass: 'ABSENT', actualClass: 'OTHER' });
+  assert.equal(result.unknownExpectedCount, 1); assert.equal(result.unknownActualCount, 1);
+  assert.equal(result.unknownValuesMatch, false);
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE|DIFFERENT/);
+  assert.equal(clientAttributeDiagnostic('PRIVATE', {}, {}).clientId, 'OTHER');
+});
