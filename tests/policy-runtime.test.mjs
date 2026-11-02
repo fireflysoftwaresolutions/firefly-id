@@ -27,6 +27,107 @@ function fixtureSubmission(responses, users = []) {
 const deniedCreation = () => new Response(JSON.stringify({ error: 'invalidPasswordBlacklistedMessage' }), { status: 400 });
 const acceptedCreation = () => new Response(null, { status: 201 });
 
+function passwordReplacement(responses, expectedStatus = 204) {
+  const fixture = { password: 'old private password', operations: [] };
+  const saved = []; const evidence = [];
+  let requests = 0; let regenerations = 0;
+  const value = 'a'.repeat(128);
+  const options = {
+    value, expectedStatus, boundary: 'at-maximum',
+    persist: async () => saved.push(structuredClone(fixture)),
+    replace: async candidate => {
+      assert.equal(saved.at(-1).operations.at(-1).password, candidate);
+      return responses[requests++]();
+    },
+    regenerate: size => { regenerations++; return String.fromCharCode(97 + regenerations).repeat(size); },
+    recordValidation: validation => evidence.push(validation),
+  };
+  return { fixture, options, saved, evidence, counts: () => ({ requests, regenerations }) };
+}
+const acceptedReplacement = () => new Response(null, { status: 204 });
+
+test('password boundary replacement preserves length and accepted history value after exclusive denylist refusal', async () => {
+  const input = passwordReplacement([deniedCreation, acceptedReplacement]);
+  const accepted = await policy.replacePolicyPassword(input.fixture, input.options);
+  assert.equal(accepted.length, 128);
+  assert.notEqual(accepted, input.options.value);
+  assert.equal(input.fixture.password, accepted);
+  assert.deepEqual(input.counts(), { requests: 2, regenerations: 1 });
+  assert.deepEqual(input.evidence.map(item => item.categories), [['PASSWORD_DENYLIST'], []]);
+  assert.deepEqual(input.fixture.operations.map(item => item.status), [400, 204]);
+});
+
+test('password boundary replacement stops after eight exclusive denylist refusals', async () => {
+  const input = passwordReplacement(Array.from({ length: 8 }, () => deniedCreation));
+  await assert.rejects(() => policy.replacePolicyPassword(input.fixture, input.options));
+  assert.deepEqual(input.counts(), { requests: 8, regenerations: 7 });
+  assert.equal(input.evidence.length, 8);
+  assert.equal(input.fixture.password, 'old private password');
+});
+
+test('password replacement never regenerates other statuses, unknown categories or mixed refusals', async () => {
+  for (const [status, body] of [
+    [400, { error: 'invalidPasswordMaxLengthMessage' }],
+    [400, { error: 'unrecognized private failure' }],
+    [400, { error: 'invalidPasswordBlacklistedMessage', errors: [{ errorMessage: 'invalidPasswordHistoryMessage' }] }],
+    [401, { error: 'invalidPasswordBlacklistedMessage' }],
+    [500, { error: 'invalidPasswordBlacklistedMessage' }],
+  ]) {
+    const input = passwordReplacement([() => new Response(JSON.stringify(body), { status })]);
+    await assert.rejects(() => policy.replacePolicyPassword(input.fixture, input.options));
+    assert.deepEqual(input.counts(), { requests: 1, regenerations: 0 });
+    assert.equal(input.evidence[0].status, status);
+    assert.ok(input.evidence[0].categories.length);
+    assert.equal(input.saved.at(-1).operations[0].status, status);
+    assert.equal(input.fixture.password, 'old private password');
+  }
+});
+
+test('expected password policy refusals are recorded without replacing their probe', async () => {
+  const input = passwordReplacement([deniedCreation], 400);
+  input.options.boundary = 'denylist';
+  assert.equal(await policy.replacePolicyPassword(input.fixture, input.options), input.options.value);
+  assert.deepEqual(input.counts(), { requests: 1, regenerations: 0 });
+  assert.deepEqual(input.evidence[0].categories, ['PASSWORD_DENYLIST']);
+  assert.equal(input.fixture.password, 'old private password');
+});
+
+test('negative password boundaries require their exact category and never regenerate another refusal', async () => {
+  const categories = {
+    'below-minimum': 'invalidPasswordMinLengthMessage', 'above-maximum': 'invalidPasswordMaxLengthMessage',
+    denylist: 'invalidPasswordBlacklistedMessage', username: 'invalidPasswordNotUsernameMessage',
+    email: 'invalidPasswordNotEmailMessage', history: 'invalidPasswordHistoryMessage',
+  };
+  for (const [boundary, error] of Object.entries(categories)) {
+    const accepted = passwordReplacement([() => new Response(JSON.stringify({ error }), { status: 400 })], 400);
+    accepted.options.boundary = boundary;
+    await policy.replacePolicyPassword(accepted.fixture, accepted.options);
+    assert.deepEqual(accepted.counts(), { requests: 1, regenerations: 0 });
+    for (const body of [
+      { error: error === categories.denylist ? categories.history : categories.denylist },
+      { error, errors: [{ errorMessage: 'unrecognized private failure' }] },
+    ]) {
+      const refused = passwordReplacement([() => new Response(JSON.stringify(body), { status: 400 })], 400);
+      refused.options.boundary = boundary;
+      await assert.rejects(() => policy.replacePolicyPassword(refused.fixture, refused.options));
+      assert.deepEqual(refused.counts(), { requests: 1, regenerations: 0 });
+      assert.equal(refused.evidence[0].status, 400);
+      assert.equal(refused.fixture.password, 'old private password');
+    }
+  }
+});
+
+test('replacement refuses changed-length regeneration and unpersisted intent before another write', async () => {
+  const input = passwordReplacement([deniedCreation]);
+  input.options.regenerate = () => 'short';
+  await assert.rejects(() => policy.replacePolicyPassword(input.fixture, input.options));
+  assert.equal(input.counts().requests, 1);
+  const failedPersistence = passwordReplacement([acceptedReplacement]);
+  failedPersistence.options.persist = async () => { throw new Error('unavailable private state'); };
+  await assert.rejects(() => policy.replacePolicyPassword(failedPersistence.fixture, failedPersistence.options));
+  assert.equal(failedPersistence.counts().requests, 0);
+});
+
 test('fixture creation accepts 201 without retrying or checking absence', async () => {
   assert.equal(typeof policy.submitPolicyFixture, 'function');
   const submission = fixtureSubmission([acceptedCreation]);

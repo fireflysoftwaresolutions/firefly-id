@@ -128,6 +128,44 @@ export function assertPermanentBlock(user) {
   assert.deepEqual(user.attributes?.disabledReason, ['permanentLockout'], 'Expected the native permanent-lock reason');
 }
 
+export async function replacePolicyPassword(fixture, { value, expectedStatus, boundary, persist, replace, regenerate, recordValidation }) {
+  const length = value.length;
+  const refusalCategories = {
+    'below-minimum': 'PASSWORD_MIN_LENGTH', 'above-maximum': 'PASSWORD_MAX_LENGTH',
+    denylist: 'PASSWORD_DENYLIST', username: 'PASSWORD_USERNAME', email: 'PASSWORD_EMAIL', history: 'PASSWORD_HISTORY',
+  };
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    const operation = { operation: 'reset-password', boundary, attempt, password: value };
+    fixture.operations.push(operation);
+    await persist();
+    const response = await replace(value);
+    const validation = response.status === 204 ? { categories: [], fields: [] } : await readAdminValidation(response);
+    operation.status = response.status;
+    operation.validation = validation;
+    recordValidation({ boundary, attempt, status: response.status, ...validation });
+    await persist();
+    if (response.status === expectedStatus) {
+      if (expectedStatus === 204) {
+        fixture.password = value;
+        await persist();
+      } else {
+        assert.equal(expectedStatus, 400, 'Unsupported password policy refusal status');
+        assert.ok(Object.hasOwn(refusalCategories, boundary), 'Expected password refusal category is missing');
+        assert.deepEqual(validation.categories, [refusalCategories[boundary]], 'Password refusal differs from the intended policy');
+      }
+      return value;
+    }
+    assert.equal(expectedStatus, 204, 'Password policy response differs from expected boundary');
+    assert.equal(response.status, 400, 'Password policy response differs from expected boundary');
+    assert.deepEqual(validation.categories, ['PASSWORD_DENYLIST'], 'Boundary refusal is not exclusively password denylist policy');
+    assert.ok(attempt < 8, 'Random boundary password denylist retry bound exhausted');
+    const replacement = regenerate(length);
+    assert.ok(typeof replacement === 'string' && replacement.length === length && replacement !== value,
+      'Boundary regeneration must preserve exact length and change the candidate');
+    value = replacement;
+  }
+}
+
 export async function waitForPermanentBlock(readState, { maxPolls = 30, intervalMs = 100 } = {}) {
   assert.ok(Number.isInteger(maxPolls) && maxPolls > 0 && maxPolls <= 30, 'Invalid permanent-state polling bound');
   assert.ok(Number.isInteger(intervalMs) && intervalMs >= 0 && intervalMs <= 100, 'Invalid permanent-state polling interval');
@@ -188,6 +226,7 @@ async function main() {
   let phase = 'policy setup';
   let adminValidation;
   const results = [];
+  const passwordPolicyAttempts = [];
   const pending = new Map();
   const passed = name => { results.push(name); console.log(`PASS ${name}`); };
   try {
@@ -662,22 +701,20 @@ async function main() {
       const minimum = Number(policy.match(/(?:^| and )length\((\d+)\)/)?.[1]);
       const maximum = Number(policy.match(/(?:^| and )maxLength\((\d+)\)/)?.[1]);
       assert.ok(minimum >= 16 && maximum === 128);
+      const phrase = size => (`${randomBytes(7).toString('hex')} ${'calm words '.repeat(20)}`).slice(0, size);
       async function replacePassword(value, expectedStatus, boundary) {
         phase = `real password policy ${population} ${boundary}`;
-        const response = await admin(api(population, `/users/${fixture.id}/reset-password`), 'PUT',
-          { type: 'password', value, temporary: false });
-        assert.equal(response.status, expectedStatus, 'Password policy response differs from expected boundary');
-        if (expectedStatus === 204) {
-          fixture.password = value;
-          await protectedJson(manifestFile, manifest);
-        }
+        return replacePolicyPassword(fixture, { value, expectedStatus, boundary,
+          persist: () => protectedJson(manifestFile, manifest),
+          replace: candidate => admin(api(population, `/users/${fixture.id}/reset-password`), 'PUT',
+            { type: 'password', value: candidate, temporary: false }),
+          regenerate: phrase,
+          recordValidation: outcome => { passwordPolicyAttempts.push({ population, ...outcome }); },
+        });
       }
-      const phrase = size => (`${randomBytes(7).toString('hex')} ${'calm words '.repeat(20)}`).slice(0, size);
       await replacePassword(phrase(minimum - 1), 400, 'below-minimum');
-      const minimumPassword = phrase(minimum);
-      await replacePassword(minimumPassword, 204, 'at-minimum');
-      const maximumPassword = phrase(maximum);
-      await replacePassword(maximumPassword, 204, 'at-maximum');
+      const minimumPassword = await replacePassword(phrase(minimum), 204, 'at-minimum');
+      const maximumPassword = await replacePassword(phrase(maximum), 204, 'at-maximum');
       await replacePassword(phrase(maximum + 1), 400, 'above-maximum');
       const deniedPassword = denied.find(value => value.length >= minimum && value.length <= maximum);
       assert.ok(deniedPassword, 'No denylist entry exercises this population boundary');
@@ -756,7 +793,7 @@ async function main() {
 
     const evidence = resolve('.work/policy-runtime');
     await mkdir(evidence, { recursive: true });
-    await writeFile(`${evidence}/summary.json`, JSON.stringify({ results,
+    await writeFile(`${evidence}/summary.json`, JSON.stringify({ results, passwordPolicyAttempts,
       pending: ['permanent-lock retention across restart and clock advance', 'concurrent lockout races',
         'timing side-channel analysis', 'workforce passkeys and lost-factor recovery',
         'permanent administrator phishing-resistant MFA and bootstrap removal',
@@ -772,7 +809,7 @@ async function main() {
       return frame ? [`policy-runtime.mjs:${frame[1]}:${frame[2]}`] : [];
     }).slice(0, 4);
     const evidence = resolve('.work/policy-runtime'); await mkdir(evidence, { recursive: true });
-    await writeFile(`${evidence}/summary.json`, JSON.stringify({ status: 'FAILED', results, phase, sourceFrames,
+    await writeFile(`${evidence}/summary.json`, JSON.stringify({ status: 'FAILED', results, phase, sourceFrames, passwordPolicyAttempts,
       actual: scalar(error?.actual), expected: scalar(error?.expected),
       ...(adminValidation ? { adminValidation } : {}),
       scope: 'Bounded policy failure diagnostics; no credential values, bodies or raw errors.' }, null, 2) + '\n');
