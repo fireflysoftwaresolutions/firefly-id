@@ -384,6 +384,29 @@ class MasterTransitionTest(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 module.native_command(directory, 'export', 'master_retained', invalid)
 
+    def test_bootstrap_configuration_is_available_only_to_initial_retained_creation(self):
+        module = self.module(); directory = Path('/owned/fixture')
+        for kind, database, arguments in [('retained', 'master_retained', ['start']),
+                ('imported', 'master_imported', ['start']), ('import', 'master_imported', ['import']),
+                ('export', 'master_retained', ['export', '--realm', 'master', '--users', 'same_file', '--file', '/run/exchange/source.json'])]:
+            command = module.native_command(directory, kind, database, arguments)
+            self.assertNotIn(str(directory / 'bootstrap.env'), command)
+            self.assertFalse(any('BOOTSTRAP_ADMIN' in part for part in command))
+        initial = module.native_command(directory, 'retained', 'master_retained', ['start'], bootstrap=True)
+        self.assertIn(str(directory / 'bootstrap.env'), initial)
+        self.assertIn('KC_BOOTSTRAP_ADMIN_USERNAME=synthetic-bootstrap', initial)
+        for kind, database, arguments in [('import', 'master_imported', ['import']),
+                                         ('imported', 'master_imported', ['start']),
+                                         ('retained', 'master_retained', ['export'])]:
+            with self.assertRaises(ValueError): module.native_command(directory, kind, database, arguments, bootstrap=True)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary)
+            module.write_native_environment(path, {'database': 'synthetic-db', 'bootstrap': 'synthetic-bootstrap'})
+            self.assertEqual((path / 'keycloak.env').read_text(), 'KC_DB_PASSWORD=synthetic-db\n')
+            self.assertEqual((path / 'bootstrap.env').read_text(), 'KC_BOOTSTRAP_ADMIN_PASSWORD=synthetic-bootstrap\n')
+            for file in ('keycloak.env', 'bootstrap.env'):
+                self.assertEqual((path / file).stat().st_mode & 0o777, 0o600)
+
     def test_retained_snapshot_requires_same_credentials_ids_roles_and_original_audit_rows(self):
         module = self.module()
         before = {'users': ['u'], 'credentials': ['c'], 'roles': ['r'], 'events': ['e'], 'adminEvents': ['a']}

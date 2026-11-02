@@ -437,6 +437,11 @@ def save_owner(directory, owner):
     private_write(directory / 'ownership.json', json.dumps(owner))
 
 
+def write_native_environment(directory, credentials):
+    private_write(directory / 'keycloak.env', 'KC_DB_PASSWORD=' + credentials['database'] + '\n')
+    private_write(directory / 'bootstrap.env', 'KC_BOOTSTRAP_ADMIN_PASSWORD=' + credentials['bootstrap'] + '\n')
+
+
 def native_log_diagnostic(content):
     exceptions = {'java.lang.NullPointerException', 'java.lang.IllegalArgumentException', 'java.lang.IllegalStateException',
                   'java.lang.RuntimeException', 'java.lang.ClassNotFoundException', 'java.lang.NoClassDefFoundError',
@@ -586,7 +591,7 @@ def prepare():
     credentials = {key: secrets.token_urlsafe(32) for key in ('postgres', 'database', 'bootstrap', 'ordinary', 'emergency')}
     private_write(directory / 'credentials.json', json.dumps(credentials))
     private_write(directory / 'postgres.env', 'POSTGRES_PASSWORD=' + credentials['postgres'] + '\n')
-    private_write(directory / 'keycloak.env', 'KC_DB_PASSWORD=' + credentials['database'] + '\nKC_BOOTSTRAP_ADMIN_PASSWORD=' + credentials['bootstrap'] + '\n')
+    write_native_environment(directory, credentials)
     tls = directory / 'tls'
     run(['openssl', 'req', '-x509', '-newkey', 'rsa:3072', '-nodes', '-keyout', str(tls / 'ca.key'), '-out', str(tls / 'ca.crt'),
          '-subj', '/CN=Owned Master Fixture CA', '-days', '2', '-addext', 'basicConstraints=critical,CA:TRUE',
@@ -642,15 +647,18 @@ def create_container(directory, owner, kind, command):
     inspect_container(owner, kind)
 
 
-def native_command(directory, kind, database, command):
+def native_command(directory, kind, database, command, *, bootstrap=False):
     require(database in ('master_retained', 'master_imported'), 'Only owned databases admitted')
+    require(not bootstrap or (kind == 'retained' and database == 'master_retained' and command == ['start']),
+            'Bootstrap credentials only admitted for initial retained server creation')
     if kind == 'export':
         require(database == 'master_retained' and command == ['export', '--realm', 'master', '--users', 'same_file',
                 '--file', '/run/exchange/source.json'], 'Pinned owned single-file export command required')
-    return (['--detach'] if kind in ('retained', 'imported') else []) + [
+    initial = ['--env-file', str(directory / 'bootstrap.env'), '--env', 'KC_BOOTSTRAP_ADMIN_USERNAME=synthetic-bootstrap'] if bootstrap else []
+    return (['--detach'] if kind in ('retained', 'imported') else []) + initial + [
         '--network', 'host', '--env-file', str(directory / 'keycloak.env'), '--env', 'KC_DB=postgres',
         '--env', 'KC_DB_URL=jdbc:postgresql://127.0.0.1:5432/' + database, '--env', 'KC_DB_USERNAME=master_fixture',
-        '--env', 'KC_BOOTSTRAP_ADMIN_USERNAME=synthetic-bootstrap', '--env', 'KC_HTTP_ENABLED=false',
+        '--env', 'KC_HTTP_ENABLED=false',
         '--env', 'KC_HTTP_HOST=127.0.0.1', '--env', 'KC_HTTPS_PORT=8443', '--env', 'KC_HOSTNAME=' + ORIGIN,
         '--env', 'KC_HOSTNAME_STRICT=true', '--env', 'KC_HTTPS_CERTIFICATE_FILE=/run/tls/server.crt',
         '--env', 'KC_HTTPS_CERTIFICATE_KEY_FILE=/run/tls/server.key', '--env', 'KC_LOG_LEVEL=warn',
@@ -676,7 +684,7 @@ def start():
     psql(directory, owner, "CREATE ROLE master_fixture LOGIN PASSWORD '" + credentials['database'] + "'; CREATE DATABASE master_retained OWNER master_fixture; CREATE DATABASE master_imported OWNER master_fixture;")
     create_container(directory, owner, 'mailpit', ['--detach', '--publish', '127.0.0.1:1025:1025',
                      '--publish', '127.0.0.1:8025:8025', images()['mailpit']['image']])
-    create_container(directory, owner, 'retained', native_command(directory, 'retained', 'master_retained', ['start']))
+    create_container(directory, owner, 'retained', native_command(directory, 'retained', 'master_retained', ['start'], bootstrap=True))
     wait_ready(directory); owner['phase'] = 'enrollment'; save_owner(directory, owner)
 
 
