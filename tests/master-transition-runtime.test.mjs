@@ -48,3 +48,15 @@ test('runtime failure diagnostics expose only whitelisted class and owned source
   assert.deepEqual(safeRuntimeFailure(error), { errorKind: 'TimeoutError', sourceFrames: ['master-transition-runtime.mjs:145:21'] });
   assert.deepEqual(safeRuntimeFailure({ name: 'PRIVATE-TYPE', message: 'PRIVATE-TOKEN', stack: 'PRIVATE' }), { errorKind: 'OTHER', sourceFrames: [] });
 });
+
+test('authentication diagnostics classify known messages without returning arbitrary page or form text', async () => {
+  const { classifyAuthenticationMessage, registrationSubmissionDiagnostic } = await runtime();
+  assert.equal(typeof classifyAuthenticationMessage, 'function');
+  assert.equal(classifyAuthenticationMessage('Passkey registration result is invalid. PRIVATE-DETAIL'), 'WEBAUTHN_REGISTRATION_VERIFICATION');
+  assert.equal(classifyAuthenticationMessage('PRIVATE-UNKNOWN-ERROR'), 'UNCLASSIFIED');
+  const body = new URLSearchParams({ error: 'SecurityError: PRIVATE-CREDENTIAL', clientDataJSON: 'PRIVATE', attestationObject: 'PRIVATE' });
+  const result = registrationSubmissionDiagnostic(body.toString(), 'null', 400);
+  assert.deepEqual(result, { status: 400, origin: 'NULL', browserError: 'SecurityError', attestationPresent: true,
+    clientDataPresent: true, credentialIdPresent: false });
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE/);
+});

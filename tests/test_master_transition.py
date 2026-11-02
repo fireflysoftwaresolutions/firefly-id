@@ -92,6 +92,15 @@ class MasterTransitionTest(unittest.TestCase):
             effective['notBefore'] = invalid_watermark
             with self.assertRaises(ValueError): module.verify_effective(candidate, effective, {'minimum': 99, 'maximum': 101})
 
+    def test_registration_events_classify_only_fixed_types_and_errors(self):
+        module = self.module()
+        self.assertTrue(hasattr(module, 'bounded_events'))
+        actual = module.bounded_events([{'type': 'UPDATE_CREDENTIAL_ERROR', 'error': 'invalid_registration', 'details': 'PRIVATE'},
+                                        {'type': 'PRIVATE', 'error': 'PRIVATE'}, {'type': 'LOGIN', 'error': None}])
+        self.assertEqual(actual, [{'type': 'UPDATE_CREDENTIAL_ERROR', 'error': 'invalid_registration'},
+                                  {'type': 'OTHER', 'error': 'OTHER'}, {'type': 'LOGIN', 'error': None}])
+        self.assertNotIn('PRIVATE', json.dumps(actual))
+
     def test_retained_snapshot_requires_same_credentials_ids_roles_and_original_audit_rows(self):
         module = self.module()
         before = {'users': ['u'], 'credentials': ['c'], 'roles': ['r'], 'events': ['e'], 'adminEvents': ['a']}

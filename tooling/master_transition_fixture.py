@@ -378,6 +378,42 @@ def verify_state():
     print(json.dumps({'retainedCounts': {key: len(value) for key, value in before.items()}}))
 
 
+def bounded_events(rows):
+    types = {'LOGIN', 'LOGIN_ERROR', 'UPDATE_CREDENTIAL', 'UPDATE_CREDENTIAL_ERROR', 'REGISTER', 'REGISTER_ERROR',
+             'CUSTOM_REQUIRED_ACTION', 'CUSTOM_REQUIRED_ACTION_ERROR', 'CODE_TO_TOKEN', 'CODE_TO_TOKEN_ERROR'}
+    errors = {'invalid_request', 'invalid_redirect_uri', 'invalid_code', 'expired_code', 'invalid_registration',
+              'invalid_user_credentials', 'invalid_authentication_session', 'invalid_client', 'invalid_scope',
+              'client_disabled', 'user_disabled', 'resolve_required_actions', 'cookie_not_found', 'not_allowed',
+              'ssl_required', 'user_session_not_found', 'session_expired', 'invalid_token', 'invalid_signature',
+              'pkce_verification_failed', 'illegal_origin', 'generic_authentication_error', 'generic'}
+    return [{'type': item.get('type') if item.get('type') in types else 'OTHER',
+             'error': item.get('error') if item.get('error') is None or item.get('error') in errors else 'OTHER'} for item in rows[:20]]
+
+
+def authentication_diagnostic():
+    directory, owner = state()
+    database = 'master_imported' if owner['phase'] == 'imported' else 'master_retained'
+    result = {'events': bounded_events(json.loads(psql(directory, owner,
+        "SELECT coalesce(json_agg(q),'[]'::json) FROM (SELECT type,error FROM event_entity ORDER BY event_time DESC LIMIT 20) q;", database))),
+        'credentialCounts': {}, 'exceptionClasses': []}
+    for kind in ('ordinary', 'emergency'):
+        result['credentialCounts'][kind] = json.loads(psql(directory, owner,
+            "SELECT json_build_object('password',count(*) FILTER (WHERE c.type='password'),'webauthn',count(*) FILTER (WHERE c.type='webauthn'),"
+            "'passwordless',count(*) FILTER (WHERE c.type='webauthn-passwordless')) FROM credential c JOIN user_entity u ON c.user_id=u.id "
+            "WHERE u.username='synthetic-" + kind + "';", database))
+    native, _ = inspect_container(owner, 'imported' if owner['phase'] == 'imported' else 'retained')
+    captured = subprocess.run(['docker', 'logs', '--tail', '400', native], capture_output=True, timeout=10)
+    content = (captured.stdout + captured.stderr).decode(errors='replace')
+    known = {'java.lang.NullPointerException', 'java.lang.IllegalArgumentException', 'java.lang.IllegalStateException',
+             'org.keycloak.models.ModelException', 'org.keycloak.models.ModelDuplicateException',
+             'com.webauthn4j.verifier.exception.BadChallengeException', 'com.webauthn4j.verifier.exception.BadOriginException',
+             'com.webauthn4j.verifier.exception.BadRpIdException', 'com.webauthn4j.verifier.exception.BadSignatureException',
+             'com.webauthn4j.verifier.exception.UserNotPresentException', 'com.webauthn4j.verifier.exception.UserNotVerifiedException',
+             'jakarta.ws.rs.BadRequestException', 'freemarker.core.InvalidReferenceException', 'org.hibernate.exception.ConstraintViolationException'}
+    result['exceptionClasses'] = sorted(value for value in known if value in content)
+    print(json.dumps(result))
+
+
 def action_snapshot(directory, owner):
     result = snapshot(directory, owner)
     for table in ('offline_user_session', 'offline_client_session'):
@@ -424,7 +460,7 @@ def check():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['check', 'action_baseline', 'verify_action_state', 'prepare', 'start', 'export_candidate', 'import_start', 'retained_start', 'restart', 'verify_state', 'readback', 'stop'])
+    parser.add_argument('action', choices=['authentication_diagnostic', 'check', 'action_baseline', 'verify_action_state', 'prepare', 'start', 'export_candidate', 'import_start', 'retained_start', 'restart', 'verify_state', 'readback', 'stop'])
     args = parser.parse_args(); require_hosted(); os.umask(0o077)
     globals()[args.action]()
 

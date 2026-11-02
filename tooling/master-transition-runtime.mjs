@@ -51,6 +51,38 @@ export function safeRuntimeFailure(error) {
   return { errorKind: names.has(error?.name) ? error.name : 'OTHER', sourceFrames: frames };
 }
 
+export function classifyAuthenticationMessage(value) {
+  const known = [
+    ['Passkey registration result is invalid.', 'WEBAUTHN_REGISTRATION_VERIFICATION'],
+    ['Failed to register your Passkey.', 'WEBAUTHN_REGISTRATION'],
+    ['Passkey origin mismatch.', 'WEBAUTHN_ORIGIN'], ['Passkey RP ID mismatch.', 'WEBAUTHN_RPID'],
+    ['Passkey challenge mismatch or expired.', 'WEBAUTHN_CHALLENGE'], ['Passkey signature verification failed.', 'WEBAUTHN_SIGNATURE'],
+    ['User verification is required.', 'WEBAUTHN_UV'], ['User presence is required.', 'WEBAUTHN_PRESENCE'],
+    ['The Passkey operation was not allowed or timed out.', 'WEBAUTHN_NOT_ALLOWED'],
+    ['A security error occurred during the Passkey operation.', 'WEBAUTHN_BROWSER_SECURITY'],
+    ['Your organization requires a different type of security key', 'WEBAUTHN_ATTACHMENT'],
+    ['This security key model is not allowed', 'WEBAUTHN_AAGUID'], ['Your organization requires verified security keys.', 'WEBAUTHN_ATTESTATION'],
+    ['This Passkey is already registered.', 'WEBAUTHN_DUPLICATE'], ['Device already exists with the same name.', 'WEBAUTHN_DUPLICATE_LABEL'],
+    ['Invalid redirect uri', 'INVALID_REDIRECT'], ['Invalid requester', 'INVALID_REQUESTER'], ['Invalid Request', 'INVALID_REQUEST'],
+    ['Restart login cookie not found.', 'COOKIE_NOT_FOUND'], ['Login timeout.', 'EXPIRED_CODE'],
+    ['An error occurred, please login again through your application.', 'INVALID_CODE'],
+    ['Account is disabled, contact your administrator.', 'ACCOUNT_DISABLED'],
+    ['An internal server error has occurred', 'INTERNAL_SERVER_ERROR'], ['Unexpected server error', 'INTERNAL_SERVER_ERROR'],
+  ];
+  return known.find(([prefix]) => typeof value === 'string' && value.includes(prefix))?.[1] || 'UNCLASSIFIED';
+}
+
+export function registrationSubmissionDiagnostic(post, origin, status) {
+  const data = new URLSearchParams(post || '');
+  const value = data.get('error') || '';
+  const errors = ['NotAllowedError', 'SecurityError', 'InvalidStateError', 'NotSupportedError', 'AbortError', 'ConstraintError'];
+  return { status: Number.isInteger(status) && status >= 100 && status <= 599 ? status : null,
+    origin: origin === ORIGIN ? 'OWNED' : origin === 'null' ? 'NULL' : origin ? 'OTHER' : 'ABSENT',
+    browserError: value ? errors.find(name => value.startsWith(name)) || 'OTHER' : null,
+    attestationPresent: !!data.get('attestationObject'), clientDataPresent: !!data.get('clientDataJSON'),
+    credentialIdPresent: !!data.get('publicKeyCredentialId') };
+}
+
 async function qualify() {
   const directory = ROOT + '/.state/master-' + process.env.GITHUB_RUN_ID + '-' + process.env.GITHUB_RUN_ATTEMPT;
   assert.equal(realpathSync(directory), directory);
@@ -147,6 +179,7 @@ async function qualify() {
     } };
   };
   const accounts = {};
+  const registrationSubmissions = [];
   const proveAccess = async value => {
     const response = await request(ORIGIN + '/admin/realms/master', { headers: { Authorization: 'Bearer ' + value } });
     assert.equal(response.status, 200, 'Actual master administration permission required');
@@ -248,6 +281,13 @@ async function qualify() {
       const authenticator = await virtual(login.page);
       login.page.on('dialog', dialog => dialog.accept('Owned synthetic ' + kind + ' key'));
       stage = 'enroll-' + kind + '-registration-submit'; save();
+      login.page.on('response', response => {
+        const submitted = response.request();
+        if (submitted.method() === 'POST' && new URL(submitted.url()).pathname === '/realms/master/login-actions/required-action'
+          && registrationSubmissions.length < 4) {
+          registrationSubmissions.push(registrationSubmissionDiagnostic(submitted.postData(), submitted.headers().origin, response.status()));
+        }
+      });
       await login.page.locator('#registerWebAuthn').click();
       const result = await login.finish(); assert.equal(result.identity.sub, user.id); await proveAccess(result.tokens.access_token);
       const listed = await authenticator.session.send('WebAuthn.getCredentials', { authenticatorId: authenticator.authenticatorId });
@@ -377,7 +417,7 @@ async function qualify() {
     pass('emergency-requires-same-password-plus-genuine-uv-key-and-master-permission');
     await qualifyMasterActions({ actions: actionLinks, lifecycle, stage: value => { stage = value; save(); }, passed: pass,
       record: value => { report.actionLinks = { ...report.actionLinks, ...value }; save(); } });
-    report.boundaries.pendingActionLinks = 'Qualified only for this single-process owned restart and observed original expiry; HA and destination action/session inventories require their own acceptance.';
+    report.boundaries.pendingActionLinks = 'UPDATE_PASSWORD only: qualified for this single-process owned restart and observed original expiry; other action classes, HA and destination inventories require their own acceptance.';
     for (const kind of ['ordinary', 'emergency']) {
       for (const scenario of ['password-only', 'wrong-key', 'missing-uv']) {
         stage = kind + '-' + scenario + '-refusal'; save(); await authenticate(kind, scenario);
@@ -404,6 +444,8 @@ async function qualify() {
     report.failure = { ...safeRuntimeFailure(error), kind: error?.code === 'ERR_ASSERTION' ? 'ASSERTION' : 'RUNTIME',
       ...(Number.isInteger(error?.actual) ? { actualStatus: error.actual } : {}),
       ...(error?.diagnostic ? { administrativeWrite: error.diagnostic } : {}) };
+    report.failure.registrationSubmissions = registrationSubmissions;
+    try { report.failure.native = lifecycle('authentication_diagnostic'); } catch { report.failure.native = { available: false }; }
     report.failure.visibleControls = [];
     for (const context of contexts) {
       const page = context.pages().at(-1);
@@ -413,6 +455,7 @@ async function qualify() {
         'kc-error-message', 'password-new', 'email', 'firstName', 'lastName', 'kc-update-profile-form']) {
         visible[id] = await page.locator('#' + id).isVisible().catch(() => false);
       }
+      visible.errorCategory = classifyAuthenticationMessage(await page.locator('#kc-error-message').innerText().catch(() => ''));
       report.failure.visibleControls.push(visible);
       if (report.failure.visibleControls.length === 4) break;
     }
