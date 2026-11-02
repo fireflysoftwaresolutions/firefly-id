@@ -63,6 +63,13 @@ class PrivilegedProfileTest(unittest.TestCase):
         candidate = self.candidate(document)
         self.assertEqual(candidate['clients'], document['clients'])
         self.module.validate_profile(candidate, realm='master', origin='https://id.example.test')
+        native = copy.deepcopy(document)
+        del next(client for client in native['clients'] if client['clientId'] == 'master-realm')['protocol']
+        self.assertEqual(self.candidate(native)['clients'], native['clients'])
+        for client in (native['clients'][0], native['clients'][-1]):
+            original = client.pop('protocol')
+            with self.assertRaises(ValueError): self.candidate(native)
+            client['protocol'] = original
         for mutation in ({'bearerOnly': False}, {'publicClient': True}, {'directAccessGrantsEnabled': True},
                          {'authenticationFlowBindingOverrides': {'browser': 'weak'}}, {'attributes': {}},
                          {'clientId': 'masquerading-realm'}):

@@ -270,7 +270,9 @@ def prerequisites(document, realm, origin, admin_origin=None):
     require(len(set(ids)) == len(ids) and BUILTIN_CLIENTS <= set(ids), 'Complete unique built-in client inventory required')
     for client in clients:
         require(not (set(client) - CLIENT_FIELDS), 'Unsupported client fields refused')
-        require(client.get('protocol') == 'openid-connect', 'Only OIDC clients are supported')
+        # RealmManager.createMasterAdminManagement creates a protected role resource without a protocol.
+        require(client.get('protocol') == 'openid-connect' or (realm == 'master' and 'protocol' not in client
+                and internal_role_resource(document, client)), 'Only OIDC clients are supported')
         for key in ('directAccessGrantsEnabled', 'implicitFlowEnabled', 'serviceAccountsEnabled', 'authorizationServicesEnabled'):
             require(client.get(key, False) is False, 'Client alternate grant or service account must already be disabled')
         require(not client.get('authenticationFlowBindingOverrides'), 'Client authentication-flow override refused')

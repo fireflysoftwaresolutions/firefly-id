@@ -220,6 +220,26 @@ class MasterTransitionTest(unittest.TestCase):
         self.assertNotIn('PRIVATE', json.dumps(result)); self.assertNotIn('unknown-private-field', json.dumps(result))
         self.assertEqual(module.profile_diagnostic({}, ValueError('PRIVATE'))['gate'], 'UNCLASSIFIED')
 
+    def test_every_static_profile_rejection_has_a_bounded_gate_and_profile_source_positions(self):
+        import ast
+        module = self.module()
+        tree = ast.parse((ROOT / 'tooling/privileged_profile.py').read_text())
+        for call in ast.walk(tree):
+            if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == 'require' and len(call.args) > 1:
+                message = call.args[1]
+                if isinstance(message, ast.Constant) and isinstance(message.value, str):
+                    with self.subTest(message=message.value):
+                        self.assertNotEqual(module.profile_diagnostic({}, ValueError(message.value))['gate'], 'UNCLASSIFIED')
+        document = source(); document['verifyEmail'] = False
+        try:
+            module.profile.prerequisites(document, 'master', 'https://id.example.test')
+        except ValueError as failure:
+            diagnostic = module.profile_diagnostic(document, failure)
+        self.assertTrue(diagnostic['profileSourceLines'])
+        self.assertTrue(all(isinstance(value, int) and 0 < value < 10000 for value in diagnostic['profileSourceLines']))
+        self.assertEqual(diagnostic['clients'][0]['scopes']['defaultClientScopes'],
+                         {'present': True, 'isList': True, 'count': 0, 'offlineAccessPresent': False})
+
     def test_profile_diagnostic_inventories_later_gates_without_exposing_unknown_names_or_values(self):
         module = self.module()
         document = {'privateKey': 'PRIVATE', 'scimApiEnabled': False, 'PRIVATE_FIELD': 'PRIVATE',
