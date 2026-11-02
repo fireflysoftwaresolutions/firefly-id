@@ -293,7 +293,7 @@ class Fixture:
             raise RuntimeError('Native scenario invariant failed')
         # Only fixed keys and bounded primitive values can reach the public receipt.
         safe = {key: value for key, value in data.items() if key in {
-            'result', 'scenario', 'observed_lock_waiters', 'committed_consumptions', 'simultaneous_committed_reservations', 'fourth_refused', 'audit_trigger_sqlstate', 'original_proof_and_counters_preserved'}}
+            'result', 'scenario', 'observed_lock_waiters', 'committed_consumptions', 'simultaneous_committed_reservations', 'fourth_refused', 'audit_trigger_sqlstate', 'original_proof_and_counters_preserved', 'fresh_session_readbacks', 'empty_default_role', 'synthetic_user_role_mappings'}}
         self.receipt['scenarios'][operation] = safe
 
     def build(self, image, context, containerfile):

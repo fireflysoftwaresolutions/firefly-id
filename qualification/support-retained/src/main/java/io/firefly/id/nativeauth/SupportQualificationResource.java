@@ -101,6 +101,8 @@ public final class SupportQualificationResource {
         KeycloakModelUtils.runJobInTransactionWithResult(factory, session -> {
             check(session.realms().getRealmByName(REALM) == null);
             var realm = session.realms().createRealm(REALM, REALM); realm.setEnabled(true);
+            var defaultRole = session.roles().addRealmRole(realm, "default-roles-" + REALM);
+            realm.setDefaultRole(defaultRole);
             Map<String, String> attributes = Map.ofEntries(Map.entry("population", "HUMAN"), Map.entry("issuer", "https://fixture.invalid/realms/" + REALM),
                     Map.entry("allowed-origin", "https://fixture.invalid"), Map.entry("ttl-seconds", "120"), Map.entry("client-id", "fixture-self"),
                     Map.entry("tenant-attribute", "fixture-tenant"), Map.entry("link-attribute", "fixture-link"), Map.entry("domain-audience", "fixture-domain"),
@@ -125,7 +127,20 @@ public final class SupportQualificationResource {
             state.bootstrapAttempts = 1; state.knowledgeAttempts = 2; state.possessionAttempts = 2; state.lockedAt = 123;
             state.generation = "historical-lock-generation"; state.credentialRevision = "historical-revision"; return null;
         });
-        return passed("historical-synthetic-user-and-pin-state");
+        stage = "HISTORICAL_FRESH_SESSION_REALM_CACHE_READBACK";
+        // The first independent read populates the realm cache; the second checks the cached model.
+        for (int readback = 0; readback < 2; readback++) tx(session -> {
+            var realm = session.getContext().getRealm(); var defaultRole = realm.getDefaultRole();
+            check(defaultRole != null && ("default-roles-" + REALM).equals(defaultRole.getName())
+                    && !defaultRole.isClientRole() && defaultRole.getCompositesStream().findAny().isEmpty());
+            for (String name : List.of("historical-user", "legacy-consume")) {
+                var user = session.users().getUserByUsername(realm, name);
+                check(user != null && user.getRoleMappingsStream().findAny().isEmpty());
+            }
+            return null;
+        });
+        return Map.of("result", "passed", "scenario", "historical-synthetic-user-and-pin-state",
+                "fresh_session_readbacks", 2, "empty_default_role", true, "synthetic_user_role_mappings", 0);
     }
     private String createUser(KeycloakSession session, String name) {
         stage = "CREATE_SYNTHETIC_USER_AND_PIN";
