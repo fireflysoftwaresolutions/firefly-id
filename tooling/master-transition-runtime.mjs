@@ -101,10 +101,6 @@ export function preparedClientAttributes(client) {
   assert.ok(['account', 'account-console', 'admin-cli', 'broker', CLIENT].includes(client.clientId));
   const attributes = { ...client.attributes, 'client.use.lightweight.access.token.enabled': 'false' };
   if (client.clientId === CLIENT) attributes['pkce.code.challenge.method'] = 'S256';
-  // Admin updates merge attributes; ClientAdapter removes an existing entry only for an explicit null/blank.
-  if (client.clientId === 'broker' && Object.hasOwn(attributes, 'client.secret.creation.time')) {
-    attributes['client.secret.creation.time'] = null;
-  }
   return attributes;
 }
 

@@ -79,7 +79,7 @@ test('owned client preparation explicitly retires attributes while preserving un
   assert.deepEqual(preparedClientAttributes(source), { 'client.use.lightweight.access.token.enabled': 'false', unknown: 'preserve' });
   assert.equal(source.attributes['client.use.lightweight.access.token.enabled'], 'true');
   assert.deepEqual(preparedClientAttributes({ clientId: 'broker', attributes: { 'client.secret.creation.time': '123', unknown: 'preserve' } }),
-    { 'client.secret.creation.time': null, 'client.use.lightweight.access.token.enabled': 'false', unknown: 'preserve' });
+    { 'client.secret.creation.time': '123', 'client.use.lightweight.access.token.enabled': 'false', unknown: 'preserve' });
   assert.equal(preparedClientAttributes({ clientId: 'security-admin-console', attributes: {} })['pkce.code.challenge.method'], 'S256');
   for (const clientId of ['master-realm', 'unreviewed']) assert.throws(() => preparedClientAttributes({ clientId, attributes: {} }));
 });

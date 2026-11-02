@@ -223,6 +223,19 @@ def internal_role_resource(document, client):
         {'view-realm', 'manage-realm'} <= {role.get('name') for role in roles})
 
 
+def reviewed_client_attribute(client, key, value):
+    if not isinstance(value, str):
+        return False
+    if key in SAFE_CLIENT_ATTRIBUTES:
+        return value in SAFE_CLIENT_ATTRIBUTES[key]
+    # KeycloakModelUtils.generateSecret records Time.currentTime(), a signed integer epoch second.
+    return (key == 'client.secret.creation.time' and client.get('clientId') == 'broker'
+            and all(client.get(flag) is False for flag in ('enabled', 'standardFlowEnabled', 'implicitFlowEnabled',
+                    'directAccessGrantsEnabled', 'serviceAccountsEnabled'))
+            and client.get('authorizationServicesEnabled', False) is False
+            and re.fullmatch(r'[1-9][0-9]{0,9}', value) is not None and int(value) <= 2147483647)
+
+
 def prerequisites(document, realm, origin, admin_origin=None):
     target(document, realm, origin)
     existing_flows(document)
@@ -262,7 +275,7 @@ def prerequisites(document, realm, origin, admin_origin=None):
             require(client.get(key, False) is False, 'Client alternate grant or service account must already be disabled')
         require(not client.get('authenticationFlowBindingOverrides'), 'Client authentication-flow override refused')
         attrs = client.get('attributes', {})
-        require(isinstance(attrs, dict) and all(key in SAFE_CLIENT_ATTRIBUTES and value in SAFE_CLIENT_ATTRIBUTES[key]
+        require(isinstance(attrs, dict) and all(reviewed_client_attribute(client, key, value)
                                                for key, value in attrs.items()), 'Unsupported client attributes refused')
         require(isinstance(client.get('defaultClientScopes'), list) and isinstance(client.get('optionalClientScopes'), list),
                 'Explicit client scope inventory required')

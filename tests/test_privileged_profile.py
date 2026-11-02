@@ -119,6 +119,30 @@ class PrivilegedProfileTest(unittest.TestCase):
                     self.candidate(document)
                 self.assertEqual(document, before)
 
+    def test_native_secret_creation_metadata_is_preserved_only_for_disabled_broker(self):
+        document = source()
+        broker = next(client for client in document['clients'] if client['clientId'] == 'broker')
+        broker['attributes']['client.secret.creation.time'] = '1793510000'
+        before = copy.deepcopy(document)
+        self.assertEqual(self.candidate(document)['clients'], before['clients'])
+        self.assertEqual(document, before)
+        native = copy.deepcopy(document); del native['clients'][3]['authorizationServicesEnabled']
+        self.assertEqual(self.candidate(native)['clients'], native['clients'])
+        for timestamp in ('', '0', '-1', '01', '1.5', '2147483648', 1793510000, True, None, 'unreviewed'):
+            invalid = copy.deepcopy(document)
+            invalid['clients'][3]['attributes']['client.secret.creation.time'] = timestamp
+            with self.subTest(timestamp=timestamp), self.assertRaises(ValueError): self.candidate(invalid)
+        for key in ('enabled', 'standardFlowEnabled', 'implicitFlowEnabled', 'directAccessGrantsEnabled',
+                    'serviceAccountsEnabled', 'authorizationServicesEnabled'):
+            for value in (True, None):
+                invalid = copy.deepcopy(document); invalid['clients'][3][key] = value
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError): self.candidate(invalid)
+        invalid = source(); invalid['clients'][0]['attributes']['client.secret.creation.time'] = '1793510000'
+        with self.assertRaises(ValueError): self.candidate(invalid)
+        for key in ('client.secret.rotated', 'client.secret.expiration.time', 'unknown.extension'):
+            invalid = copy.deepcopy(document); invalid['clients'][3]['attributes'][key] = '1793510000'
+            with self.subTest(key=key), self.assertRaises(ValueError): self.candidate(invalid)
+
     def test_missing_builtin_clients_or_unknown_enabled_clients_refuse(self):
         for mutation in ('missing', 'extra', 'duplicate'):
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
