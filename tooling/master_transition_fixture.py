@@ -190,6 +190,67 @@ def verify_candidate(directory, receipt):
     require(candidate_receipt(directory) == receipt, 'Exact generated candidate changed')
 
 
+def verified_component_readback(candidate, effective, rows):
+    # Pinned StripSecretsUtils removes properties absent from each factory's config metadata.
+    # Verify hidden material in SQL first; API omission alone is never evidence of retention.
+    common = {'priority', 'enabled', 'active'}
+    visible = {
+        'rsa-generated': common | {'keySize', 'algorithm'},
+        'rsa-enc-generated': common | {'keySize', 'algorithm'},
+        'hmac-generated': common | {'secretSize', 'algorithm'},
+        'aes-generated': common | {'secretSize'},
+        'ecdsa-generated': common | {'ecGenerateCertificate', 'ecdsaEllipticCurveKey'},
+    }
+    hidden = {
+        'rsa-generated': {'privateKey', 'certificate', 'keyUse'},
+        'rsa-enc-generated': {'privateKey', 'certificate', 'keyUse'},
+        'hmac-generated': {'secret', 'kid'}, 'aes-generated': {'secret', 'kid'},
+        'ecdsa-generated': {'ecdsaPrivateKey', 'ecdsaPublicKey', 'certificate'},
+    }
+    def inventory(document):
+        profile.reviewed_native_components(document.get('components', {}), realm=document.get('realm'))
+        result = {}
+        for kind, entries in document.get('components', {}).items():
+            for component in entries:
+                identity = component.get('id')
+                require(isinstance(identity, str) and identity and identity not in result, 'Unique component identity required')
+                result[identity] = (kind, component)
+        return result
+    def configuration(kind, component):
+        if kind == profile.USER_PROFILE_PROVIDER:
+            return {'kc.user.profile.config': profile.native_user_profile_configuration(component, realm='master')}
+        config = component.get('config', {})
+        require(isinstance(config, dict) and all(isinstance(value, list) and value
+                and all(isinstance(item, str) for item in value) for value in config.values()), 'Component configuration shape differs')
+        return {key: sorted(value) for key, value in config.items()}
+    expected = inventory(candidate)
+    restored = json.loads(json.dumps(effective))
+    actual = inventory(restored)
+    require(isinstance(rows, list) and all(isinstance(row, dict) for row in rows), 'Component database inventory required')
+    database = {row.get('id'): row for row in rows}
+    require(len(database) == len(rows) and set(expected) == set(actual) == set(database), 'Component inventory differs')
+    for identity, (kind, component) in expected.items():
+        actual_kind, observed = actual[identity]
+        provider = component.get('providerId')
+        require(kind == actual_kind and provider == observed.get('providerId'), 'Component provider identity differs')
+        row = database[identity]
+        require(all(row.get(key) == value for key, value in {
+            'providerType': kind, 'providerId': provider, 'name': component.get('name'),
+            'subType': component.get('subType'), 'realmId': candidate.get('id'), 'parentId': candidate.get('id')}.items())
+            and isinstance(candidate.get('id'), str) and candidate['id'], 'Component database identity differs')
+        expected_config = configuration(kind, component)
+        require(expected_config == configuration(kind, {**component, 'config': row.get('config')}), 'Component database configuration differs')
+        if kind == profile.USER_PROFILE_PROVIDER:
+            require(expected_config == configuration(kind, observed), 'User profile API configuration differs')
+        else:
+            require(provider in visible and set(expected_config) <= visible[provider] | hidden[provider],
+                    'Unreviewed key provider configuration refused')
+            require(configuration(kind, observed) == {key: value for key, value in expected_config.items() if key in visible[provider]},
+                    'Key provider API configuration differs')
+        observed['config'] = row['config']
+    return restored
+
+
 def verify_effective(candidate, effective, retirement_window=None):
     # Partial export omits users; identity/credential/role retention is checked independently.
     checked = dict(effective, users=candidate['users'])
@@ -209,12 +270,9 @@ def verify_effective(candidate, effective, retirement_window=None):
                     and retirement_window['minimum'] <= value <= retirement_window['maximum'], 'Retirement watermark outside measured operation')
             continue
         require(canonical(candidate.get(key)) == canonical(effective.get(key)), 'Preserved realm setting differs: ' + key)
-    # Signing private-key values may be redacted by the admin partial-export endpoint.
     def components(document):
         profile.reviewed_native_components(document.get('components', {}), realm=document.get('realm'))
         result = json.loads(json.dumps(document.get('components', {})))
-        for component in result.get('org.keycloak.keys.KeyProvider', []):
-            component.get('config', {}).pop('privateKey', None)
         for component in result.get(profile.USER_PROFILE_PROVIDER, []):
             component['config'] = {'kc.user.profile.config': profile.native_user_profile_configuration(component, realm=document.get('realm'))}
         return canonical(result)
@@ -331,12 +389,28 @@ def stop_kind(directory, owner, kind):
         run(['docker', 'stop', '--time', '30', name], directory, kind + '-stop')
 
 
-def psql(directory, owner, sql, database='postgres'):
+def psql(directory, owner, sql, database='postgres', *, read_only=False):
     name, _ = inspect_container(owner, 'postgres')
-    result = subprocess.run(['docker', 'exec', '-i', name, 'psql', '-X', '-U', 'postgres', '-d', database,
+    options = ['-e', 'PGOPTIONS=-c default_transaction_read_only=on'] if read_only else []
+    result = subprocess.run(['docker', 'exec', '-i', *options, name, 'psql', '-X', '-U', 'postgres', '-d', database,
                              '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=sqlstate', '-At'], input=sql.encode(), capture_output=True)
     require(result.returncode == 0, 'Owned database operation refused')
     return result.stdout.decode().strip()
+
+
+def read_component_rows(directory, owner):
+    require(owner['phase'] in ('imported', 'retained'), 'Active component readback phase required')
+    _, actual = inspect_container(owner, owner['phase'])
+    require(actual['State']['Running'], 'Active owned native runtime required')
+    database = 'master_imported' if owner['phase'] == 'imported' else 'master_retained'
+    query = """SELECT coalesce(json_agg(q ORDER BY q.id),'[]'::json) FROM (
+        SELECT c.id,c.name,c.provider_id AS "providerId",c.provider_type AS "providerType",
+               c.sub_type AS "subType",c.parent_id AS "parentId",c.realm_id AS "realmId",
+               coalesce((SELECT json_object_agg(k.name,k.config_values) FROM (
+                   SELECT name,json_agg(value ORDER BY value) AS config_values FROM component_config
+                   WHERE component_id=c.id GROUP BY name) k),'{}'::json) AS config
+        FROM component c JOIN realm r ON r.id=c.realm_id WHERE r.name='master') q;"""
+    return json.loads(psql(directory, owner, query, database, read_only=True))
 
 
 def wait_ready(directory):
@@ -458,6 +532,7 @@ def snapshot(directory, owner):
               'events': 'event_entity', 'adminEvents': 'admin_event_entity', 'roleDefinitions': 'keycloak_role',
               'roleComposites': 'composite_role', 'groups': 'keycloak_group', 'groupMembership': 'user_group_membership',
               'groupRoles': 'group_role_mapping', 'userAttributes': 'user_attribute', 'requiredActions': 'user_required_action'}
+    tables.update({'components': 'component', 'componentConfig': 'component_config'})
     result = {}
     for key, table in tables.items():
         # Full row hashes remain private. Equality proves credential hashes and stored key counters survive.
@@ -606,11 +681,13 @@ def verify_action_state():
 
 def readback():
     global PROFILE_DIAGNOSTIC
-    directory, _ = state()
+    directory, owner = state()
     verify_candidate(directory, json.loads((directory / 'candidate-receipt.json').read_text()))
     receipt = json.load(sys.stdin)
     try:
-        verify_effective(profile.parse_document((directory / 'candidate.json').read_bytes()), receipt['effective'], receipt.get('retirementWindow'))
+        candidate = profile.parse_document((directory / 'candidate.json').read_bytes())
+        effective = verified_component_readback(candidate, receipt['effective'], read_component_rows(directory, owner))
+        verify_effective(candidate, effective, receipt.get('retirementWindow'))
     except (ValueError, TypeError, KeyError) as failure:
         PROFILE_DIAGNOSTIC = profile_diagnostic(receipt['effective'], failure)
         raise

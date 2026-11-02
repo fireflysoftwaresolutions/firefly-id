@@ -2,9 +2,11 @@
 import copy
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 from test_privileged_profile import source
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +20,115 @@ class MasterTransitionTest(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         return module
+
+    def test_component_readback_requires_full_database_material_and_exact_api_projection(self):
+        module = self.module()
+        self.assertTrue(hasattr(module, 'verified_component_readback'))
+        kind = 'org.keycloak.keys.KeyProvider'
+        component = {'id': 'key-id', 'name': 'hmac', 'providerId': 'hmac-generated',
+                     'config': {'priority': ['100'], 'algorithm': ['HS512'], 'secret': ['PRIVATE'], 'kid': ['key-id']}}
+        candidate = {'id': 'realm-id', 'realm': 'master', 'components': {kind: [component]}}
+        effective = copy.deepcopy(candidate)
+        effective['components'][kind][0]['config'] = {'priority': ['100'], 'algorithm': ['HS512']}
+        row = {'id': 'key-id', 'name': 'hmac', 'providerId': 'hmac-generated', 'providerType': kind,
+               'realmId': 'realm-id', 'parentId': 'realm-id', 'subType': None, 'config': component['config']}
+        unchanged = copy.deepcopy(effective)
+        self.assertEqual(module.verified_component_readback(candidate, effective, [row]), candidate)
+        self.assertEqual(effective, unchanged)
+        for key, value in [('providerId', 'aes-generated'), ('parentId', 'foreign'), ('id', 'other'),
+                           ('config', {**row['config'], 'secret': ['ALTERED']}),
+                           ('config', {**row['config'], 'unknown': ['PRIVATE']})]:
+            with self.subTest(key=key), self.assertRaises(ValueError) as error:
+                module.verified_component_readback(candidate, effective, [{**row, key: value}])
+            self.assertNotIn('PRIVATE', str(error.exception))
+        for config in ({'priority': ['101'], 'algorithm': ['HS512']}, {'priority': ['100']},
+                       {**unchanged['components'][kind][0]['config'], 'unknown': ['PRIVATE']}):
+            invalid = copy.deepcopy(effective); invalid['components'][kind][0]['config'] = config
+            with self.assertRaises(ValueError): module.verified_component_readback(candidate, invalid, [row])
+        for rows in ([], [row, row]):
+            with self.assertRaises(ValueError): module.verified_component_readback(candidate, effective, rows)
+        unknown = copy.deepcopy(candidate); unknown['components'][kind][0]['config']['unknown'] = ['PRIVATE']
+        with self.assertRaises(ValueError): module.verified_component_readback(unknown, effective, [row])
+
+    def test_component_sql_is_read_only_and_bound_to_active_owned_phase(self):
+        module = self.module()
+        self.assertTrue(hasattr(module, 'read_component_rows'))
+        for phase, database in [('imported', 'master_imported'), ('retained', 'master_retained')]:
+            with patch.object(module, 'inspect_container', return_value=('owned', {'State': {'Running': True}})) as inspect, \
+                 patch.object(module, 'psql', return_value='[]') as query:
+                self.assertEqual(module.read_component_rows(Path('/owned'), {'phase': phase}), [])
+                self.assertEqual(inspect.call_args.args[1], phase)
+                self.assertEqual(query.call_args.args[3], database)
+                self.assertTrue(query.call_args.kwargs['read_only'])
+                self.assertTrue(query.call_args.args[2].startswith('SELECT '))
+        for phase in ['candidate', 'enrollment', 'foreign']:
+            with patch.object(module, 'psql') as query, self.assertRaises(ValueError):
+                module.read_component_rows(Path('/owned'), {'phase': phase})
+            query.assert_not_called()
+        with patch.object(module, 'inspect_container', return_value=('owned-db', {})), \
+             patch.object(module.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, b'[]', b'')) as process:
+            module.psql(Path('/owned'), {}, 'SELECT 1;', 'master_imported', read_only=True)
+            self.assertIn('PGOPTIONS=-c default_transaction_read_only=on', process.call_args.args[0])
+
+    def test_native_key_projection_restores_only_database_verified_material_for_full_comparison(self):
+        module = self.module(); document = source(); document['id'] = 'realm-id'
+        kind = 'org.keycloak.keys.KeyProvider'
+        configurations = [
+            ('rsa-generated', {'priority': ['100'], 'algorithm': ['RS256']},
+             {'privateKey': ['PRIVATE-RSA'], 'certificate': ['CERTIFICATE'], 'keyUse': ['SIG']}),
+            ('rsa-enc-generated', {'algorithm': ['RSA-OAEP']}, {'privateKey': ['PRIVATE-ENC'], 'certificate': ['CERTIFICATE']}),
+            ('hmac-generated', {'secretSize': ['128']}, {'secret': ['PRIVATE-HMAC'], 'kid': ['hmac-kid']}),
+            ('aes-generated', {'secretSize': ['32']}, {'secret': ['PRIVATE-AES'], 'kid': ['aes-kid']}),
+            ('ecdsa-generated', {'ecdsaEllipticCurveKey': ['P-256']},
+             {'ecdsaPrivateKey': ['PRIVATE-EC'], 'ecdsaPublicKey': ['PUBLIC-EC']}),
+        ]
+        document['components'][kind] = [{'id': provider, 'name': provider, 'providerId': provider,
+                                         'config': {**visible, **hidden}} for provider, visible, hidden in configurations]
+        candidate = module.profile.build_profile(document, realm='master', origin='https://id.example.test', acknowledge_master=True)
+        effective = copy.deepcopy(candidate)
+        rows = []
+        for component, (_, visible, _) in zip(effective['components'][kind], configurations):
+            rows.append({'id': component['id'], 'name': component['name'], 'providerId': component['providerId'],
+                         'providerType': kind, 'subType': None, 'parentId': 'realm-id', 'realmId': 'realm-id',
+                         'config': copy.deepcopy(component['config'])})
+            component['config'] = visible
+        restored = module.verified_component_readback(candidate, effective, rows)
+        module.verify_effective(candidate, restored)
+        altered = copy.deepcopy(restored)
+        altered['components'][kind][0]['config']['privateKey'] = ['ALTERED']
+        with self.assertRaises(ValueError): module.verify_effective(candidate, altered)
+        altered = copy.deepcopy(effective); altered['components'][kind][0]['name'] = 'changed'
+        with self.assertRaises(ValueError):
+            module.verify_effective(candidate, module.verified_component_readback(candidate, altered, rows))
+        invalid = copy.deepcopy(candidate); invalid['components'][kind][0]['providerId'] = 'unknown-provider'
+        with self.assertRaises(ValueError): module.verified_component_readback(invalid, effective, rows)
+
+    def test_retained_component_rows_detect_hidden_key_changes(self):
+        module = self.module()
+        before = {'components': ['component-hash'], 'componentConfig': ['secret-hash'], 'events': ['e'], 'adminEvents': ['a']}
+        for key in ('components', 'componentConfig'):
+            with self.assertRaises(ValueError): module.verify_retained(before, {**before, key: ['changed']})
+        with patch.object(module, 'psql', return_value='[]') as query:
+            snapshot = module.snapshot(Path('/owned'), {})
+        self.assertIn('components', snapshot)
+        self.assertIn('componentConfig', snapshot)
+        self.assertTrue(any('FROM component_config t' in call.args[2] for call in query.call_args_list))
+
+    def test_component_database_profile_comparison_preserves_reviewed_policy_semantics(self):
+        module = self.module(); kind = module.profile.USER_PROFILE_PROVIDER
+        configuration = copy.deepcopy(module.profile.DEFAULT_USER_PROFILE)
+        component = {'id': 'profile', 'providerId': 'declarative-user-profile',
+                     'config': {'kc.user.profile.config': [json.dumps(configuration)]}}
+        candidate = {'realm': 'master', 'id': 'realm-id', 'components': {kind: [component]}}
+        effective = copy.deepcopy(candidate)
+        for attribute in configuration['attributes']: attribute['multivalued'] = False
+        row = {'id': 'profile', 'providerId': 'declarative-user-profile', 'providerType': kind,
+               'name': None, 'subType': None, 'realmId': 'realm-id', 'parentId': 'realm-id',
+               'config': {'kc.user.profile.config': [json.dumps(configuration, sort_keys=True)]}}
+        module.verified_component_readback(candidate, effective, [row])
+        configuration['attributes'][0]['permissions']['edit'] = ['user']
+        row['config']['kc.user.profile.config'] = [json.dumps(configuration)]
+        with self.assertRaises(ValueError): module.verified_component_readback(candidate, effective, [row])
 
     def test_ownership_refuses_stale_run_arbitrary_path_symlink_and_container(self):
         module = self.module()
