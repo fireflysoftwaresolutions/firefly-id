@@ -122,6 +122,9 @@ export async function retireOfflineScope(admin) {
   await admin('client-scopes', 'POST', definition);
   assert.deepEqual(await admin(path), definition, 'Offline scope definition changed');
   if (roles.length) await admin(path + '/scope-mappings/realm', 'POST', roles);
+  // Cached client-scope ID lists can resolve the recreated ID until the realm cache is cleared.
+  await admin('clear-realm-cache', 'POST');
+  assert.deepEqual(await admin(path), definition, 'Offline scope definition changed after cache refresh');
   const ordered = values => [...values].sort((left, right) => left.id.localeCompare(right.id));
   assert.deepEqual(ordered(await admin(path + '/scope-mappings/realm')), ordered(roles), 'Offline scope role identities changed');
   const restoredMappings = await admin(path + '/scope-mappings');
