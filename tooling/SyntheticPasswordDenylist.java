@@ -27,6 +27,10 @@ public final class SyntheticPasswordDenylist {
             }
             System.out.print(output);
         } catch (Throwable refused) {
+            String category = refused instanceof LinkageError ? "LINKAGE"
+                    : refused instanceof java.io.IOException ? "IO"
+                    : refused instanceof IllegalArgumentException ? "ARGUMENT" : "OTHER";
+            System.err.println("PREFLIGHT_ERROR:" + category);
             System.exit(2);
         }
     }

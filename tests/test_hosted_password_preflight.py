@@ -49,6 +49,28 @@ class HostedPasswordPreflightTest(unittest.TestCase):
             with self.assertRaises(ValueError): helper.prepare()
             process.assert_not_called()
 
+    def test_process_diagnostics_never_emit_raw_output(self):
+        helper = self.helper()
+        self.assertTrue(hasattr(helper, 'process_diagnostic'), 'Bounded native preflight diagnostics are missing')
+        result = subprocess.CompletedProcess(['PRIVATE-COMMAND'], 1, b'PRIVATE-PASSWORD\n',
+            b'/PRIVATE/PATH.java: error: cannot find symbol\nPRIVATE-TOKEN\n')
+        diagnostic = helper.process_diagnostic(result)
+        self.assertEqual(diagnostic['returnCode'], 1)
+        self.assertEqual(diagnostic['categories'], ['COMPILER_MISSING_SYMBOL'])
+        self.assertNotIn('PRIVATE', json.dumps(diagnostic))
+        runtime = subprocess.CompletedProcess([], 2, b'', b'PREFLIGHT_ERROR:LINKAGE\nPRIVATE')
+        self.assertEqual(helper.process_diagnostic(runtime)['categories'], ['JAVA_LINKAGE'])
+
+    def test_failure_summary_has_only_known_phase_kind_and_source_positions(self):
+        helper = self.helper()
+        self.assertTrue(hasattr(helper, 'failure_summary'), 'Native preflight failure summary is missing')
+        with patch.object(helper, 'PHASE', 'PRIVATE-PHASE'), patch.object(helper, 'LAST_PROCESS', None), \
+             patch.object(helper, 'LIBRARIES', None):
+            summary = helper.failure_summary(ValueError('PRIVATE-MESSAGE'))
+        self.assertEqual(summary['phase'], 'UNKNOWN')
+        self.assertEqual(summary['failureKind'], 'ValueError')
+        self.assertNotIn('PRIVATE', json.dumps(summary))
+
     def test_password_prevalidation_failure_leaves_no_partial_fixture(self):
         generator = module('password_generator', 'scripts/generate.py')
         with tempfile.TemporaryDirectory() as parent:

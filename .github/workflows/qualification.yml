@@ -121,6 +121,7 @@ jobs:
             .work/localization-runtime/summary.json
             .work/configuration-lookup/*.json
             .work/startup-diagnostics/summary.json
+            .work/password-preflight/summary.json
           if-no-files-found: ignore
           retention-days: 7
       - name: Stop only the owned runtime
