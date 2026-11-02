@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { selectNewRecoveryMessage } from './recovery-mail.mjs';
+import { isMasterCallback } from './master-callback.mjs';
 
 const ORIGIN = 'https://id.firefly.test:8443';
 const ISSUER = ORIGIN + '/realms/master';
@@ -67,7 +68,8 @@ export async function prepareMasterActions({ browser, contexts, admin, accounts,
     const context = await browser.newContext(); contexts.add(context);
     const page = await context.newPage(); page.setDefaultTimeout(25000);
     let callback = false;
-    await page.route(CALLBACK + '**', async route => {
+    page.on('request', request => { if (isMasterCallback(request.url())) callback = true; });
+    await page.route(isMasterCallback, async route => {
       callback = true; await route.fulfill({ contentType: 'text/plain', body: 'Owned action callback.' });
     });
     const response = await page.goto(action.url.href); assert.ok(response && response.status() >= 200 && response.status() < 500);

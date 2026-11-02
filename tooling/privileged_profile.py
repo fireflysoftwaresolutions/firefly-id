@@ -43,7 +43,7 @@ accessCodeLifespanUserAction accessCodeLifespanLogin actionTokenGeneratedByAdmin
 oauth2DeviceCodeLifespan oauth2DevicePollingInterval smtpServer loginTheme accountTheme adminTheme emailTheme
 browserSecurityHeaders eventsEnabled eventsListeners enabledEventTypes eventsExpiration adminEventsEnabled
 adminEventsDetailsEnabled internationalizationEnabled supportedLocales defaultLocale keycloakVersion
-userManagedAccessEnabled organizationsEnabled verifiableCredentialsEnabled adminPermissionsEnabled
+userManagedAccessEnabled userManagedAccessAllowed organizationsEnabled verifiableCredentialsEnabled adminPermissionsEnabled
 '''.split())
 CLIENT_FIELDS = set('''id clientId name description rootUrl adminUrl baseUrl surrogateAuthRequired enabled alwaysDisplayInConsole
 clientAuthenticatorType secret registrationAccessToken redirectUris webOrigins notBefore bearerOnly consentRequired
@@ -167,7 +167,8 @@ def prerequisites(document, realm, origin, admin_origin=None):
             'Retained event selection must include sign-in successes and failures')
     for key in ('identityProviders', 'identityProviderMappers', 'userFederationProviders', 'userFederationMappers', 'federatedUsers'):
         require(not document.get(key), 'External identity or credential providers are unsupported')
-    require(not document.get('userManagedAccessEnabled') and not document.get('organizationsEnabled')
+    require(not document.get('userManagedAccessEnabled') and not document.get('userManagedAccessAllowed')
+            and not document.get('organizationsEnabled')
             and not document.get('verifiableCredentialsEnabled'), 'Alternate authorization features are unsupported')
     require(not document.get('clientPolicies', {}).get('policies') and not document.get('clientProfiles', {}).get('profiles'),
             'Custom client policy/profile execution requires separate review')

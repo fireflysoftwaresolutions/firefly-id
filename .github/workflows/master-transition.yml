@@ -7,9 +7,14 @@ on:
       - '.github/workflows/master-transition.yml'
       - 'tooling/master_transition_fixture.py'
       - 'tooling/master-transition-runtime.mjs'
+      - 'tooling/master-action-links.mjs'
+      - 'tooling/master-callback.mjs'
       - 'tooling/privileged_profile.py'
       - 'tests/test_master_transition.py'
       - 'tests/master-transition-runtime.test.mjs'
+      - 'tests/master-action-links.test.mjs'
+      - 'tests/master-callback.test.mjs'
+      - 'tests/test_privileged_profile.py'
 
 permissions:
   contents: read

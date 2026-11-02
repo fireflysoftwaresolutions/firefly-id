@@ -200,6 +200,12 @@ class PrivilegedProfileTest(unittest.TestCase):
                     'localizationTexts', 'webAuthnPolicyPasswordlessMediation'):
             self.assertEqual(candidate[key], document[key])
 
+    def test_actual_user_managed_access_export_field_is_supported_only_when_disabled(self):
+        document = source(); document['userManagedAccessAllowed'] = False
+        self.assertFalse(self.candidate(document)['userManagedAccessAllowed'])
+        document['userManagedAccessAllowed'] = True
+        with self.assertRaises(ValueError): self.candidate(document)
+
     def test_nonstandard_json_numbers_are_refused(self):
         for number in ('NaN', 'Infinity', '-Infinity'):
             with self.subTest(number=number), self.assertRaises(ValueError):

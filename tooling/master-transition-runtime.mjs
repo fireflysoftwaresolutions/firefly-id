@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { assertionProperties, privilegedWriteDiagnostic } from './privileged-runtime.mjs';
 import { validateJwt } from './extended-runtime.mjs';
 import { prepareMasterActions, qualifyMasterActions } from './master-action-links.mjs';
+import { isMasterCallback, masterCallbackObserver, masterRouteClass } from './master-callback.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'https://id.firefly.test:8443';
@@ -93,6 +94,7 @@ async function qualify() {
     boundaries: { import: 'Exact candidate into a new empty owned database; never an overwrite of retained master.',
       transition: 'Generated settings applied to the original owned master without realm replacement.',
       pendingActionLinks: 'PENDING: genuine server-issued links and preaccepted action forms require observed runtime evidence.',
+      consoleRendering: 'NOT_QUALIFIED: callback request observation and real PKCE exchange do not validate console UI rendering.',
       leastPrivilege: 'NOT_QUALIFIED: both synthetic accounts hold master admin only to exercise migration and emergency factor enforcement.',
       physicalKeyCustody: 'NOT_QUALIFIED: Chromium virtual authenticator; no physical custody or institutional activation.' } };
   let stage = 'ownership';
@@ -129,6 +131,7 @@ async function qualify() {
   };
   let metadata;
   const contexts = new Set();
+  const navigation = [];
   const virtual = async (page, credential, scenario) => {
     const session = await page.context().newCDPSession(page);
     await session.send('WebAuthn.enable', { enableUI: false });
@@ -146,10 +149,16 @@ async function qualify() {
     const verifier = randomBytes(48).toString('base64url');
     let received; let complete;
     const returned = new Promise(ok => { complete = ok; });
-    const routePattern = CALLBACK + '**';
-    await page.route(routePattern, async route => {
-      const value = new URL(route.request().url());
-      if (value.searchParams.get('state') === state) { received = value; complete(value); }
+    page.on('response', response => {
+      if (!response.request().isNavigationRequest() || navigation.length >= 24) return;
+      const location = response.headers().location;
+      navigation.push({ status: response.status(), route: masterRouteClass(response.url()),
+        ...(location ? { redirect: masterRouteClass(new URL(location, response.url())) } : {}) });
+    });
+    // Request observation includes redirect destinations that Playwright routing does not intercept.
+    const observeCallback = masterCallbackObserver(state, value => { received = value; complete(value); });
+    page.on('request', request => observeCallback(request.url()));
+    await page.route(isMasterCallback, async route => {
       await route.fulfill({ contentType: 'text/plain', body: 'Owned synthetic callback.' });
     });
     const url = new URL(metadata.authorization_endpoint);
@@ -168,7 +177,8 @@ async function qualify() {
     return { page, context, get received() { return received; }, async finish() {
       stage = loginStage + '-callback-wait'; save();
       const value = await Promise.race([returned, new Promise((_, reject) => { const timer = setTimeout(() => reject(new Error('Owned callback deadline')), 40000); timer.unref(); })]);
-      assert.ok(!value.searchParams.has('error') && value.searchParams.has('code'));
+      assert.ok(!value.searchParams.has('error') && value.searchParams.getAll('code').length === 1);
+      if (value.searchParams.has('iss')) assert.equal(value.searchParams.get('iss'), ISSUER);
       const response = await request(metadata.token_endpoint, { method: 'POST', body: new URLSearchParams({
         grant_type: 'authorization_code', client_id: CLIENT, redirect_uri: CALLBACK, code: value.searchParams.get('code'), code_verifier: verifier }) });
       stage = loginStage + '-pkce-token-response'; save();
@@ -444,13 +454,14 @@ async function qualify() {
     report.failure = { ...safeRuntimeFailure(error), kind: error?.code === 'ERR_ASSERTION' ? 'ASSERTION' : 'RUNTIME',
       ...(Number.isInteger(error?.actual) ? { actualStatus: error.actual } : {}),
       ...(error?.diagnostic ? { administrativeWrite: error.diagnostic } : {}) };
+    report.failure.navigation = navigation;
     report.failure.registrationSubmissions = registrationSubmissions;
     try { report.failure.native = lifecycle('authentication_diagnostic'); } catch { report.failure.native = { available: false }; }
     report.failure.visibleControls = [];
     for (const context of contexts) {
       const page = context.pages().at(-1);
       if (!page) continue;
-      const visible = {};
+      const visible = { route: masterRouteClass(page.url()) };
       for (const id of ['username', 'password', 'registerWebAuthn', 'authenticateWebAuthnButton', 'kc-info-message',
         'kc-error-message', 'password-new', 'email', 'firstName', 'lastName', 'kc-update-profile-form']) {
         visible[id] = await page.locator('#' + id).isVisible().catch(() => false);

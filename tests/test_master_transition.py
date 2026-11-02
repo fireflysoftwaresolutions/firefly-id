@@ -101,6 +101,14 @@ class MasterTransitionTest(unittest.TestCase):
                                   {'type': 'OTHER', 'error': 'OTHER'}, {'type': 'LOGIN', 'error': None}])
         self.assertNotIn('PRIVATE', json.dumps(actual))
 
+    def test_profile_failure_gate_and_known_schema_names_never_expose_input_values(self):
+        module = self.module(); self.assertTrue(hasattr(module, 'profile_diagnostic'))
+        result = module.profile_diagnostic({'realm': 'master', 'unknown-private-field': 'PRIVATE', 'userManagedAccessAllowed': False},
+                                           ValueError('Unsupported realm fields refused'))
+        self.assertEqual(result['gate'], 'UNSUPPORTED_REALM_FIELDS')
+        self.assertNotIn('PRIVATE', json.dumps(result)); self.assertNotIn('unknown-private-field', json.dumps(result))
+        self.assertEqual(module.profile_diagnostic({}, ValueError('PRIVATE'))['gate'], 'UNCLASSIFIED')
+
     def test_retained_snapshot_requires_same_credentials_ids_roles_and_original_audit_rows(self):
         module = self.module()
         before = {'users': ['u'], 'credentials': ['c'], 'roles': ['r'], 'events': ['e'], 'adminEvents': ['a']}

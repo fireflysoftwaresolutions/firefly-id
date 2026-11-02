@@ -23,6 +23,7 @@ _spec.loader.exec_module(profile)
 LABEL = 'org.firefly-id.master-transition'
 ORIGIN = 'https://id.firefly.test:8443'
 PHASE = 'initialization'
+PROFILE_DIAGNOSTIC = None
 
 
 def require(value, message):
@@ -41,6 +42,49 @@ def validate_owner(root, directory, owner, run_id):
     require(isinstance(owner.get('containers'), list) and set(owner['containers']) <= allowed, 'Container ownership mismatch')
     require(not any(path.is_symlink() for path in directory.rglob('*')), 'Symlink inside owned state refused')
     return owner
+
+
+def profile_diagnostic(document, failure):
+    gates = {
+        'Unsupported realm fields refused': 'UNSUPPORTED_REALM_FIELDS',
+        'Realm extension attributes require explicit review': 'REALM_ATTRIBUTES',
+        'Unsupported client fields refused': 'UNSUPPORTED_CLIENT_FIELDS',
+        'Unsupported client attributes refused': 'CLIENT_ATTRIBUTES',
+        'Only native signing-key components are supported': 'COMPONENTS',
+        'Custom flow topology requires explicit review': 'FLOW_TOPOLOGY',
+        'Unsupported authenticator extension refused': 'AUTHENTICATOR_PROVIDER',
+        'Custom authenticator configuration requires explicit review': 'AUTHENTICATOR_CONFIG',
+        'Custom client policy/profile execution requires separate review': 'CLIENT_POLICIES',
+        'Unsupported required-action provider refused': 'REQUIRED_ACTION_PROVIDER',
+        'Alternate authorization features are unsupported': 'ALTERNATE_AUTHORIZATION',
+        'Client alternate grant or service account must already be disabled': 'CLIENT_ALTERNATE_GRANTS',
+        'Offline access is outside this profile': 'OFFLINE_ACCESS',
+        'Other interactive clients must already be disabled': 'INTERACTIVE_CLIENTS',
+        'Existing permanent password and two-factor WebAuthn enrollment required': 'PRE_ENROLLED_CREDENTIALS',
+        'Outstanding user required actions must be resolved before transition': 'OUTSTANDING_USER_ACTIONS',
+        'Exact administrative console origin and redirect required': 'CONSOLE_ORIGINS',
+        'Effective flow execution topology differs': 'FLOW_READBACK',
+        'Effective client controls differ': 'CLIENT_READBACK',
+        'Effective required actions differ': 'ACTION_READBACK',
+        'Signing component inventory differs': 'SIGNING_COMPONENT_READBACK',
+    }
+    upstream_fields = {'userManagedAccessAllowed', 'defaultSignatureAlgorithm', 'maxSecondaryAuthFailures',
+                       'otpPolicyCodeReusable', 'localizationTexts', 'webAuthnPolicyPasswordlessMediation',
+                       'adminPermissionsClient', 'applications', 'applicationScopeMappings', 'defaultRoles',
+                       'clientTemplates', 'social', 'socialProviders', 'userCacheEnabled', 'realmCacheEnabled'}
+    known_attributes = {'frontendUrl', 'cibaBackchannelTokenDeliveryMode', 'cibaAuthRequestedUserHint',
+                        'oauth2DeviceCodeLifespan', 'oauth2DevicePollingInterval', 'parRequestUriLifespan',
+                        'clientOfflineSessionIdleTimeout', 'clientSessionMaxLifespan', 'clientSessionIdleTimeout'}
+    message = str(failure)
+    result = {'gate': gates.get(message, 'UNCLASSIFIED'),
+              'unsupportedRealmFieldCount': len(set(document) - profile.REALM_FIELDS),
+              'knownUnsupportedRealmFields': sorted((set(document) - profile.REALM_FIELDS) & upstream_fields),
+              'realmAttributeCount': len(document.get('attributes') or {}),
+              'knownRealmAttributes': sorted(set(document.get('attributes') or {}) & known_attributes)}
+    for prefix in ('Preserved realm setting differs: ', 'Effective realm control differs: '):
+        if message.startswith(prefix) and message[len(prefix):] in profile.REALM_FIELDS:
+            result.update(gate='REALM_READBACK', field=message[len(prefix):])
+    return result
 
 
 def candidate_receipt(directory):
@@ -326,6 +370,7 @@ def snapshot(directory, owner):
 
 
 def export_candidate():
+    global PHASE, PROFILE_DIAGNOSTIC
     directory, owner = state(); require(owner['phase'] == 'enrollment', 'Enrollment phase required')
     private_write(directory / 'retained-before.json', json.dumps(snapshot(directory, owner)))
     stop_kind(directory, owner, 'retained')
@@ -334,6 +379,13 @@ def export_candidate():
     source = directory / 'exchange/source.json'
     run(['sudo', 'chown', str(os.getuid()) + ':' + str(os.getgid()), str(source)], directory, 'export-private-owner')
     source.chmod(0o600)
+    PHASE = 'actual-export-prerequisites'
+    document = profile.parse_document(source.read_bytes())
+    try:
+        profile.prerequisites(document, 'master', ORIGIN)
+    except (ValueError, TypeError, KeyError) as failure:
+        PROFILE_DIAGNOSTIC = profile_diagnostic(document, failure)
+        raise
     run([sys.executable, str(ROOT / 'tooling/privileged_profile.py'), 'generate', '--input', str(source),
          '--realm', 'master', '--origin', ORIGIN, '--acknowledge-master', '--output', str(directory / 'candidate.json')], directory, 'exact-profile-generation')
     receipt = candidate_receipt(directory); private_write(directory / 'candidate-receipt.json', json.dumps(receipt))
@@ -434,10 +486,15 @@ def verify_action_state():
 
 
 def readback():
+    global PROFILE_DIAGNOSTIC
     directory, _ = state()
     verify_candidate(directory, json.loads((directory / 'candidate-receipt.json').read_text()))
     receipt = json.load(sys.stdin)
-    verify_effective(profile.parse_document((directory / 'candidate.json').read_bytes()), receipt['effective'], receipt.get('retirementWindow'))
+    try:
+        verify_effective(profile.parse_document((directory / 'candidate.json').read_bytes()), receipt['effective'], receipt.get('retirementWindow'))
+    except (ValueError, TypeError, KeyError) as failure:
+        PROFILE_DIAGNOSTIC = profile_diagnostic(receipt['effective'], failure)
+        raise
 
 
 def stop():
@@ -473,6 +530,8 @@ if __name__ == '__main__':
         diagnostic = {'status': 'FAILED', 'stage': PHASE,
                       'sourceLines': [frame.lineno for frame in traceback.extract_tb(failure.__traceback__)
                                       if Path(frame.filename).resolve() == Path(__file__).resolve()][-6:]}
+        if PROFILE_DIAGNOSTIC is not None:
+            diagnostic['profile'] = PROFILE_DIAGNOSTIC
         (evidence / 'lifecycle-summary.json').write_text(json.dumps(diagnostic, indent=2) + '\n')
         print('Owned master fixture failed; raw logs and credential material remain private.', file=sys.stderr)
         raise SystemExit(1)
