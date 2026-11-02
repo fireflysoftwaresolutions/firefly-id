@@ -133,3 +133,30 @@ test('fresh disabled broker accepts only native secret metadata created inside i
   }
   assert.throws(() => verifyPreparedClientReadback(initial, effective, attributes, { minimum: 0, maximum: 10000 }));
 });
+
+test('owned prerequisite preserves the offline scope identity while removing all default assignments', async () => {
+  const { retireOfflineScope } = await runtime();
+  const definition = { id: 'offline-id', name: 'offline_access', protocol: 'openid-connect',
+    description: 'retained', attributes: { 'consent.screen.text': '${offlineAccessScopeConsentText}' }, protocolMappers: [] };
+  const roles = [{ id: 'offline-role', name: 'offline_access', composite: false, clientRole: false }];
+  let scopes = [definition, { id: 'profile-id', name: 'profile' }];
+  let mappings = roles;
+  const calls = [];
+  await retireOfflineScope(async (path, method = 'GET', body) => {
+    calls.push([path, method]);
+    if (method === 'DELETE') { assert.equal(path, 'client-scopes/offline-id'); scopes = scopes.slice(1); mappings = []; return; }
+    if (method === 'POST' && path === 'client-scopes') { assert.deepEqual(body, definition); scopes.push(structuredClone(body)); return; }
+    if (method === 'POST' && path === 'client-scopes/offline-id/scope-mappings/realm') { assert.deepEqual(body, roles); mappings = body; return; }
+    assert.equal(method, 'GET');
+    if (path === 'client-scopes') return scopes;
+    if (path === 'client-scopes/offline-id') return scopes.find(scope => scope.id === 'offline-id');
+    if (path === 'client-scopes/offline-id/scope-mappings') return { realmMappings: mappings };
+    if (path === 'client-scopes/offline-id/scope-mappings/realm') return mappings;
+    assert.ok(['default-default-client-scopes', 'default-optional-client-scopes'].includes(path)); return [];
+  });
+  assert.equal(scopes.find(scope => scope.name === 'offline_access').id, 'offline-id');
+  assert.deepEqual(calls.filter(([, method]) => method === 'DELETE'), [['client-scopes/offline-id', 'DELETE']]);
+  await assert.rejects(retireOfflineScope(async () => [{ id: 'only-id', name: 'offline_access' }]));
+  await assert.rejects(retireOfflineScope(async () => [
+    { id: 'offline-id', name: 'offline_access' }, { id: 'profile-id', name: 'profile' }]));
+});

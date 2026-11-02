@@ -104,6 +104,37 @@ export function preparedClientAttributes(client) {
   return attributes;
 }
 
+export async function retireOfflineScope(admin) {
+  const scopes = await admin('client-scopes');
+  const offline = scopes.filter(scope => scope.name === 'offline_access');
+  assert.equal(offline.length, 1); assert.ok(scopes.length > 1);
+  assert.match(offline[0].id, /^[A-Za-z0-9-]+$/);
+  const path = 'client-scopes/' + offline[0].id;
+  const definition = await admin(path);
+  assert.equal(definition.id, offline[0].id); assert.equal(definition.name, 'offline_access');
+  assert.equal(definition.protocol, 'openid-connect');
+  const mappings = await admin(path + '/scope-mappings');
+  assert.equal(Object.keys(mappings.clientMappings || {}).length, 0, 'Unreviewed offline client-role mappings');
+  const roles = mappings.realmMappings || [];
+  assert.ok(Array.isArray(roles) && roles.every(role => role.clientRole === false && typeof role.id === 'string'));
+  // Deletion clears all assignments; preserving the scope prevents import from recreating its role with a new ID.
+  await admin(path, 'DELETE');
+  await admin('client-scopes', 'POST', definition);
+  assert.deepEqual(await admin(path), definition, 'Offline scope definition changed');
+  if (roles.length) await admin(path + '/scope-mappings/realm', 'POST', roles);
+  const ordered = values => [...values].sort((left, right) => left.id.localeCompare(right.id));
+  assert.deepEqual(ordered(await admin(path + '/scope-mappings/realm')), ordered(roles), 'Offline scope role identities changed');
+  const restoredMappings = await admin(path + '/scope-mappings');
+  assert.equal(Object.keys(restoredMappings.clientMappings || {}).length, 0, 'Offline scope gained client-role mappings');
+  assert.deepEqual(ordered(restoredMappings.realmMappings || []), ordered(roles), 'Offline scope mapping inventory changed');
+  const retained = (await admin('client-scopes')).filter(scope => scope.name === 'offline_access');
+  assert.equal(retained.length, 1); assert.equal(retained[0].id, definition.id);
+  for (const defaults of ['default-default-client-scopes', 'default-optional-client-scopes']) {
+    assert.ok(!(await admin(defaults)).some(scope => scope.id === definition.id || scope.name === 'offline_access'),
+      'Offline scope remains a realm default');
+  }
+}
+
 export function clientAttributeDiagnostic(clientId, requested, actual) {
   const known = new Set(['realm_client', 'pkce.code.challenge.method', 'client.use.lightweight.access.token.enabled',
     'post.logout.redirect.uris', 'backchannel.logout.session.required', 'backchannel.logout.revoke.offline.tokens',
@@ -388,16 +419,16 @@ async function qualify() {
     assert.equal(renewedBootstrap.status, 200); bootstrapTokens = await renewedBootstrap.json();
     await proveAccess(bootstrapTokens.access_token);
     pass('bootstrap-authority-positive-immediately-before-client-and-account-retirement');
+    await retireOfflineScope(admin);
     for (const client of await admin('clients')) {
+      for (const kind of ['default', 'optional']) {
+        assert.ok(!(await admin('clients/' + client.id + '/' + kind + '-client-scopes')).some(scope => scope.name === 'offline_access'),
+          'Offline scope remains assigned');
+      }
       if (client.clientId === 'master-realm') {
         assert.equal(client.bearerOnly, true); assert.equal(client.publicClient, false);
         for (const key of ['directAccessGrantsEnabled', 'implicitFlowEnabled', 'serviceAccountsEnabled']) assert.equal(client[key], false);
         continue;
-      }
-      for (const kind of ['default', 'optional']) {
-        for (const scope of await admin('clients/' + client.id + '/' + kind + '-client-scopes')) {
-          if (scope.name === 'offline_access') await admin('clients/' + client.id + '/' + kind + '-client-scopes/' + scope.id, 'DELETE');
-        }
       }
       const attributes = preparedClientAttributes(client);
       const attributeWindow = { minimum: Math.floor(Date.now() / 1000) };

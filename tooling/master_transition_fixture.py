@@ -298,7 +298,45 @@ def verified_component_readback(candidate, effective, rows):
     return restored
 
 
-def verify_effective(candidate, effective, retirement_window=None):
+def imported_client_readback(candidate, effective, window):
+    require(isinstance(window, dict) and all(type(window.get(key)) is int for key in ('minimum', 'maximum'))
+            and 0 < window['minimum'] <= window['maximum'] <= window['minimum'] + 241,
+            'Measured native import window required')
+    restored = json.loads(json.dumps(effective))
+    expected = {client['clientId']: client for client in candidate['clients']}
+    for actual in restored.get('clients', []):
+        source = expected.get(actual.get('clientId'))
+        require(source is not None, 'Unexpected imported client')
+        protected = profile.internal_role_resource(candidate, source) and profile.internal_role_resource(restored, actual)
+        if protected:
+            require(source.get('bearerOnly') is True and actual.get('bearerOnly') is True
+                    and source.get('publicClient') is False and actual.get('publicClient') is False,
+                    'Imported internal resource lost bearer-only confinement')
+            require(all(actual.get(key, False) is False for key in ('directAccessGrantsEnabled', 'implicitFlowEnabled',
+                        'serviceAccountsEnabled', 'authorizationServicesEnabled')), 'Imported internal resource gained a grant')
+            # RepresentationToModel supplies OIDC only when the native protected resource omitted a protocol.
+            if 'protocol' not in source and actual.get('protocol') == 'openid-connect':
+                del actual['protocol']
+        source_attributes = source.get('attributes', {})
+        actual_attributes = actual.get('attributes', {})
+        # DefaultExportImportManager adds '+' on import; active interactive clients get no waiver.
+        if (protected or (source.get('enabled') is False and actual.get('enabled') is False)) and (
+                'post.logout.redirect.uris' not in source_attributes and actual_attributes.get('post.logout.redirect.uris') == '+'):
+            del actual_attributes['post.logout.redirect.uris']
+        creation = 'client.secret.creation.time'
+        if protected and creation not in source_attributes and creation in actual_attributes:
+            require(source.get('secret') is None, 'Existing client secret metadata changed')
+            value = actual_attributes[creation]
+            require(isinstance(value, str) and re.fullmatch(r'[1-9][0-9]{0,9}', value) is not None
+                    and window['minimum'] <= int(value) <= window['maximum'] and int(value) <= 2147483647,
+                    'Native imported secret metadata outside measured window')
+            del actual_attributes[creation]
+    return restored
+
+
+def verify_effective(candidate, effective, retirement_window=None, *, import_window=None):
+    if import_window is not None:
+        effective = imported_client_readback(candidate, effective, import_window)
     # Partial export omits users; identity/credential/role retention is checked independently.
     checked = dict(effective, users=candidate['users'])
     console = next(client for client in candidate['clients'] if client['clientId'] == 'security-admin-console')
@@ -622,8 +660,10 @@ def import_start():
     verify_candidate(directory, json.loads((directory / 'candidate-receipt.json').read_text()))
     require((directory / 'exchange/candidate.json').read_bytes() == (directory / 'candidate.json').read_bytes(), 'Mounted import differs from generated candidate')
     require(psql(directory, owner, "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';", 'master_imported') == '0', 'Import database must be empty')
+    owner['importWindow'] = {'minimum': int(time.time())}
     create_container(directory, owner, 'import', native_command(directory, 'import', 'master_imported',
                      ['import', '--file', '/run/exchange/candidate.json', '--override', 'false']))
+    owner['importWindow']['maximum'] = int(time.time()) + 1
     create_container(directory, owner, 'imported', native_command(directory, 'imported', 'master_imported', ['start']))
     wait_ready(directory); owner['phase'] = 'imported'; save_owner(directory, owner)
 
@@ -734,7 +774,8 @@ def readback():
     try:
         candidate = profile.parse_document((directory / 'candidate.json').read_bytes())
         effective = verified_component_readback(candidate, receipt['effective'], read_component_rows(directory, owner))
-        verify_effective(candidate, effective, receipt.get('retirementWindow'))
+        verify_effective(candidate, effective, receipt.get('retirementWindow'),
+                         import_window=owner['importWindow'] if owner['phase'] == 'imported' else None)
     except (ValueError, TypeError, KeyError) as failure:
         PROFILE_DIAGNOSTIC = profile_diagnostic(receipt['effective'], failure)
         raise

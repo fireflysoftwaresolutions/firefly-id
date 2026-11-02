@@ -21,6 +21,41 @@ class MasterTransitionTest(unittest.TestCase):
         spec.loader.exec_module(module)
         return module
 
+    def test_import_normalization_is_measured_and_limited_to_closed_native_clients(self):
+        module = self.module(); document = source()
+        resource = next(client for client in document['clients'] if client['clientId'] == 'realm-management')
+        resource.update(clientId='master-realm', enabled=True, publicClient=False, bearerOnly=True,
+                        standardFlowEnabled=True, attributes={'realm_client': 'true'})
+        resource.pop('protocol')
+        document['roles']['client'] = {'master-realm': [{'name': 'view-realm'}, {'name': 'manage-realm'}]}
+        candidate = module.profile.build_profile(document, realm='master', origin='https://id.example.test', acknowledge_master=True)
+        effective = copy.deepcopy(candidate)
+        internal = next(client for client in effective['clients'] if client['clientId'] == 'master-realm')
+        internal['protocol'] = 'openid-connect'
+        internal['attributes'].update({'client.secret.creation.time': '100', 'post.logout.redirect.uris': '+'})
+        effective['clients'][0]['attributes']['post.logout.redirect.uris'] = '+'
+        before = copy.deepcopy(effective)
+        module.verify_effective(candidate, effective, import_window={'minimum': 99, 'maximum': 101})
+        self.assertEqual(effective, before)
+        with self.assertRaises(ValueError): module.verify_effective(candidate, effective)
+        for mutation in ({'client.secret.creation.time': '102'}, {'client.secret.creation.time': '0100'},
+                         {'post.logout.redirect.uris': '*'}, {'unknown': 'PRIVATE'}):
+            invalid = copy.deepcopy(effective)
+            next(client for client in invalid['clients'] if client['clientId'] == 'master-realm')['attributes'].update(mutation)
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                module.verify_effective(candidate, invalid, import_window={'minimum': 99, 'maximum': 101})
+        for field, value in [('publicClient', True), ('bearerOnly', False), ('directAccessGrantsEnabled', True), ('protocol', 'saml')]:
+            invalid = copy.deepcopy(effective)
+            next(client for client in invalid['clients'] if client['clientId'] == 'master-realm')[field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                module.verify_effective(candidate, invalid, import_window={'minimum': 99, 'maximum': 101})
+        invalid = copy.deepcopy(effective); invalid['clients'][-1]['attributes']['post.logout.redirect.uris'] = '+'
+        with self.assertRaises(ValueError): module.verify_effective(candidate, invalid, import_window={'minimum': 99, 'maximum': 101})
+        for secret in ('', 'existing'):
+            existing = copy.deepcopy(candidate)
+            next(client for client in existing['clients'] if client['clientId'] == 'master-realm')['secret'] = secret
+            with self.assertRaises(ValueError): module.verify_effective(existing, effective, import_window={'minimum': 99, 'maximum': 101})
+
     def test_component_readback_requires_full_database_material_and_exact_api_projection(self):
         module = self.module()
         self.assertTrue(hasattr(module, 'verified_component_readback'))
