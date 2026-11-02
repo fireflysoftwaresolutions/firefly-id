@@ -58,6 +58,11 @@ conditional-user-attribute idp-detect-existing-broker-user idp-confirm-override-
 idp-add-organization-member auth-conditional-otp-form auth-x509-client-username-form direct-grant-auth-x509-username
 webauthn-authenticator-passwordless deny-access-authenticator allow-access-authenticator organization passkeys-authenticator
 user-session-limits firefly-privileged-webauthn'''.split())
+IMPORTED_REALM_ATTRIBUTE_FIELDS = {key: key for key in (
+    'clientSessionIdleTimeout', 'clientSessionMaxLifespan', 'clientOfflineSessionIdleTimeout',
+    'clientOfflineSessionMaxLifespan', 'scimApiEnabled')}
+IMPORTED_REALM_ATTRIBUTE_FIELDS['realmReusableOtpCode'] = 'otpPolicyCodeReusable'
+UPSTREAM_ATTRIBUTES.update(IMPORTED_REALM_ATTRIBUTE_FIELDS)
 
 
 def require(value, message):
@@ -85,7 +90,7 @@ def profile_diagnostic(document, failure):
         'Unsupported client fields refused': 'UNSUPPORTED_CLIENT_FIELDS',
         'Unsupported client attributes refused': 'CLIENT_ATTRIBUTES',
         'Only native signing-key components are supported': 'COMPONENTS',
-        'Only reviewed native signing-key and default user-profile components are supported': 'COMPONENTS',
+        'Only reviewed native signing-key, user-profile, and registration-policy components are supported': 'COMPONENTS',
         'Only the native declarative user-profile provider is supported': 'USER_PROFILE_PROVIDER',
         'Custom user-profile component settings require explicit review': 'USER_PROFILE_SETTINGS',
         'Custom declarative user-profile configuration requires explicit review': 'USER_PROFILE_CONFIGURATION',
@@ -144,6 +149,10 @@ def profile_diagnostic(document, failure):
         'A new output path is required': 'OUTPUT_PATH',
         'Duplicate or invalid user-profile role set refused': 'USER_PROFILE_ROLE_SET',
         'Internal administrative role resource must remain confidential and bearer-only': 'INTERNAL_ROLE_RESOURCE',
+        'Complete native registration policy inventory required': 'REGISTRATION_POLICY_INVENTORY',
+        'Unreviewed native registration policy identity': 'REGISTRATION_POLICY_IDENTITY',
+        'Unreviewed native registration policy configuration': 'REGISTRATION_POLICY_CONFIGURATION',
+        'Imported realm attribute does not mirror retained typed control': 'IMPORTED_REALM_ATTRIBUTE',
     }
     def mapping(value):
         return value if isinstance(value, dict) else {}
@@ -189,6 +198,9 @@ def profile_diagnostic(document, failure):
               'unknownRealmAttributeCount': count(set(attributes) - UPSTREAM_ATTRIBUTES),
               'realmNativeDefaults': {key: attributes[key] == profile.SAFE_REALM_ATTRIBUTES[key]
                                       for key in names(attributes, set(profile.SAFE_REALM_ATTRIBUTES))},
+              'realmMirrorAttributes': {key: 'ZERO' if attributes[key] == '0' else 'FALSE' if attributes[key] == 'false'
+                                       else 'TRUE' if attributes[key] == 'true' else 'OTHER'
+                                       for key in names(attributes, set(IMPORTED_REALM_ATTRIBUTE_FIELDS))},
               'alternateAuthorizationDisabled': {key: document[key] is False for key in (
                   'scimApiEnabled', 'organizationsEnabled', 'userManagedAccessEnabled', 'userManagedAccessAllowed',
                   'verifiableCredentialsEnabled') if key in document},
@@ -267,6 +279,8 @@ def verified_component_readback(candidate, effective, rows):
     def configuration(kind, component):
         if kind == profile.USER_PROFILE_PROVIDER:
             return {'kc.user.profile.config': profile.native_user_profile_configuration(component, realm='master')}
+        if kind == profile.REGISTRATION_POLICY_PROVIDER:
+            return profile.native_registration_configuration(component)
         config = component.get('config', {})
         require(isinstance(config, dict) and all(isinstance(value, list) and value
                 and all(isinstance(item, str) for item in value) for value in config.values()), 'Component configuration shape differs')
@@ -288,8 +302,8 @@ def verified_component_readback(candidate, effective, rows):
             and isinstance(candidate.get('id'), str) and candidate['id'], 'Component database identity differs')
         expected_config = configuration(kind, component)
         require(expected_config == configuration(kind, {**component, 'config': row.get('config')}), 'Component database configuration differs')
-        if kind == profile.USER_PROFILE_PROVIDER:
-            require(expected_config == configuration(kind, observed), 'User profile API configuration differs')
+        if kind in (profile.USER_PROFILE_PROVIDER, profile.REGISTRATION_POLICY_PROVIDER):
+            require(expected_config == configuration(kind, observed), 'Native component API configuration differs')
         else:
             require(provider in visible and set(expected_config) <= visible[provider] | hidden[provider],
                     'Unreviewed key provider configuration refused')
@@ -299,11 +313,20 @@ def verified_component_readback(candidate, effective, rows):
     return restored
 
 
-def imported_client_readback(candidate, effective, window):
+def imported_readback(candidate, effective, window):
     require(isinstance(window, dict) and all(type(window.get(key)) is int for key in ('minimum', 'maximum'))
             and 0 < window['minimum'] <= window['maximum'] <= window['minimum'] + 241,
             'Measured native import window required')
     restored = json.loads(json.dumps(effective))
+    for attribute, field in IMPORTED_REALM_ATTRIBUTE_FIELDS.items():
+        if attribute in restored.get('attributes', {}) and attribute not in candidate.get('attributes', {}):
+            value = candidate.get(field)
+            expected_type = bool if field in ('otpPolicyCodeReusable', 'scimApiEnabled') else int
+            require(type(value) is expected_type and type(restored.get(field)) is expected_type
+                    and restored[field] == value and restored['attributes'][attribute] == (
+                        str(value).lower() if expected_type is bool else str(value)),
+                    'Imported realm attribute does not mirror retained typed control')
+            del restored['attributes'][attribute]
     expected = {client['clientId']: client for client in candidate['clients']}
     for actual in restored.get('clients', []):
         source = expected.get(actual.get('clientId'))
@@ -337,7 +360,7 @@ def imported_client_readback(candidate, effective, window):
 
 def verify_effective(candidate, effective, retirement_window=None, *, import_window=None):
     if import_window is not None:
-        effective = imported_client_readback(candidate, effective, import_window)
+        effective = imported_readback(candidate, effective, import_window)
     # Partial export omits users; identity/credential/role retention is checked independently.
     checked = dict(effective, users=candidate['users'])
     console = next(client for client in candidate['clients'] if client['clientId'] == 'security-admin-console')
@@ -361,6 +384,8 @@ def verify_effective(candidate, effective, retirement_window=None, *, import_win
         result = json.loads(json.dumps(document.get('components', {})))
         for component in result.get(profile.USER_PROFILE_PROVIDER, []):
             component['config'] = {'kc.user.profile.config': profile.native_user_profile_configuration(component, realm=document.get('realm'))}
+        for component in result.get(profile.REGISTRATION_POLICY_PROVIDER, []):
+            component['config'] = profile.native_registration_configuration(component)
         return canonical(result)
     require(components(candidate) == components(effective), 'Signing component inventory differs')
     expected = profile.controls(profile.origin_host('https://' + candidate['webAuthnPolicyRpId']))
@@ -806,16 +831,10 @@ def review_components():
     _, owner = state(); require(owner['phase'] == 'enrollment', 'Owned source prerequisite phase required')
     values = json.load(sys.stdin)
     require(isinstance(values, list) and len(values) <= 64, 'Bounded owned component inventory required')
-    registration_type = 'org.keycloak.services.clientregistration.policy.ClientRegistrationPolicy'
-    registration_ids = {'trusted-hosts', 'consent-required', 'scope', 'max-clients', 'allowed-protocol-mappers',
-                        'allowed-client-templates', 'registration-web-origins'}
     native = {}
     for component in values:
         kind = component.get('providerType')
-        if kind == registration_type:
-            require(component.get('providerId') in registration_ids, 'Custom client registration provider refused')
-        else:
-            native.setdefault(kind, []).append(component)
+        native.setdefault(kind, []).append(component)
     try:
         profile.reviewed_native_components(native, realm='master')
     except (ValueError, TypeError, KeyError) as failure:

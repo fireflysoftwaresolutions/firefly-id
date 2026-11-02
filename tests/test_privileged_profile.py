@@ -107,6 +107,26 @@ class PrivilegedProfileTest(unittest.TestCase):
             invalid = copy.deepcopy(document); invalid['clients'][-1]['attributes'][key] = 'true'
             with self.subTest(grant=key), self.assertRaises(ValueError): self.candidate(invalid)
 
+    def test_native_registration_policies_preserve_complete_exact_controls(self):
+        self.assertTrue(hasattr(self.module, 'DEFAULT_REGISTRATION_POLICIES'))
+        document = source(); kind = self.module.REGISTRATION_POLICY_PROVIDER
+        policies = [{**copy.deepcopy(value), 'id': 'policy-' + str(i)}
+                    for i, value in enumerate(self.module.DEFAULT_REGISTRATION_POLICIES)]
+        document['components'][kind] = policies
+        self.assertEqual(self.candidate(document)['components'], document['components'])
+        for mutation in ('missing', 'duplicate', 'subtype', 'config', 'provider'):
+            invalid = copy.deepcopy(document); values = invalid['components'][kind]
+            if mutation == 'missing': values.pop()
+            elif mutation == 'duplicate': values.append(copy.deepcopy(values[0]))
+            elif mutation == 'subtype': values[0]['subType'] = 'authenticated'
+            elif mutation == 'config': values[0]['config']['host-sending-registration-request-must-match'] = ['false']
+            else: values[0]['providerId'] = 'extension'
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError): self.candidate(invalid)
+        policies[0]['config']['trusted-hosts'] = []
+        self.candidate(document)
+        policies[0]['config']['trusted-hosts'] = ['unreviewed.example']
+        with self.assertRaises(ValueError): self.candidate(document)
+
     def test_enabled_client_bypasses_and_unsupported_extensions_are_refused_without_repair(self):
         mutations = [
             ('directAccessGrantsEnabled', True), ('implicitFlowEnabled', True),

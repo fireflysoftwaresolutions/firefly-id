@@ -450,11 +450,6 @@ async function qualify() {
     const components = await admin('components');
     report.componentInventory = components.slice(0, 32).map(componentDiagnostic); save();
     lifecycle('review_components', components);
-    for (const component of components) {
-      if (['org.keycloak.keys.KeyProvider', 'org.keycloak.userprofile.UserProfileProvider'].includes(component.providerType)) continue;
-      assert.equal(component.providerType, 'org.keycloak.services.clientregistration.policy.ClientRegistrationPolicy');
-      await admin('components/' + component.id, 'DELETE');
-    }
     await admin('users/' + bootstrap.id, 'PUT', { ...bootstrap, enabled: false, requiredActions: [] });
     const sourceOrdinary = structuredClone(accounts.ordinary.credential);
     const sourceEmergency = structuredClone(accounts.emergency.credential);

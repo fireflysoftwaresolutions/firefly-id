@@ -91,6 +91,51 @@ class MasterTransitionTest(unittest.TestCase):
             next(client for client in existing['clients'] if client['clientId'] == 'master-realm')['secret'] = secret
             with self.assertRaises(ValueError): module.verify_effective(existing, effective, import_window={'minimum': 99, 'maximum': 101})
 
+    def test_native_import_attribute_mirrors_require_exact_independent_typed_controls(self):
+        module = self.module(); document = source()
+        document.update(clientSessionIdleTimeout=0, clientSessionMaxLifespan=0, clientOfflineSessionIdleTimeout=0,
+                        clientOfflineSessionMaxLifespan=0, otpPolicyCodeReusable=False, scimApiEnabled=False)
+        candidate = module.profile.build_profile(document, realm='master', origin='https://id.example.test', acknowledge_master=True)
+        effective = copy.deepcopy(candidate)
+        mirrors = {key: key for key in ('clientSessionIdleTimeout', 'clientSessionMaxLifespan',
+                                        'clientOfflineSessionIdleTimeout', 'clientOfflineSessionMaxLifespan', 'scimApiEnabled')}
+        mirrors['realmReusableOtpCode'] = 'otpPolicyCodeReusable'
+        effective['attributes'].update({key: 'false' if type(effective[field]) is bool else '0' for key, field in mirrors.items()})
+        module.verify_effective(candidate, effective, import_window={'minimum': 99, 'maximum': 101})
+        with self.assertRaises(ValueError): module.verify_effective(candidate, effective)
+        for key, field in mirrors.items():
+            invalid = copy.deepcopy(effective); invalid['attributes'][key] = '1'
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                module.verify_effective(candidate, invalid, import_window={'minimum': 99, 'maximum': 101})
+            invalid = copy.deepcopy(effective); invalid[field] = True if type(invalid[field]) is bool else 1
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                module.verify_effective(candidate, invalid, import_window={'minimum': 99, 'maximum': 101})
+
+    def test_all_native_registration_policies_require_exact_database_and_api_retention(self):
+        module = self.module(); document = source(); document['id'] = 'realm-id'
+        kind = module.profile.REGISTRATION_POLICY_PROVIDER
+        document['components'][kind] = [{**copy.deepcopy(policy), 'id': 'policy-' + str(i)}
+                                       for i, policy in enumerate(module.profile.DEFAULT_REGISTRATION_POLICIES)]
+        candidate = module.profile.build_profile(document, realm='master', origin='https://id.example.test', acknowledge_master=True)
+        effective = copy.deepcopy(candidate)
+        rows = [{'id': component['id'], 'name': component['name'], 'providerId': component['providerId'],
+                 'subType': component['subType'], 'providerType': kind, 'realmId': 'realm-id', 'parentId': 'realm-id',
+                 'config': copy.deepcopy(component['config'])} for component in candidate['components'][kind]]
+        restored = module.verified_component_readback(candidate, effective, rows)
+        module.verify_effective(candidate, restored)
+        effective['components'][kind][0]['config']['trusted-hosts'] = []
+        module.verify_effective(candidate, module.verified_component_readback(candidate, effective, rows))
+        for mutation in ('missing', 'id', 'subtype', 'config'):
+            invalid = copy.deepcopy(rows)
+            if mutation == 'missing': invalid.pop()
+            elif mutation == 'id': invalid[0]['id'] = 'replacement-id'
+            elif mutation == 'subtype': invalid[0]['subType'] = 'authenticated'
+            else: invalid[0]['config']['host-sending-registration-request-must-match'] = ['false']
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                module.verified_component_readback(candidate, effective, invalid)
+        effective['components'][kind][0]['config']['client-uris-must-match'] = ['false']
+        with self.assertRaises(ValueError): module.verified_component_readback(candidate, effective, rows)
+
     def test_component_readback_requires_full_database_material_and_exact_api_projection(self):
         module = self.module()
         self.assertTrue(hasattr(module, 'verified_component_readback'))

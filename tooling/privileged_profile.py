@@ -83,6 +83,44 @@ SOURCE_CONFIGS = {
 
 
 USER_PROFILE_PROVIDER = 'org.keycloak.userprofile.UserProfileProvider'
+REGISTRATION_POLICY_PROVIDER = 'org.keycloak.services.clientregistration.policy.ClientRegistrationPolicy'
+_REGISTRATION_GENERIC = [
+    ('Allowed Protocol Mapper Types', 'allowed-protocol-mappers', {'allowed-protocol-mapper-types': sorted([
+        'saml-user-attribute-mapper', 'oidc-usermodel-attribute-mapper', 'saml-user-property-mapper',
+        'oidc-usermodel-property-mapper', 'oidc-full-name-mapper', 'oidc-address-mapper',
+        'oidc-sha256-pairwise-sub-mapper', 'saml-role-list-mapper'])}),
+    ('Allowed Client Scopes', 'allowed-client-templates', {'allow-default-scopes': ['true']}),
+    ('Allowed Registration Web Origins', 'registration-web-origins', {}),
+]
+# DefaultClientRegistrationPolicies creates this complete native set; no trusted hosts or registration origins.
+DEFAULT_REGISTRATION_POLICIES = [
+    {'name': name, 'providerId': provider, 'subType': subtype, 'config': config}
+    for subtype in ('anonymous', 'authenticated') for name, provider, config in (
+        ([('Trusted Hosts', 'trusted-hosts', {'host-sending-registration-request-must-match': ['true'],
+                                           'client-uris-must-match': ['true']}),
+          ('Consent Required', 'consent-required', {}), ('Full Scope Disabled', 'scope', {}),
+          ('Max Clients Limit', 'max-clients', {'max-clients': ['200']})] if subtype == 'anonymous' else [])
+        + _REGISTRATION_GENERIC)]
+
+
+def native_registration_configuration(component):
+    expected = next((item for item in DEFAULT_REGISTRATION_POLICIES if item['providerId'] == component.get('providerId')
+                     and item['subType'] == component.get('subType')), None)
+    require(expected is not None and component.get('name') == expected['name']
+            and component.get('providerType', REGISTRATION_POLICY_PROVIDER) == REGISTRATION_POLICY_PROVIDER,
+            'Unreviewed native registration policy identity')
+    config = copy.deepcopy(component.get('config', {}))
+    require(isinstance(config, dict) and all(isinstance(values, list) and all(isinstance(value, str) for value in values)
+            and len(values) == len(set(values)) for values in config.values()), 'Unreviewed native registration policy configuration')
+    empty_key = {'trusted-hosts': 'trusted-hosts', 'allowed-client-templates': 'allowed-client-scopes',
+                 'registration-web-origins': 'web-origins'}.get(component.get('providerId'))
+    if empty_key in config and config[empty_key] == []:
+        del config[empty_key]
+    normalized = {key: sorted(values) for key, values in config.items()}
+    require(normalized == expected['config'], 'Unreviewed native registration policy configuration')
+    return normalized
+
+
 # Keycloak 26.8.1 services/.../userprofile/config/keycloak-default-user-profile.json.
 DEFAULT_USER_PROFILE = {
     'attributes': [
@@ -135,8 +173,8 @@ def native_user_profile_configuration(component, *, realm=None):
 
 
 def reviewed_native_components(components, *, realm=None):
-    require(isinstance(components, dict) and set(components) <= {'org.keycloak.keys.KeyProvider', USER_PROFILE_PROVIDER},
-            'Only reviewed native signing-key and default user-profile components are supported')
+    require(isinstance(components, dict) and set(components) <= {'org.keycloak.keys.KeyProvider', USER_PROFILE_PROVIDER, REGISTRATION_POLICY_PROVIDER},
+            'Only reviewed native signing-key, user-profile, and registration-policy components are supported')
     for entries in components.values():
         require(isinstance(entries, list), 'Native component list required')
         for component in entries:
@@ -145,6 +183,14 @@ def reviewed_native_components(components, *, realm=None):
     require(len(profiles) <= 1, 'Duplicate user-profile components refused')
     for component in profiles:
         native_user_profile_configuration(component, realm=realm)
+    if REGISTRATION_POLICY_PROVIDER in components:
+        policies = components[REGISTRATION_POLICY_PROVIDER]
+        identities = [(item.get('subType'), item.get('providerId')) for item in policies]
+        require(len(identities) == len(DEFAULT_REGISTRATION_POLICIES) and len(set(identities)) == len(identities)
+                and set(identities) == {(item['subType'], item['providerId']) for item in DEFAULT_REGISTRATION_POLICIES},
+                'Complete native registration policy inventory required')
+        for component in policies:
+            native_registration_configuration(component)
 
 
 def existing_flows(document):
