@@ -32,9 +32,27 @@ test('retained plan uses only generated profile flows and controls, never realm 
     requiredActions: [{ alias: 'webauthn-register', providerId: 'webauthn-register', enabled: false, defaultAction: false, priority: 0, config: {} }],
     users: [{ username: 'must-not-import' }], clients: [{ clientId: 'must-not-put' }] };
   for (const key of CONTROL_KEYS) if (!Object.hasOwn(controls, key)) controls[key] = false;
+  const policies = {};
+  for (const prefix of ['webAuthnPolicy', 'webAuthnPolicyPasswordless']) {
+    for (const [key, value] of Object.entries({ RpEntityName: prefix + ' retained name', SignatureAlgorithms: ['ES256', 'RS256'],
+      RpId: 'id.example.test', AttestationConveyancePreference: 'direct', AuthenticatorAttachment: 'cross-platform',
+      RequireResidentKey: 'No', ResidentKey: 'discouraged', UserVerificationRequirement: 'required', CreateTimeout: 27,
+      AvoidSameAuthenticatorRegister: true, AcceptableAaguids: ['retained-aaguid'], ExtraOrigins: [] })) policies[prefix + key] = value;
+  }
+  policies.webAuthnPolicyPasswordlessPasskeysEnabled = false;
+  policies.webAuthnPolicyPasswordlessMediation = 'conditional';
+  Object.assign(controls, policies);
   const result = retainedOperations(controls, ['attributes', 'browserFlow', 'directGrantFlow', 'authenticationFlows', 'requiredActions']);
   assert.equal(result.flows.length, 2);
   assert.deepEqual(Object.keys(result.realm).sort(), CONTROL_KEYS.filter(key => !['authenticationFlows', 'requiredActions'].includes(key)).sort());
+  assert.deepEqual(Object.fromEntries(Object.keys(policies).map(key => [key, result.realm[key]])), policies);
+  for (const key of Object.keys(policies)) {
+    const missing = { ...controls }; delete missing[key];
+    assert.throws(() => retainedOperations(missing), 'Missing retained policy field must refuse: ' + key);
+  }
+  for (const key of ['webAuthnPolicyRpEntityName', 'webAuthnPolicyPasswordlessRpEntityName']) {
+    for (const value of ['', null, false]) assert.throws(() => retainedOperations({ ...controls, [key]: value }));
+  }
   const incomplete = { ...controls }; delete incomplete.webAuthnPolicyUserVerificationRequirement;
   assert.throws(() => retainedOperations(incomplete));
   assert.ok(!JSON.stringify(result).includes('must-not'));

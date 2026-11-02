@@ -16,10 +16,14 @@ const CALLBACK = ORIGIN + '/admin/master/console/fixture-return';
 const CLIENT = 'security-admin-console';
 const BROWSER = 'firefly-privileged-browser-v1';
 const DENY = 'firefly-privileged-deny-v1';
+const WEBAUTHN_POLICY_KEYS = Object.freeze(['webAuthnPolicy', 'webAuthnPolicyPasswordless'].flatMap(prefix => [
+  'RpEntityName', 'SignatureAlgorithms', 'RpId', 'AttestationConveyancePreference', 'AuthenticatorAttachment',
+  'RequireResidentKey', 'ResidentKey', 'UserVerificationRequirement', 'CreateTimeout', 'AvoidSameAuthenticatorRegister',
+  'AcceptableAaguids', 'ExtraOrigins'].map(field => prefix + field))
+  .concat(['webAuthnPolicyPasswordlessPasskeysEnabled', 'webAuthnPolicyPasswordlessMediation']));
 export const CONTROL_KEYS = Object.freeze(['attributes', 'registrationAllowed', 'resetPasswordAllowed', 'rememberMe', 'registrationEmailAsUsername',
   'editUsernameAllowed', 'verifyEmail', 'browserFlow', 'directGrantFlow', 'registrationFlow', 'resetCredentialsFlow',
-  'dockerAuthenticationFlow', 'firstBrokerLoginFlow', 'authenticationFlows', 'requiredActions', 'webAuthnPolicyRpId',
-  'webAuthnPolicyUserVerificationRequirement', 'webAuthnPolicyExtraOrigins', 'webAuthnPolicyPasswordlessPasskeysEnabled',
+  'dockerAuthenticationFlow', 'firstBrokerLoginFlow', 'authenticationFlows', 'requiredActions', ...WEBAUTHN_POLICY_KEYS,
   'eventsEnabled', 'adminEventsEnabled', 'adminEventsDetailsEnabled']);
 
 export function ownedRuntime(root, env, owner) {
@@ -34,6 +38,10 @@ export function ownedRuntime(root, env, owner) {
 
 export function retainedOperations(candidate) {
   assert.ok(CONTROL_KEYS.every(key => Object.hasOwn(candidate, key)), 'Complete generated security controls required');
+  // The update API replaces each complete WebAuthn block only when its RP entity name is nonempty.
+  for (const key of ['webAuthnPolicyRpEntityName', 'webAuthnPolicyPasswordlessRpEntityName']) {
+    assert.ok(typeof candidate[key] === 'string' && candidate[key].trim().length > 0, 'Candidate RP entity name required');
+  }
   const flows = candidate.authenticationFlows.filter(item => [BROWSER, DENY].includes(item.alias));
   assert.equal(flows.length, 2);
   assert.ok(flows.every(item => item.providerId === 'basic-flow' && item.topLevel === true && item.builtIn === false));
