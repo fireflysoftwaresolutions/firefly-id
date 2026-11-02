@@ -27,6 +27,21 @@ The optional provider contributes thirteen JPA mappings and versioned Liquibase 
 
 Before adding or upgrading the JAR on retained data, restore the current database to an isolated target. Check entity discovery, constraints, append-only protections, roles and ordinary identity operations with that exact build. Include existing users, holds and pending recovery records. Apply Core-owned schema changes through each service's deployment process.
 
+## Qualify the additive support migration
+
+The owned hosted support exercise implements a migration rehearsal over nonempty synthetic data. Its baseline JAR omits only `firefly-native-support-evidence-2` from the current Liquibase resource, retaining earlier changesets and other JAR entries unchanged. This establishes a synthetic prior schema; it is not an upgrade from a released older binary and does not establish compatibility with every historical deployment.
+
+The exercise follows this sequence:
+
+1. Start the synthetic prior schema and seed eleven tables: `ff_native_state`, `ff_native_ceremony`, `ff_native_attestation`, `ff_native_execution`, `ff_native_audit`, `ff_native_issued_challenge`, `ff_native_support_proof`, `ff_native_totp_replay`, `user_entity`, `credential` and `user_attribute`. Retained values include original user/credential identifiers and material, PIN generations, nonzero failures/reservations, holds, lock state, attempts and an unknown execution outcome.
+2. Preserve original rows and physical column order privately, together with Liquibase identities/checksums. Start the current native build against the same PostgreSQL database and storage; do not recreate tables or rewrite prior migration history.
+3. Require the actual additive changeset and nonce constraint exactly once, unchanged original-column values across all eleven tables, retained nullable legacy bindings and append-only audit protection. A legacy verified flag without complete bindings must remain insufficient for consumption, using the original unrenewed grant expiry.
+4. Exercise the [native support transactions](support-pin.md#scope-of-repository-checks), then restart the service against that same database. Compare all current rows and columns, including reserved, failed and uncertain state. Reconcile the original consumed proof, grant digest, expiry and audit after simulated application receipt loss; refuse another consumption.
+
+Inspect the workflow's `support-retained-summary` artifact for the intended source revision, migration-source digests and complete passing scenario results. Require eleven original tables preserved, unchanged historical checksums, the additive changeset/constraint applied once, append-only audit, and the same-storage and restart-preservation assertions. Bounded receipts exclude SQL snapshots, raw logs, PINs, signed contexts, tokens, exports and keys. Failure remains unresolved; preserve its original state instead of resetting counters, replacing storage, renewing a grant or replaying proof.
+
+This exercise defines a reproducible native/database check; its implementation is not evidence of a passing run. Even a passing run does not accept an institution's retained database, historical binary, backup/key set, cross-service consistency, topology, RPO/RTO or destination applications. Rehearse those inputs separately using the restoration procedure below before switching traffic.
+
 ## Rehearse restoration
 
 Choose the source/target, consistent recovery point, responsible operator and required keys before beginning. Block external delivery and provider submissions on the rehearsal target.
