@@ -330,6 +330,9 @@ def create_container(directory, owner, kind, command):
 
 def native_command(directory, kind, database, command):
     require(database in ('master_retained', 'master_imported'), 'Only owned databases admitted')
+    if kind == 'export':
+        require(database == 'master_retained' and command == ['export', '--realm', 'master', '--users', 'same_file',
+                '--file', '/run/exchange/source.json'], 'Pinned owned single-file export command required')
     return (['--detach'] if kind in ('retained', 'imported') else []) + [
         '--network', 'host', '--env-file', str(directory / 'keycloak.env'), '--env', 'KC_DB=postgres',
         '--env', 'KC_DB_URL=jdbc:postgresql://127.0.0.1:5432/' + database, '--env', 'KC_DB_USERNAME=master_fixture',
@@ -382,7 +385,7 @@ def export_candidate():
     private_write(directory / 'retained-before.json', json.dumps(snapshot(directory, owner)))
     stop_kind(directory, owner, 'retained')
     create_container(directory, owner, 'export', native_command(directory, 'export', 'master_retained',
-                     ['export', '--realm', 'master', '--users', 'realm_file', '--file', '/run/exchange/source.json']))
+                     ['export', '--realm', 'master', '--users', 'same_file', '--file', '/run/exchange/source.json']))
     source = directory / 'exchange/source.json'
     run(['sudo', 'chown', str(os.getuid()) + ':' + str(os.getgid()), str(source)], directory, 'export-private-owner')
     source.chmod(0o600)

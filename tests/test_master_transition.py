@@ -139,6 +139,16 @@ class MasterTransitionTest(unittest.TestCase):
             realm='master', origin='https://id.example.test', acknowledge_master=True)
         module.verify_effective(relaxed_candidate, copy.deepcopy(relaxed_candidate))
 
+    def test_owned_single_file_export_admits_only_pinned_supported_user_strategy_and_target(self):
+        module = self.module(); directory = Path('/owned/fixture')
+        arguments = ['export', '--realm', 'master', '--users', 'same_file', '--file', '/run/exchange/source.json']
+        command = module.native_command(directory, 'export', 'master_retained', arguments)
+        self.assertEqual(command[-len(arguments):], arguments)
+        for index, value in ((4, 'realm_file'), (2, 'production'), (6, '/tmp/other.json')):
+            invalid = list(arguments); invalid[index] = value
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                module.native_command(directory, 'export', 'master_retained', invalid)
+
     def test_retained_snapshot_requires_same_credentials_ids_roles_and_original_audit_rows(self):
         module = self.module()
         before = {'users': ['u'], 'credentials': ['c'], 'roles': ['r'], 'events': ['e'], 'adminEvents': ['a']}
