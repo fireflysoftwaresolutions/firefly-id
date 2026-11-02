@@ -132,9 +132,15 @@ class MasterTransitionTest(unittest.TestCase):
         self.assertFalse(result['authenticatorConfigs'][0]['reviewedDefault'])
         self.assertEqual(result['requiredActions'][0]['alias'], 'UPDATE_PASSWORD')
         self.assertEqual(result['requiredActions'][0]['provider'], 'OTHER')
+        self.assertEqual(result['clients'][0]['clientId'], 'OTHER')
         self.assertTrue(result['nativeUserProfiles'][0]['jsonObject'])
         self.assertEqual(result['nativeUserProfiles'][0]['unknownKeyCount'], 1)
         self.assertEqual(result['nativeUserProfiles'][0]['attributes'][0]['name'], 'OTHER')
+        self.assertNotIn('PRIVATE', json.dumps(result))
+        result = module.profile_diagnostic({'clients': [{'clientId': 'broker', 'attributes': {
+            'client.secret.creation.time': 'PRIVATE'}}]}, ValueError('Unsupported client attributes refused'))
+        self.assertEqual(result['clients'][0]['clientId'], 'broker')
+        self.assertEqual(result['clients'][0]['knownAttributes'], ['client.secret.creation.time'])
         self.assertNotIn('PRIVATE', json.dumps(result))
 
     def test_native_default_profile_readback_normalizes_serialization_only_after_strict_review(self):

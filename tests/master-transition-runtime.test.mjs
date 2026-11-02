@@ -71,3 +71,15 @@ test('component diagnostics preserve only known provider categories and configur
   assert.deepEqual(componentDiagnostic({ providerType: 'PRIVATE', providerId: 'PRIVATE', config: { PRIVATE: ['PRIVATE'] } }),
     { kind: 'OTHER', provider: 'OTHER', configuration: 'OTHER', nested: false });
 });
+
+test('owned client preparation explicitly retires attributes while preserving unreviewed inputs', async () => {
+  const { preparedClientAttributes } = await runtime();
+  assert.equal(typeof preparedClientAttributes, 'function');
+  const source = { clientId: 'admin-cli', attributes: { 'client.use.lightweight.access.token.enabled': 'true', unknown: 'preserve' } };
+  assert.deepEqual(preparedClientAttributes(source), { 'client.use.lightweight.access.token.enabled': 'false', unknown: 'preserve' });
+  assert.equal(source.attributes['client.use.lightweight.access.token.enabled'], 'true');
+  assert.deepEqual(preparedClientAttributes({ clientId: 'broker', attributes: { 'client.secret.creation.time': '123', unknown: 'preserve' } }),
+    { 'client.secret.creation.time': null, 'client.use.lightweight.access.token.enabled': 'false', unknown: 'preserve' });
+  assert.equal(preparedClientAttributes({ clientId: 'security-admin-console', attributes: {} })['pkce.code.challenge.method'], 'S256');
+  for (const clientId of ['master-realm', 'unreviewed']) assert.throws(() => preparedClientAttributes({ clientId, attributes: {} }));
+});

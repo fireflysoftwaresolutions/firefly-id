@@ -97,6 +97,17 @@ export function componentDiagnostic(component) {
     nested: !!component.subComponents && Object.keys(component.subComponents).length > 0 };
 }
 
+export function preparedClientAttributes(client) {
+  assert.ok(['account', 'account-console', 'admin-cli', 'broker', CLIENT].includes(client.clientId));
+  const attributes = { ...client.attributes, 'client.use.lightweight.access.token.enabled': 'false' };
+  if (client.clientId === CLIENT) attributes['pkce.code.challenge.method'] = 'S256';
+  // Admin updates merge attributes; ClientAdapter removes an existing entry only for an explicit null/blank.
+  if (client.clientId === 'broker' && Object.hasOwn(attributes, 'client.secret.creation.time')) {
+    attributes['client.secret.creation.time'] = null;
+  }
+  return attributes;
+}
+
 async function qualify() {
   const directory = ROOT + '/.state/master-' + process.env.GITHUB_RUN_ID + '-' + process.env.GITHUB_RUN_ATTEMPT;
   assert.equal(realpathSync(directory), directory);
@@ -341,11 +352,14 @@ async function qualify() {
           if (scope.name === 'offline_access') await admin('clients/' + client.id + '/' + kind + '-client-scopes/' + scope.id, 'DELETE');
         }
       }
+      const attributes = preparedClientAttributes(client);
       await admin('clients/' + client.id, 'PUT', { ...client, enabled: client.clientId === CLIENT,
         standardFlowEnabled: client.clientId === CLIENT, directAccessGrantsEnabled: false, implicitFlowEnabled: false,
         serviceAccountsEnabled: false, authorizationServicesEnabled: false,
-        authenticationFlowBindingOverrides: {}, attributes: client.clientId === CLIENT
-          ? { 'pkce.code.challenge.method': 'S256', 'client.use.lightweight.access.token.enabled': 'false' } : {} });
+        authenticationFlowBindingOverrides: {}, attributes });
+      const effectiveClient = await admin('clients/' + client.id);
+      assert.deepEqual(effectiveClient.attributes, Object.fromEntries(Object.entries(attributes).filter(([, value]) => value !== null)),
+        'Prepared client attribute readback differs');
     }
     // Review the complete inventory before changing any component; native profile metadata is retained.
     const components = await admin('components');

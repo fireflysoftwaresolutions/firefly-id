@@ -47,6 +47,9 @@ oauth2.jwt.authorization.grant.idp oauth2.jwt.authorization.grant.audience exter
 logoUri tosUri policyUri sectorIdentifierUri allow.token.introspection.without.audience.check
 allow.userinfo.with.lightweight.access.token allow.oidc.params.in.redirect.uris require.pushed.authorization.requests
 ciba.backchannel.token.delivery.mode ciba.backchannel.client.notification.endpoint ciba.backchannel.auth.request.signing.alg
+client.secret.creation.time client.secret.rotation.enabled client.secret.expiration.time client.secret.rotated
+client.secret.rotated.creation.time client.secret.rotated.expiration.time client.secret.remaining.expiration.time
+client.secret.authentication.allowed.method
 '''.split())
 UPSTREAM_AUTHENTICATORS = profile.SOURCE_AUTHENTICATORS | set('''auth-username-form auth-password-form
 conditional-sub-flow-executed conditional-client-scope conditional-user-role conditional-level-of-authentication
@@ -147,7 +150,8 @@ def profile_diagnostic(document, failure):
               'alternateAuthorizationDisabled': {key: document[key] is False for key in (
                   'scimApiEnabled', 'organizationsEnabled', 'userManagedAccessEnabled', 'userManagedAccessAllowed',
                   'verifiableCredentialsEnabled') if key in document},
-              'clients': [{'knownUnsupportedFields': names(set(client) - profile.CLIENT_FIELDS, UPSTREAM_CLIENT_FIELDS),
+              'clients': [{'clientId': known(client.get('clientId'), profile.BUILTIN_CLIENTS | {'master-realm', 'realm-management'}),
+                           'knownUnsupportedFields': names(set(client) - profile.CLIENT_FIELDS, UPSTREAM_CLIENT_FIELDS),
                            'unknownFieldCount': count(set(client) - UPSTREAM_CLIENT_FIELDS),
                            'knownAttributes': names(mapping(client.get('attributes')), UPSTREAM_ATTRIBUTES),
                            'unknownAttributeCount': count(set(mapping(client.get('attributes'))) - UPSTREAM_ATTRIBUTES),
