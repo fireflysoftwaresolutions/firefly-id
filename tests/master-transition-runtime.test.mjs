@@ -104,3 +104,32 @@ test('client attribute readback diagnostics report only fixed names and comparis
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE|DIFFERENT/);
   assert.equal(clientAttributeDiagnostic('PRIVATE', {}, {}).clientId, 'OTHER');
 });
+
+test('fresh disabled broker accepts only native secret metadata created inside its measured update', async () => {
+  const { verifyPreparedClientReadback } = await runtime();
+  assert.equal(typeof verifyPreparedClientReadback, 'function');
+  const initial = { clientId: 'broker', publicClient: false, bearerOnly: true, attributes: { realm_client: 'false' } };
+  const attributes = { realm_client: 'false', 'client.use.lightweight.access.token.enabled': 'false' };
+  const effective = { ...initial, protocol: 'openid-connect', enabled: false, standardFlowEnabled: false,
+    implicitFlowEnabled: false, directAccessGrantsEnabled: false, serviceAccountsEnabled: false,
+    attributes: { ...attributes, 'client.secret.creation.time': '100' } };
+  const window = { minimum: 99, maximum: 101 };
+  assert.equal(verifyPreparedClientReadback(initial, effective, attributes, window), true);
+  const existing = { ...initial, secret: 'existing', attributes: effective.attributes };
+  assert.equal(verifyPreparedClientReadback(existing, effective, effective.attributes, window), false);
+  for (const value of ['98', '102', '-1', '0100', '100.0', 'PRIVATE', 100]) {
+    assert.throws(() => verifyPreparedClientReadback(initial, { ...effective,
+      attributes: { ...effective.attributes, 'client.secret.creation.time': value } }, attributes, window));
+  }
+  for (const mutation of [{ clientId: 'account' }, { publicClient: true }, { bearerOnly: false }, { secret: 'existing' }]) {
+    assert.throws(() => verifyPreparedClientReadback({ ...initial, ...mutation }, effective, attributes, window));
+  }
+  for (const flag of ['enabled', 'standardFlowEnabled', 'implicitFlowEnabled', 'directAccessGrantsEnabled',
+    'serviceAccountsEnabled', 'authorizationServicesEnabled']) {
+    assert.throws(() => verifyPreparedClientReadback(initial, { ...effective, [flag]: true }, attributes, window));
+  }
+  for (const extra of [{ unknown: 'PRIVATE' }, { 'client.use.lightweight.access.token.enabled': 'true' }]) {
+    assert.throws(() => verifyPreparedClientReadback(initial, { ...effective, attributes: { ...effective.attributes, ...extra } }, attributes, window));
+  }
+  assert.throws(() => verifyPreparedClientReadback(initial, effective, attributes, { minimum: 0, maximum: 10000 }));
+});

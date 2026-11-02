@@ -130,6 +130,31 @@ export function clientAttributeDiagnostic(clientId, requested, actual) {
       && unknownExpected.every(key => Object.hasOwn(effective, key) && expected[key] === effective[key]) };
 }
 
+export function verifyPreparedClientReadback(initial, effective, requested, window) {
+  const expected = Object.fromEntries(Object.entries(requested).filter(([, value]) => value !== null));
+  const creation = 'client.secret.creation.time';
+  const generated = !Object.hasOwn(expected, creation) && Object.hasOwn(effective.attributes || {}, creation);
+  if (generated) {
+    // RepresentationToModel.determineNewSecret initializes a nonpublic client's missing secret during PUT.
+    assert.equal(initial.clientId, 'broker'); assert.equal(effective.clientId, 'broker');
+    assert.equal(initial.publicClient, false); assert.equal(initial.bearerOnly, true); assert.ok(initial.secret == null);
+    assert.ok(!Object.hasOwn(initial.attributes || {}, creation));
+    assert.equal(effective.publicClient, false); assert.equal(effective.bearerOnly, true); assert.equal(effective.protocol, 'openid-connect');
+    for (const flag of ['enabled', 'standardFlowEnabled', 'implicitFlowEnabled', 'directAccessGrantsEnabled', 'serviceAccountsEnabled']) {
+      assert.equal(effective[flag], false);
+    }
+    assert.ok(effective.authorizationServicesEnabled === undefined || effective.authorizationServicesEnabled === false);
+    assert.ok(Number.isInteger(window.minimum) && Number.isInteger(window.maximum)
+      && window.minimum > 0 && window.maximum >= window.minimum && window.maximum - window.minimum <= 31);
+    const timestamp = effective.attributes[creation];
+    assert.equal(typeof timestamp, 'string'); assert.match(timestamp, /^[1-9][0-9]{0,9}$/);
+    assert.ok(Number(timestamp) >= window.minimum && Number(timestamp) <= window.maximum && Number(timestamp) <= 2147483647);
+    expected[creation] = timestamp;
+  }
+  assert.deepEqual(effective.attributes, expected, 'Prepared client attribute readback differs');
+  return generated;
+}
+
 async function qualify() {
   const directory = ROOT + '/.state/master-' + process.env.GITHUB_RUN_ID + '-' + process.env.GITHUB_RUN_ATTEMPT;
   assert.equal(realpathSync(directory), directory);
@@ -375,15 +400,17 @@ async function qualify() {
         }
       }
       const attributes = preparedClientAttributes(client);
+      const attributeWindow = { minimum: Math.floor(Date.now() / 1000) };
       await admin('clients/' + client.id, 'PUT', { ...client, enabled: client.clientId === CLIENT,
         standardFlowEnabled: client.clientId === CLIENT, directAccessGrantsEnabled: false, implicitFlowEnabled: false,
         serviceAccountsEnabled: false, authorizationServicesEnabled: false,
         authenticationFlowBindingOverrides: {}, attributes });
+      attributeWindow.maximum = Math.ceil(Date.now() / 1000);
       const effectiveClient = await admin('clients/' + client.id);
       report.clientAttributeReadbacks ??= [];
       report.clientAttributeReadbacks.push(clientAttributeDiagnostic(client.clientId, attributes, effectiveClient.attributes)); save();
-      assert.deepEqual(effectiveClient.attributes, Object.fromEntries(Object.entries(attributes).filter(([, value]) => value !== null)),
-        'Prepared client attribute readback differs');
+      report.clientAttributeReadbacks.at(-1).nativeSecretMetadataCreated = verifyPreparedClientReadback(
+        client, effectiveClient, attributes, attributeWindow); save();
     }
     // Review the complete inventory before changing any component; native profile metadata is retained.
     const components = await admin('components');
