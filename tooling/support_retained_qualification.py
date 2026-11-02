@@ -24,6 +24,11 @@ ROOT = Path(__file__).resolve().parents[1]
 LABEL = 'io.firefly.identity.support-retained'
 MIGRATION = 'META-INF/firefly-native-recovery.xml'
 CHANGESET = 'firefly-native-support-evidence-2'
+HISTORY_TABLE = 'databasechangelog_firefly_na'
+HISTORICAL_IDS = ('firefly-native-recovery-1', 'firefly-native-issued-challenge-1', 'firefly-native-support-proof-1',
+                  'firefly-native-totp-replay-1', 'firefly-native-audit-append-only-1',
+                  'firefly-native-execution-reconciliation-1', 'firefly-native-form-feedback-1',
+                  'firefly-native-admin-pin-audit-1', 'firefly-native-admin-pin-audit-check-1')
 TABLES = ('ff_native_state', 'ff_native_ceremony', 'ff_native_attestation', 'ff_native_execution',
           'ff_native_audit', 'ff_native_issued_challenge', 'ff_native_support_proof', 'ff_native_totp_replay',
           'user_entity', 'credential', 'user_attribute')
@@ -98,7 +103,12 @@ def bounded_diagnostics(raw):
     runtime = [category for category, pattern in signatures if pattern in raw and
                (category != 'LIQUIBASE_CHECKSUM_MISMATCH' or 'liquibase' in raw.lower())]
     return {'compiler_locations': locations[:12], 'sqlstates': states[:8], 'source_frames': frames[:8],
-            'runtime_categories': runtime}
+            'runtime_categories': runtime,
+            'exception_classes': list(dict.fromkeys(re.findall(
+                r'(?m)^(?:Caused by: |ERROR:\s*)?((?:java\.lang|jakarta\.persistence|org\.keycloak(?:\.[A-Za-z0-9_]+)*|liquibase\.exception|org\.hibernate(?:\.[A-Za-z0-9_]+)*|org\.postgresql\.util)\.[A-Za-z0-9_$]*(?:Exception|Error))(?=:|$)', raw)))[:8],
+            'framework_frames': re.findall(
+                r'(?m)^\s+at ((?:org\.keycloak|liquibase|org\.hibernate|org\.postgresql)(?:\.[A-Za-z0-9_$]+)+\.[A-Za-z0-9_$<>]+\([A-Za-z0-9_$]+\.java:[0-9]+\))', raw)[:8]}
+
 
 
 def historical_jar(original, target):
@@ -141,7 +151,7 @@ class Fixture:
         self.receipt = {'result': 'failed', 'scope': 'Owned synthetic native service transactions and retained schema only; no genuine BPO owner or institution acceptance',
                         'scenarios': {}, 'phase': 'INITIALIZE'}
 
-    def command(self, args, *, input=None, timeout=30):
+    def command(self, args, *, input=None, timeout=30, include_stderr=False):
         try:
             result = subprocess.run(args, input=input, capture_output=True, timeout=timeout)
         except subprocess.TimeoutExpired as error:
@@ -151,7 +161,7 @@ class Fixture:
             self.failure(result.stdout + b'\n' + result.stderr)
             self.receipt['command_failure'] = {'exit_code': int(result.returncode)}
             raise QualificationFailure(FailureCategory.COMMAND_FAILED)
-        return result.stdout
+        return result.stdout + b'\n' + result.stderr if include_stderr else result.stdout
 
     def docker(self, *args, **kwargs):
         return self.command(['docker', '--context', 'default', *args], **kwargs)
@@ -307,7 +317,7 @@ class Fixture:
                                  'COPY --chown=keycloak:keycloak native.jar /opt/keycloak/providers/native.jar\n'
                                  'COPY --chown=keycloak:keycloak fixture.jar /opt/keycloak/providers/fixture.jar\n'
                                  'RUN /opt/keycloak/bin/kc.sh build\nENTRYPOINT ["/opt/keycloak/bin/kc.sh"]\n'
-                                 'CMD ["start", "--optimized"]\n')
+                                 'CMD ["start", "--optimized", "--verbose"]\n')
         tag = self.prefix + ':' + phase
         self.build(tag, context, containerfile)
         return tag
@@ -384,11 +394,12 @@ class Fixture:
         self.docker('container', 'rm', self.server)
         self.server_running = False
 
-    def snapshot(self, initial=False):
+    def snapshot(self, initial=False, read=None):
+        read = read or self.sql
         result = {}
         for table in TABLES:
             if initial:
-                self.columns[table] = self.sql("SELECT string_agg(quote_ident(attname),',' ORDER BY attnum) FROM pg_attribute "
+                self.columns[table] = read("SELECT string_agg(quote_ident(attname),',' ORDER BY attnum) FROM pg_attribute "
                                               "WHERE attrelid='" + table + "'::regclass AND attnum>0 AND NOT attisdropped;")
             columns = self.columns[table]
             where = " WHERE realm_id='support-retained-fixture'" if table in {'user_entity', 'credential'} else ''
@@ -397,13 +408,53 @@ class Fixture:
             if table == 'user_attribute':
                 where = " WHERE user_id IN (SELECT id FROM user_entity WHERE realm_id='support-retained-fixture')"
             # Before scenario execution every native row is a retained original row.
-            result[table] = self.sql('SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),\'[]\'::jsonb)::text FROM (SELECT ' + columns + ' FROM ' + table + where + ') t;')
+            result[table] = read('SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),\'[]\'::jsonb)::text FROM (SELECT ' + columns + ' FROM ' + table + where + ') t;')
             if result[table] == '[]':
                 raise RuntimeError('Retained fixture table unexpectedly empty')
         return result
 
-    def history(self):
-        return self.sql("SELECT COALESCE(jsonb_agg(jsonb_build_array(id,author,filename,md5sum) ORDER BY orderexecuted),'[]'::jsonb)::text FROM databasechangelog WHERE id LIKE 'firefly-native-%' AND id<>'firefly-native-support-evidence-2';")
+    def history(self, read=None):
+        raw = (read or self.sql)("SELECT COALESCE(jsonb_agg(jsonb_build_array(id,author,filename,md5sum) ORDER BY orderexecuted),'[]'::jsonb)::text FROM " + HISTORY_TABLE + " WHERE id<>'firefly-native-support-evidence-2';")
+        rows = json.loads(raw)
+        if (not isinstance(rows, list) or len(rows) != 9 or [row[0] for row in rows] != list(HISTORICAL_IDS)
+                or any(len(row) != 4 or row[1] != 'firefly-id' or row[2] != MIGRATION
+                       or not isinstance(row[3], str) or not re.fullmatch(r'[0-9]+:[0-9a-f]{32}', row[3]) for row in rows)):
+            raise QualificationFailure(FailureCategory.LIQUIBASE_HISTORY_CHANGED)
+        return raw
+
+    def schema_failure_diagnostic(self):
+        if not self.retained or not getattr(self, 'old_history', None):
+            return {'available': False, 'reason': 'NO_RETAINED_BASELINE'}
+        # Diagnostic SELECTs remain safe when the failed identity process is no longer a network peer.
+        network = self.owned('network', self.network)
+        peers = {peer.get('Name') for peer in network.get('Containers', {}).values()}
+        database = self.owned('container', self.db)
+        if (network.get('Internal') is not True or self.db not in peers or not peers <= {self.db, self.server}
+                or set(database.get('NetworkSettings', {}).get('Networks', {})) != {self.network}
+                or database.get('HostConfig', {}).get('PortBindings')
+                or any(database.get('NetworkSettings', {}).get('Ports', {}).values())):
+            raise QualificationFailure(FailureCategory.TOPOLOGY_INVALID)
+        for peer in peers:
+            self.owned('container', peer)
+        def read(statement):
+            if not statement.startswith('SELECT '):
+                raise QualificationFailure(FailureCategory.METADATA_INVALID)
+            return self.docker('exec', '-i', self.db, 'psql', '-X', '-q', '-A', '-t', '-v', 'ON_ERROR_STOP=1',
+                               '-v', 'VERBOSITY=verbose', '-U', 'support_fixture', '-d', 'support_fixture',
+                               input=statement.encode(), timeout=20).decode().strip()
+        result = {'available': True,
+                  'additive_changeset_rows': int(read("SELECT count(*) FROM " + HISTORY_TABLE + " WHERE id='firefly-native-support-evidence-2';")),
+                  'nonce_constraint_rows': int(read("SELECT count(*) FROM pg_constraint WHERE conname='ff_native_support_nonce_once';")),
+                  'binding_column_rows': int(read("SELECT count(*) FROM information_schema.columns WHERE table_name='ff_native_support_proof' AND column_name IN ('nonce_digest','target_issuer','pin_credential_id','pin_key_version','staff_issuer','staff_subject','case_id','call_id','tenant','customer_link','permitted_action','purpose','reserved_at','status','consumed_at');"))}
+        try:
+            result['prior_history_unchanged'] = self.history(read=read) == self.old_history
+        except QualificationFailure as error:
+            if error.category != FailureCategory.LIQUIBASE_HISTORY_CHANGED:
+                raise
+            result['prior_history_unchanged'] = False
+        original = self.snapshot(read=read)
+        result['original_tables_unchanged'] = {table: original[table] == self.retained[table] for table in TABLES}
+        return result
 
     def prepare_retained(self):
         self.call('setup')
@@ -416,7 +467,7 @@ INSERT INTO ff_native_issued_challenge (id,ceremony_id,operation_id,reservation_
 INSERT INTO ff_native_totp_replay (id,expires_at) VALUES ('retained-replay',123);""")
         if self.sql("SELECT count(*) FROM information_schema.columns WHERE table_name='ff_native_support_proof' AND column_name='nonce_digest';") != '0':
             raise RuntimeError('Historical baseline already contains additive binding')
-        if self.sql("SELECT count(*) FROM databasechangelog WHERE id='firefly-native-support-evidence-2';") != '0':
+        if self.sql("SELECT count(*) FROM databasechangelog_firefly_na WHERE id='firefly-native-support-evidence-2';") != '0':
             raise RuntimeError('Historical baseline already contains additive migration')
         if self.sql("SELECT count(*) FROM pg_constraint WHERE conname='ff_native_support_nonce_once';") != '0':
             raise RuntimeError('Historical baseline already contains nonce fence')
@@ -490,7 +541,7 @@ INSERT INTO ff_native_totp_replay (id,expires_at) VALUES ('retained-replay',123)
         if self.history() != self.old_history:
             raise QualificationFailure(FailureCategory.LIQUIBASE_HISTORY_CHANGED)
         self.receipt['boundary'] = 'MIGRATION_CHECK_ADDITIVE_CHANGESET'
-        if self.sql("SELECT count(*) FROM databasechangelog WHERE id='firefly-native-support-evidence-2';") != '1':
+        if self.sql("SELECT count(*) FROM databasechangelog_firefly_na WHERE id='firefly-native-support-evidence-2';") != '1':
             raise QualificationFailure(FailureCategory.MIGRATION_NOT_APPLIED)
         self.receipt['boundary'] = 'MIGRATION_CHECK_NONCE_CONSTRAINT'
         if self.sql("SELECT count(*) FROM pg_constraint WHERE conname='ff_native_support_nonce_once';") != '1':
@@ -531,10 +582,14 @@ def main():
             try:
                 role = 'identity' if container == fixture.server else 'database'
                 fixture.receipt.setdefault('process_states', {})[role] = fixture.process_diagnostic(container)
-                fixture.failure(fixture.docker('logs', '--tail', '160', container))
+                fixture.failure(fixture.docker('logs', '--tail', '240', container, include_stderr=True))
             except Exception as diagnostic_error:
                 fixture.receipt.setdefault('process_states', {})[role] = {
                     'metadata_available': False, 'diagnostic': fixture.exception_diagnostic(diagnostic_error)}
+        try:
+            fixture.receipt['schema_after_failure'] = fixture.schema_failure_diagnostic()
+        except Exception as diagnostic_error:
+            fixture.receipt['schema_after_failure'] = {'available': False, 'diagnostic': fixture.exception_diagnostic(diagnostic_error)}
         fixture.receipt['failed_state_retained_on_runner'] = True
     finally:
         # Never upload env files, SQL snapshots, raw logs, credentials, keys or Docker metadata.

@@ -25,6 +25,8 @@ For the sandbox, retain the original state directory, ownership marker and match
 
 The optional provider contributes thirteen JPA mappings and versioned Liquibase changes at startup. Installing its JAR can change the schema even when recovery is disabled. Enable flags govern behavior, not schema installation.
 
+For pinned Keycloak 26.8.1, verify the `firefly-native-recovery` migration history in `DATABASECHANGELOG_FIREFLY_NA`. The general Keycloak `DATABASECHANGELOG` table does not establish whether those extension changesets ran.
+
 Before adding or upgrading the JAR on retained data, restore the current database to an isolated target. Check entity discovery, constraints, append-only protections, roles and ordinary identity operations with that exact build. Include existing users, holds and pending recovery records. Apply Core-owned schema changes through each service's deployment process.
 
 ## Qualify the additive support migration

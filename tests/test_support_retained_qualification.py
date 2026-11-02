@@ -182,3 +182,51 @@ class SupportRetainedQualificationTest(unittest.TestCase):
         self.assertEqual('BOOT_READINESS', owned.receipt['boundary'])
         self.assertEqual('HTTP_TRANSPORT', owned.receipt.get('last_probe', {}).get('category'))
         self.assertNotIn('never-export', str(owned.receipt))
+
+    def test_diagnostic_capture_includes_successful_command_stderr(self):
+        fixture = self.fixture()
+        owned = fixture.Fixture('17-2')
+        result = SimpleNamespace(returncode=0, stdout=b'normal-output', stderr=b'java.lang.NullPointerException: private')
+        with patch.object(fixture.subprocess, 'run', return_value=result):
+            self.assertTrue('include_stderr' in __import__('inspect').signature(owned.command).parameters,
+                            'Successful diagnostic commands discard stderr')
+            raw = owned.command(['docker', 'logs', 'fixed-owned-container'], include_stderr=True)
+        self.assertIn(b'java.lang.NullPointerException', raw)
+
+    def test_framework_diagnostics_keep_class_and_source_without_exception_message(self):
+        fixture = self.fixture()
+        raw = ('Caused by: java.lang.NullPointerException: customer-secret-never-export\n'
+               '\tat org.keycloak.services.managers.RealmManager.checkRealm(RealmManager.java:123)\n'
+               '\tat attacker.Secret.token(Secret.java:123)\n')
+        result = fixture.bounded_diagnostics(raw)
+        self.assertEqual(['java.lang.NullPointerException'], result.get('exception_classes'))
+        self.assertEqual(['org.keycloak.services.managers.RealmManager.checkRealm(RealmManager.java:123)'],
+                         result.get('framework_frames'))
+        self.assertNotIn('never-export', str(result))
+        self.assertNotIn('attacker', str(result))
+
+    def test_failure_schema_probe_requires_original_retained_baseline(self):
+        fixture = self.fixture()
+        owned = fixture.Fixture('17-2')
+        self.assertTrue(hasattr(owned, 'schema_failure_diagnostic'), 'Read-only structural failure diagnostic is missing')
+        with patch.object(owned, 'docker') as command:
+            self.assertEqual({'available': False, 'reason': 'NO_RETAINED_BASELINE'}, owned.schema_failure_diagnostic())
+            command.assert_not_called()
+
+    def test_native_history_reads_provider_table_and_requires_nine_real_checksums(self):
+        import json
+        fixture = self.fixture()
+        owned = fixture.Fixture('17-2')
+        identifiers = ['firefly-native-recovery-1', 'firefly-native-issued-challenge-1', 'firefly-native-support-proof-1',
+                       'firefly-native-totp-replay-1', 'firefly-native-audit-append-only-1',
+                       'firefly-native-execution-reconciliation-1', 'firefly-native-form-feedback-1',
+                       'firefly-native-admin-pin-audit-1', 'firefly-native-admin-pin-audit-check-1']
+        rows = [[value, 'firefly-id', 'META-INF/firefly-native-recovery.xml', '9:' + 'a' * 32] for value in identifiers]
+        def query(statement):
+            return json.dumps(rows) if ' FROM databasechangelog_firefly_na ' in statement else '[]'
+        with patch.object(owned, 'sql', side_effect=query):
+            self.assertEqual(9, len(json.loads(owned.history())))
+        for invalid in ('[]', json.dumps([rows[0]]), json.dumps([row[:3] + [None] for row in rows])):
+            with self.subTest(invalid=invalid), patch.object(owned, 'sql', return_value=invalid):
+                with self.assertRaises(RuntimeError):
+                    owned.history()
