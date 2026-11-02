@@ -146,6 +146,32 @@ test('authentication diagnostics classify known messages without returning arbit
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE/);
 });
 
+test('registration waits for deferred module initialization before one click and fails closed on timeout', async () => {
+  const { submitMasterRegistration } = await runtime();
+  assert.equal(typeof submitMasterRegistration, 'function');
+  let initialize; let clicks = 0;
+  const initialized = new Promise(resolve => { initialize = resolve; });
+  const page = {
+    async waitForLoadState(state, options) {
+      assert.equal(state, 'domcontentloaded'); assert.equal(options.timeout, 25000); await initialized;
+    },
+    locator(selector) {
+      assert.equal(selector, '#registerWebAuthn');
+      return { async click(options) { assert.equal(options.timeout, 25000); clicks++; } };
+    },
+  };
+  const pending = submitMasterRegistration(page);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(clicks, 0, 'A visible button must not be clicked before its module finishes');
+  initialize(); await pending; assert.equal(clicks, 1);
+  const timeout = Object.assign(new Error('Owned initialization timeout'), { name: 'TimeoutError' });
+  await assert.rejects(submitMasterRegistration({ ...page, async waitForLoadState() { throw timeout; } }), error => error === timeout);
+  assert.equal(clicks, 1, 'Initialization failure must not start a ceremony');
+  await assert.rejects(submitMasterRegistration({ ...page,
+    locator() { return { async click() { clicks++; throw timeout; } }; } }), error => error === timeout);
+  assert.equal(clicks, 2, 'A failed click must not retry the once-only ceremony');
+});
+
 
 test('component diagnostics preserve only known provider categories and configuration shape', async () => {
   const { componentDiagnostic } = await runtime();

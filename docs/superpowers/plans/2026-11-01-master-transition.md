@@ -41,11 +41,12 @@ Hosted acceptance: run [41382681222](https://github.com/fireflysoftwaresolutions
 
 - [x] Extend existing support/admin/decision guides with ordered choices, responsible roles, artifacts to prepare, disabled defaults and measurable acceptance gates.
 - [x] Separate agreed defaults from unassigned institutional decisions; distinguish synthetic qualification from destination-specific cutover.
-- [ ] Run MkDocs/reading checks in hosted CI and verify exact public artifact after publication.
+- [x] Run MkDocs/reading checks in hosted CI and verify exact public artifact after publication.
+
+Publication acceptance: [41383389310](https://github.com/fireflysoftwaresolutions/firefly-id/actions/runs/41383389310), source `4466e2a790593742683ffb42e068de15e6b9ed8e`. Strict output checks cover 44 HTML pages and 4,217 references; actual browser checks cover 172 reading surfaces and 60 inline diagram surfaces. All 81 checked public files match the artifact byte for byte; all 32 SVGs match the previously reviewed versions. The five excluded/unknown routes serve the exact custom 404. A repeated master run on that documentation revision exposed a visible-before-module registration readiness gap; the harness now waits for native module initialization before its single click.
 
 ## Task 3: Delivery
 
-- [ ] Review final diff and source-specific runtime receipts, preserve failure evidence, update draft PR and verify clean remote source.
-- [ ] Report actual results and remaining institution decisions without claiming production or regulatory acceptance.
+Use [draft PR #1](https://github.com/fireflysoftwaresolutions/firefly-id/pull/1) as the delivery record for the final source revision, source-specific hosted receipts and publication comparison. Those receipts are updated after the final commit's hosted checks finish, without changing the checked source to record its own outcome. Preserve failed evidence and report the remaining institutional decisions separately from synthetic acceptance. No merge, release, real-account activation or regulatory approval is implied.
 
 Ruling: pinned Keycloak ImportUtils removes the existing realm before an overriding import. Exact import compatibility and retained-master transition therefore use separate owned databases; the original is never replaced. This preserves the stated data-retention acceptance instead of treating a JSON export as backup.

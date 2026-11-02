@@ -132,6 +132,12 @@ export function registrationSubmissionDiagnostic(post, origin, status) {
     credentialIdPresent: !!data.get('publicKeyCredentialId') };
 }
 
+export async function submitMasterRegistration(page) {
+  // Native registration installs its once-only handler in a deferred module after the button becomes visible.
+  await page.waitForLoadState('domcontentloaded', { timeout: 25000 });
+  await page.locator('#registerWebAuthn').click({ timeout: 25000 });
+}
+
 export function componentDiagnostic(component) {
   const kinds = new Map([['org.keycloak.keys.KeyProvider', 'KEYS'],
     ['org.keycloak.services.clientregistration.policy.ClientRegistrationPolicy', 'CLIENT_REGISTRATION'],
@@ -451,7 +457,8 @@ async function qualify() {
           registrationSubmissions.push(registrationSubmissionDiagnostic(submitted.postData(), submitted.headers().origin, response.status()));
         }
       });
-      await login.page.locator('#registerWebAuthn').click();
+      stage = 'enroll-' + kind + '-registration-module-readiness'; save();
+      await submitMasterRegistration(login.page);
       const result = await login.finish(); assert.equal(result.identity.sub, user.id); await proveAccess(result.tokens.access_token);
       const listed = await authenticator.session.send('WebAuthn.getCredentials', { authenticatorId: authenticator.authenticatorId });
       assert.equal(listed.credentials.length, 1); assert.equal(listed.credentials[0].rpId, 'id.firefly.test');
