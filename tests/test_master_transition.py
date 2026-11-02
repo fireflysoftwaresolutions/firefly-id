@@ -21,6 +21,41 @@ class MasterTransitionTest(unittest.TestCase):
         spec.loader.exec_module(module)
         return module
 
+    def test_native_import_diagnostics_never_expose_log_messages_paths_or_values(self):
+        module = self.module()
+        self.assertTrue(hasattr(module, 'native_log_diagnostic'))
+        content = ('ERROR: Failed to import realm PRIVATE_REALM\n'
+                   'Caused by: org.keycloak.models.ModelDuplicateException: PRIVATE_USER PRIVATE_TOKEN\n'
+                   'Caused by: org.postgresql.util.PSQLException: duplicate key value violates unique constraint PRIVATE\n'
+                   ' at org.keycloak.exportimport.util.ImportUtils.importRealm(ImportUtils.java:99)\n'
+                   ' at PRIVATE.SECRET.value(Secret.java:44)\n')
+        diagnostic = module.native_log_diagnostic(content)
+        self.assertIn('org.keycloak.models.ModelDuplicateException', diagnostic['exceptionClasses'])
+        self.assertIn('DUPLICATE_KEY', diagnostic['categories'])
+        self.assertEqual(diagnostic['sourceFrames'], ['ImportUtils.java:99'])
+        self.assertNotIn('PRIVATE', json.dumps(diagnostic)); self.assertNotIn('Secret.java', json.dumps(diagnostic))
+        self.assertEqual(module.native_log_diagnostic('PRIVATE'), {'exceptionClasses': [], 'categories': [], 'sourceFrames': []})
+
+    def test_failed_owned_import_captures_redacted_private_log_tail(self):
+        module = self.module()
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary); (directory / 'logs').mkdir()
+            def failed(*args, **kwargs):
+                kwargs['stdout'].write(b'java.lang.IllegalArgumentException: PRIVATE\n')
+                return subprocess.CompletedProcess([], 1)
+            with patch.object(module.subprocess, 'run', side_effect=failed), self.assertRaises(ValueError):
+                module.run(['owned-import'], directory, 'import-create')
+            self.assertEqual(module.NATIVE_DIAGNOSTIC['exceptionClasses'], ['java.lang.IllegalArgumentException'])
+            self.assertEqual(module.NATIVE_DIAGNOSTIC['processExitCode'], 1)
+            self.assertNotIn('PRIVATE', json.dumps(module.NATIVE_DIAGNOSTIC))
+
+    def test_native_container_diagnostics_distinguish_oom_without_emitting_runtime_error(self):
+        module = self.module()
+        self.assertEqual(module.native_container_diagnostic({'ExitCode': 137, 'OOMKilled': True,
+            'Running': False, 'Error': 'PRIVATE'}), {'inspected': True, 'exitCode': 137, 'oomKilled': True,
+            'running': False, 'runtimeErrorPresent': True})
+        self.assertIsNone(module.native_container_diagnostic({'ExitCode': 'PRIVATE'})['exitCode'])
+
     def test_import_normalization_is_measured_and_limited_to_closed_native_clients(self):
         module = self.module(); document = source()
         resource = next(client for client in document['clients'] if client['clientId'] == 'realm-management')

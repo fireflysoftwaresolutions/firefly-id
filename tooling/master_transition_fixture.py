@@ -24,6 +24,7 @@ LABEL = 'org.firefly-id.master-transition'
 ORIGIN = 'https://id.firefly.test:8443'
 PHASE = 'initialization'
 PROFILE_DIAGNOSTIC = None
+NATIVE_DIAGNOSTIC = None
 # Diagnostic catalogs are pinned 26.8.1 representation fields/provider IDs, not acceptance allowlists.
 UPSTREAM_REALM_FIELDS = profile.REALM_FIELDS | set('''adminPermissionsClient applicationScopeMappings applications
 certificate clientTemplates codeSecret defaultRoles oauthClients organizations passwordCredentialGrantAllowed privateKey
@@ -436,11 +437,68 @@ def save_owner(directory, owner):
     private_write(directory / 'ownership.json', json.dumps(owner))
 
 
+def native_log_diagnostic(content):
+    exceptions = {'java.lang.NullPointerException', 'java.lang.IllegalArgumentException', 'java.lang.IllegalStateException',
+                  'java.lang.RuntimeException', 'java.lang.ClassNotFoundException', 'java.lang.NoClassDefFoundError',
+                  'java.io.FileNotFoundException', 'java.nio.file.AccessDeniedException', 'java.net.BindException',
+                  'org.keycloak.models.ModelException', 'org.keycloak.models.ModelDuplicateException',
+                  'org.keycloak.models.ModelValidationException', 'org.keycloak.models.ModelIllegalStateException',
+                  'jakarta.persistence.PersistenceException', 'jakarta.persistence.EntityExistsException',
+                  'org.hibernate.exception.ConstraintViolationException', 'org.hibernate.exception.SQLGrammarException',
+                  'org.hibernate.exception.JDBCConnectionException', 'org.postgresql.util.PSQLException',
+                  'com.fasterxml.jackson.databind.JsonMappingException', 'com.fasterxml.jackson.core.JsonParseException',
+                  'com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException',
+                  'com.fasterxml.jackson.databind.exc.MismatchedInputException', 'jakarta.ws.rs.NotFoundException'}
+    patterns = {'REALM_IMPORT': r'failed to import realm', 'DUPLICATE_KEY': r'duplicate key value violates unique constraint',
+                'FOREIGN_KEY': r'violates foreign key constraint', 'NOT_NULL': r'violates not-null constraint',
+                'REALM_EXISTS': r'realm .* already exists', 'JSON_UNKNOWN_FIELD': r'unrecognized field',
+                'FILE_PERMISSION': r'permission denied|accessdeniedexception',
+                'ADDRESS_IN_USE': r'address already in use', 'CONNECTION_REFUSED': r'connection refused',
+                'MISSING_FILE': r'no such file or directory|filenotfoundexception',
+                'UNKNOWN_OPTION': r'unknown option|unmatched argument',
+                'INVALID_OPTION': r'invalid value for option|invalid option value',
+                'MISSING_FLOW': r'unable to resolve auth flow|authentication flow .* does not exist',
+                'MISSING_ROLE': r'role .* does not exist|role .* not found',
+                'MISSING_PROVIDER': r'provider .* not found|failed to find provider',
+                'MISSING_REQUIRED_ACTION': r'required action .* not found|unable to find required action',
+                'INVALID_COMPONENT': r'componentvalidationexception|invalid component',
+                'INVALID_CLIENT': r'clienttypeexception|client validation|invalid client',
+                'PLACEHOLDER_REPLACEMENT': r'placeholder|could not resolve expression',
+                'SCHEMA_MIGRATION': r'liquibase\.exception|database migration failed',
+                'DUPLICATE_MODEL': r'modelduplicateexception', 'INVALID_MODEL': r'modelvalidationexception'}
+    files = {'ImportUtils', 'ExportUtils', 'SingleFileImportProvider', 'DirImportProvider',
+             'RepresentationToModel', 'DefaultExportImportManager', 'RealmManager', 'KeycloakModelUtils',
+             'JpaRealmProvider', 'JpaClientProvider', 'JpaUserProvider', 'ClientAdapter', 'RealmAdapter',
+             'UserAdapter', 'ClientScopeAdapter', 'AuthenticationExecutionAdapter', 'AuthenticationFlowAdapter',
+             'KeycloakApplication', 'QuarkusKeycloakApplication', 'Import', 'AbstractImportExportCommand'}
+    frames = []
+    for match in re.finditer(r'\bat org\.keycloak\.[^\s(]+\(([A-Za-z]+)\.java:([0-9]{1,6})\)', content):
+        if match[1] in files:
+            value = match[1] + '.java:' + match[2]
+            if value not in frames:
+                frames.append(value)
+    return {'exceptionClasses': sorted(value for value in exceptions if re.search(r'\b' + re.escape(value) + r'\b', content)),
+            'categories': sorted(key for key, pattern in patterns.items() if re.search(pattern, content, re.IGNORECASE)),
+            'sourceFrames': frames[:20]}
+
+
+def native_container_diagnostic(state):
+    code = state.get('ExitCode')
+    return {'inspected': True, 'exitCode': code if type(code) is int and 0 <= code <= 255 else None,
+            'oomKilled': state.get('OOMKilled') is True, 'running': state.get('Running') is True,
+            'runtimeErrorPresent': bool(state.get('Error'))}
+
+
 def run(command, directory, label, *, input=None, env=None):
-    global PHASE
+    global PHASE, NATIVE_DIAGNOSTIC
     PHASE = label
     with (directory / 'logs' / (label + '.log')).open('ab') as output:
         result = subprocess.run(command, input=input, stdout=output, stderr=subprocess.STDOUT, env=env)
+    if result.returncode != 0 and label in ('import-create', 'export-create'):
+        with (directory / 'logs' / (label + '.log')).open('rb') as output:
+            output.seek(max(0, os.fstat(output.fileno()).st_size - 2 * 1024 * 1024))
+            NATIVE_DIAGNOSTIC = native_log_diagnostic(output.read().decode(errors='replace'))
+            NATIVE_DIAGNOSTIC['processExitCode'] = result.returncode if -128 <= result.returncode <= 255 else None
     require(result.returncode == 0, 'Owned lifecycle phase refused')
 
 
@@ -570,7 +628,17 @@ def create_container(directory, owner, kind, command):
     result = subprocess.run(['docker', 'inspect', name], capture_output=True)
     require(result.returncode != 0, 'Refusing an existing container name')
     owner['containers'].append(name); save_owner(directory, owner)
-    run(['docker', 'run', '--name', name, '--label', LABEL + '=' + owner['run']] + command, directory, kind + '-create')
+    try:
+        run(['docker', 'run', '--name', name, '--label', LABEL + '=' + owner['run']] + command, directory, kind + '-create')
+    except ValueError:
+        if kind in ('import', 'export') and NATIVE_DIAGNOSTIC is not None:
+            NATIVE_DIAGNOSTIC['container'] = {'inspected': False}
+            try:
+                _, actual = inspect_container(owner, kind)
+                NATIVE_DIAGNOSTIC['container'] = native_container_diagnostic(actual['State'])
+            except (ValueError, KeyError, TypeError):
+                pass
+        raise
     inspect_container(owner, kind)
 
 
@@ -662,7 +730,7 @@ def import_start():
     require(psql(directory, owner, "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';", 'master_imported') == '0', 'Import database must be empty')
     owner['importWindow'] = {'minimum': int(time.time())}
     create_container(directory, owner, 'import', native_command(directory, 'import', 'master_imported',
-                     ['import', '--file', '/run/exchange/candidate.json', '--override', 'false']))
+                     ['import', '--file', '/run/exchange/candidate.json', '--override', 'false', '--verbose']))
     owner['importWindow']['maximum'] = int(time.time()) + 1
     create_container(directory, owner, 'imported', native_command(directory, 'imported', 'master_imported', ['start']))
     wait_ready(directory); owner['phase'] = 'imported'; save_owner(directory, owner)
@@ -816,6 +884,8 @@ if __name__ == '__main__':
                                       if Path(frame.filename).resolve() == Path(__file__).resolve()][-6:]}
         if PROFILE_DIAGNOSTIC is not None:
             diagnostic['profile'] = PROFILE_DIAGNOSTIC
+        if NATIVE_DIAGNOSTIC is not None:
+            diagnostic['native'] = NATIVE_DIAGNOSTIC
         (evidence / 'lifecycle-summary.json').write_text(json.dumps(diagnostic, indent=2) + '\n')
         print('Owned master fixture failed; raw logs and credential material remain private.', file=sys.stderr)
         raise SystemExit(1)
