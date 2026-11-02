@@ -109,6 +109,21 @@ class MasterTransitionTest(unittest.TestCase):
         self.assertNotIn('PRIVATE', json.dumps(result)); self.assertNotIn('unknown-private-field', json.dumps(result))
         self.assertEqual(module.profile_diagnostic({}, ValueError('PRIVATE'))['gate'], 'UNCLASSIFIED')
 
+    def test_native_default_profile_readback_normalizes_serialization_only_after_strict_review(self):
+        module = self.module(); document = source(); kind = module.profile.USER_PROFILE_PROVIDER
+        configuration = copy.deepcopy(module.profile.DEFAULT_USER_PROFILE)
+        document['components'][kind] = [{'id': 'retained-profile', 'providerId': 'declarative-user-profile',
+                                         'config': {'kc.user.profile.config': [json.dumps(configuration)]}}]
+        candidate = module.profile.build_profile(document, realm='master', origin='https://id.example.test', acknowledge_master=True)
+        before = copy.deepcopy(candidate); effective = copy.deepcopy(candidate)
+        for attribute in configuration['attributes']: attribute['multivalued'] = False
+        effective['components'][kind][0]['config']['kc.user.profile.config'] = [json.dumps(configuration, sort_keys=True, indent=2)]
+        module.verify_effective(candidate, effective)
+        self.assertEqual(candidate, before)
+        configuration['attributes'][0]['permissions']['edit'] = ['user']
+        effective['components'][kind][0]['config']['kc.user.profile.config'] = [json.dumps(configuration)]
+        with self.assertRaises(ValueError): module.verify_effective(candidate, effective)
+
     def test_retained_snapshot_requires_same_credentials_ids_roles_and_original_audit_rows(self):
         module = self.module()
         before = {'users': ['u'], 'credentials': ['c'], 'roles': ['r'], 'events': ['e'], 'adminEvents': ['a']}

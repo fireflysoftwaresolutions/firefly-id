@@ -60,3 +60,14 @@ test('authentication diagnostics classify known messages without returning arbit
     clientDataPresent: true, credentialIdPresent: false });
   assert.doesNotMatch(JSON.stringify(result), /PRIVATE/);
 });
+
+
+test('component diagnostics preserve only known provider categories and configuration shape', async () => {
+  const { componentDiagnostic } = await runtime();
+  assert.equal(typeof componentDiagnostic, 'function');
+  assert.deepEqual(componentDiagnostic({ providerType: 'org.keycloak.userprofile.UserProfileProvider', providerId: 'declarative-user-profile',
+    id: 'PRIVATE', config: { 'kc.user.profile.config': ['PRIVATE'] } }),
+    { kind: 'USER_PROFILE', provider: 'declarative-user-profile', configuration: 'USER_PROFILE_JSON', nested: false });
+  assert.deepEqual(componentDiagnostic({ providerType: 'PRIVATE', providerId: 'PRIVATE', config: { PRIVATE: ['PRIVATE'] } }),
+    { kind: 'OTHER', provider: 'OTHER', configuration: 'OTHER', nested: false });
+});

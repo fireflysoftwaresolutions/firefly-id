@@ -84,6 +84,19 @@ export function registrationSubmissionDiagnostic(post, origin, status) {
     credentialIdPresent: !!data.get('publicKeyCredentialId') };
 }
 
+export function componentDiagnostic(component) {
+  const kinds = new Map([['org.keycloak.keys.KeyProvider', 'KEYS'],
+    ['org.keycloak.services.clientregistration.policy.ClientRegistrationPolicy', 'CLIENT_REGISTRATION'],
+    ['org.keycloak.userprofile.UserProfileProvider', 'USER_PROFILE'], ['org.keycloak.storage.UserStorageProvider', 'USER_STORAGE']]);
+  const providers = new Set(['declarative-user-profile', 'rsa-generated', 'hmac-generated', 'aes-generated', 'ecdsa-generated',
+    'trusted-hosts', 'consent-required', 'scope', 'max-clients', 'allowed-protocol-mappers', 'allowed-client-templates',
+    'registration-web-origins', 'ldap', 'kerberos']);
+  const keys = Object.keys(component.config || {});
+  return { kind: kinds.get(component.providerType) || 'OTHER', provider: providers.has(component.providerId) ? component.providerId : 'OTHER',
+    configuration: keys.length === 0 ? 'EMPTY' : keys.length === 1 && keys[0] === 'kc.user.profile.config' ? 'USER_PROFILE_JSON' : 'OTHER',
+    nested: !!component.subComponents && Object.keys(component.subComponents).length > 0 };
+}
+
 async function qualify() {
   const directory = ROOT + '/.state/master-' + process.env.GITHUB_RUN_ID + '-' + process.env.GITHUB_RUN_ATTEMPT;
   assert.equal(realpathSync(directory), directory);
@@ -334,9 +347,12 @@ async function qualify() {
         authenticationFlowBindingOverrides: {}, attributes: client.clientId === CLIENT
           ? { 'pkce.code.challenge.method': 'S256', 'client.use.lightweight.access.token.enabled': 'false' } : {} });
     }
-    // Native dynamic-registration policies are explicitly removed only from this fresh synthetic master.
-    for (const component of await admin('components')) {
-      if (component.providerType === 'org.keycloak.keys.KeyProvider') continue;
+    // Review the complete inventory before changing any component; native profile metadata is retained.
+    const components = await admin('components');
+    report.componentInventory = components.slice(0, 32).map(componentDiagnostic); save();
+    lifecycle('review_components', components);
+    for (const component of components) {
+      if (['org.keycloak.keys.KeyProvider', 'org.keycloak.userprofile.UserProfileProvider'].includes(component.providerType)) continue;
       assert.equal(component.providerType, 'org.keycloak.services.clientregistration.policy.ClientRegistrationPolicy');
       await admin('components/' + component.id, 'DELETE');
     }

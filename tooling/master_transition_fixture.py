@@ -51,6 +51,10 @@ def profile_diagnostic(document, failure):
         'Unsupported client fields refused': 'UNSUPPORTED_CLIENT_FIELDS',
         'Unsupported client attributes refused': 'CLIENT_ATTRIBUTES',
         'Only native signing-key components are supported': 'COMPONENTS',
+        'Only reviewed native signing-key and default user-profile components are supported': 'COMPONENTS',
+        'Only the native declarative user-profile provider is supported': 'USER_PROFILE_PROVIDER',
+        'Custom user-profile component settings require explicit review': 'USER_PROFILE_SETTINGS',
+        'Custom declarative user-profile configuration requires explicit review': 'USER_PROFILE_CONFIGURATION',
         'Custom flow topology requires explicit review': 'FLOW_TOPOLOGY',
         'Unsupported authenticator extension refused': 'AUTHENTICATOR_PROVIDER',
         'Custom authenticator configuration requires explicit review': 'AUTHENTICATOR_CONFIG',
@@ -120,9 +124,12 @@ def verify_effective(candidate, effective, retirement_window=None):
         require(canonical(candidate.get(key)) == canonical(effective.get(key)), 'Preserved realm setting differs: ' + key)
     # Signing private-key values may be redacted by the admin partial-export endpoint.
     def components(document):
+        profile.reviewed_native_components(document.get('components', {}))
         result = json.loads(json.dumps(document.get('components', {})))
         for component in result.get('org.keycloak.keys.KeyProvider', []):
             component.get('config', {}).pop('privateKey', None)
+        for component in result.get(profile.USER_PROFILE_PROVIDER, []):
+            component['config'] = {'kc.user.profile.config': profile.DEFAULT_USER_PROFILE}
         return canonical(result)
     require(components(candidate) == components(effective), 'Signing component inventory differs')
     expected = profile.controls(profile.origin_host('https://' + candidate['webAuthnPolicyRpId']))
@@ -466,6 +473,28 @@ def authentication_diagnostic():
     print(json.dumps(result))
 
 
+def review_components():
+    global PROFILE_DIAGNOSTIC
+    _, owner = state(); require(owner['phase'] == 'enrollment', 'Owned source prerequisite phase required')
+    values = json.load(sys.stdin)
+    require(isinstance(values, list) and len(values) <= 64, 'Bounded owned component inventory required')
+    registration_type = 'org.keycloak.services.clientregistration.policy.ClientRegistrationPolicy'
+    registration_ids = {'trusted-hosts', 'consent-required', 'scope', 'max-clients', 'allowed-protocol-mappers',
+                        'allowed-client-templates', 'registration-web-origins'}
+    native = {}
+    for component in values:
+        kind = component.get('providerType')
+        if kind == registration_type:
+            require(component.get('providerId') in registration_ids, 'Custom client registration provider refused')
+        else:
+            native.setdefault(kind, []).append(component)
+    try:
+        profile.reviewed_native_components(native)
+    except (ValueError, TypeError, KeyError) as failure:
+        PROFILE_DIAGNOSTIC = profile_diagnostic({'components': native}, failure)
+        raise
+
+
 def action_snapshot(directory, owner):
     result = snapshot(directory, owner)
     for table in ('offline_user_session', 'offline_client_session'):
@@ -517,7 +546,7 @@ def check():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['authentication_diagnostic', 'check', 'action_baseline', 'verify_action_state', 'prepare', 'start', 'export_candidate', 'import_start', 'retained_start', 'restart', 'verify_state', 'readback', 'stop'])
+    parser.add_argument('action', choices=['review_components', 'authentication_diagnostic', 'check', 'action_baseline', 'verify_action_state', 'prepare', 'start', 'export_candidate', 'import_start', 'retained_start', 'restart', 'verify_state', 'readback', 'stop'])
     args = parser.parse_args(); require_hosted(); os.umask(0o077)
     globals()[args.action]()
 

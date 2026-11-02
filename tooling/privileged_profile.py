@@ -76,6 +76,51 @@ SOURCE_CONFIGS = {
 }
 
 
+USER_PROFILE_PROVIDER = 'org.keycloak.userprofile.UserProfileProvider'
+# Keycloak 26.8.1 services/.../userprofile/config/keycloak-default-user-profile.json.
+DEFAULT_USER_PROFILE = {
+    'attributes': [
+        {'name': name, 'displayName': '${' + name + '}',
+         'permissions': {'view': ['admin', 'user'], 'edit': ['admin', 'user']},
+         **({} if name == 'username' else {'required': {'roles': ['user']}}),
+         'validations': ({'length': {'min': 3, 'max': 255}, 'username-prohibited-characters': {},
+                          'up-username-not-idn-homograph': {}} if name == 'username' else
+                         {'email': {}, 'length': {'max': 255}} if name == 'email' else
+                         {'length': {'max': 255}, 'person-name-prohibited-characters': {}})}
+        for name in ('username', 'email', 'firstName', 'lastName')],
+    'groups': [{'name': 'user-metadata', 'displayHeader': 'User metadata',
+                'displayDescription': 'Attributes, which refer to user metadata'}],
+}
+
+
+def reviewed_native_components(components):
+    require(isinstance(components, dict) and set(components) <= {'org.keycloak.keys.KeyProvider', USER_PROFILE_PROVIDER},
+            'Only reviewed native signing-key and default user-profile components are supported')
+    for entries in components.values():
+        require(isinstance(entries, list), 'Native component list required')
+        for component in entries:
+            require(not component.get('subComponents'), 'Nested provider components are unsupported')
+    profiles = components.get(USER_PROFILE_PROVIDER, [])
+    require(len(profiles) <= 1, 'Duplicate user-profile components refused')
+    for component in profiles:
+        require(component.get('providerId') == 'declarative-user-profile'
+                and component.get('providerType', USER_PROFILE_PROVIDER) == USER_PROFILE_PROVIDER,
+                'Only the native declarative user-profile provider is supported')
+        config = component.get('config', {})
+        require(isinstance(config, dict), 'Native user-profile configuration object required')
+        if not config:
+            continue
+        require(set(config) == {'kc.user.profile.config'} and isinstance(config['kc.user.profile.config'], list)
+                and len(config['kc.user.profile.config']) == 1 and isinstance(config['kc.user.profile.config'][0], str),
+                'Custom user-profile component settings require explicit review')
+        configured = parse_document(config['kc.user.profile.config'][0])
+        # The native UPAttribute serializer writes the primitive default even when absent from the bundled JSON.
+        for attribute in configured.get('attributes', []):
+            if attribute.get('multivalued') is False:
+                del attribute['multivalued']
+        require(configured == DEFAULT_USER_PROFILE, 'Custom declarative user-profile configuration requires explicit review')
+
+
 def existing_flows(document):
     flows = document.get('authenticationFlows', [])
     require(isinstance(flows, list), 'Authentication flow inventory required')
@@ -173,10 +218,7 @@ def prerequisites(document, realm, origin, admin_origin=None):
     require(not document.get('clientPolicies', {}).get('policies') and not document.get('clientProfiles', {}).get('profiles'),
             'Custom client policy/profile execution requires separate review')
     components = document.get('components', {})
-    require(isinstance(components, dict) and set(components) <= {'org.keycloak.keys.KeyProvider'},
-            'Only native signing-key components are supported')
-    for component in components.get('org.keycloak.keys.KeyProvider', []):
-        require(not component.get('subComponents'), 'Nested provider components are unsupported')
+    reviewed_native_components(components)
     attributes = document.get('attributes', {})
     require(isinstance(attributes, dict) and set(attributes) <= {'firefly.privileged-administration'},
             'Realm extension attributes require explicit review')

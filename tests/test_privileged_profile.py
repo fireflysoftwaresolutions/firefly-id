@@ -206,6 +206,23 @@ class PrivilegedProfileTest(unittest.TestCase):
         document['userManagedAccessAllowed'] = True
         with self.assertRaises(ValueError): self.candidate(document)
 
+    def test_native_default_user_profile_is_preserved_but_custom_profiles_are_refused(self):
+        provider = 'org.keycloak.userprofile.UserProfileProvider'
+        document = source()
+        document['components'][provider] = [{'id': 'retained-profile', 'providerId': 'declarative-user-profile', 'config': {}}]
+        self.assertEqual(self.candidate(document)['components'], document['components'])
+        import json
+        default = copy.deepcopy(self.module.DEFAULT_USER_PROFILE)
+        document['components'][provider][0]['config'] = {'kc.user.profile.config': [json.dumps(default)]}
+        self.assertEqual(self.candidate(document)['components'], document['components'])
+        for mutation in ({'providerId': 'custom-profile'}, {'config': {'custom-setting': ['true']}},
+                         {'subComponents': {'custom': [{}]}}):
+            invalid = copy.deepcopy(document); invalid['components'][provider][0].update(mutation)
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError): self.candidate(invalid)
+        default['attributes'][0]['permissions']['edit'] = ['user']
+        document['components'][provider][0]['config']['kc.user.profile.config'] = [json.dumps(default)]
+        with self.assertRaises(ValueError): self.candidate(document)
+
     def test_nonstandard_json_numbers_are_refused(self):
         for number in ('NaN', 'Infinity', '-Infinity'):
             with self.subTest(number=number), self.assertRaises(ValueError):
