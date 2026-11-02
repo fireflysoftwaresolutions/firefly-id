@@ -80,3 +80,34 @@ test('privileged browser qualification refuses non-hosted or non-Linux ownership
     }
   }
 });
+
+test('privileged update diagnostics retain only bounded status, known client, categories and boolean controls', async () => {
+  const { privilegedWriteDiagnostic } = await fixture();
+  assert.equal(typeof privilegedWriteDiagnostic, 'function', 'Bounded administrative update diagnostics are missing');
+  const response = new Response(JSON.stringify({ error: 'invalid_input', error_description: 'Root URL is not a valid URL: PRIVATE-RESPONSE',
+    secret: 'PRIVATE-RESPONSE' }), { status: 400 });
+  const diagnostic = await privilegedWriteDiagnostic(response, { operation: 'CLIENT_UPDATE', clientId: 'account',
+    body: { enabled: false, standardFlowEnabled: false, publicClient: true, secret: 'PRIVATE-REQUEST', attributes: { private: 'PRIVATE-REQUEST' } } });
+  assert.deepEqual(diagnostic, { status: 400, operation: 'CLIENT_UPDATE', client: 'account',
+    controls: { enabled: false, standardFlowEnabled: false, publicClient: true }, categories: ['INVALID_INPUT', 'URL_VALIDATION'] });
+  assert.doesNotMatch(JSON.stringify(diagnostic), /PRIVATE|secret|attributes/);
+});
+
+test('privileged update diagnostics do not echo unknown clients, operations, fields or response messages', async () => {
+  const { privilegedWriteDiagnostic } = await fixture();
+  assert.equal(typeof privilegedWriteDiagnostic, 'function');
+  const diagnostic = await privilegedWriteDiagnostic(new Response(JSON.stringify({ error: 'PRIVATE-ERROR', errorMessage: 'PRIVATE-BODY' }), { status: 403 }),
+    { operation: 'PRIVATE-PATH', clientId: 'PRIVATE-CLIENT', body: { enabled: 'PRIVATE-FIELD', password: 'PRIVATE-PASSWORD' } });
+  assert.deepEqual(diagnostic, { status: 403, operation: 'OTHER', client: 'OTHER', controls: {}, categories: ['HTTP_FORBIDDEN', 'UNCLASSIFIED'] });
+  assert.doesNotMatch(JSON.stringify(diagnostic), /PRIVATE/);
+});
+
+test('privileged update diagnostics stop reading oversized responses and classify malformed JSON safely', async () => {
+  const { privilegedWriteDiagnostic } = await fixture();
+  assert.equal(typeof privilegedWriteDiagnostic, 'function');
+  const oversized = await privilegedWriteDiagnostic(new Response('PRIVATE'.repeat(3000), { status: 500 }), {});
+  assert.deepEqual(oversized.categories, ['BODY_TOO_LARGE', 'HTTP_SERVER_ERROR']);
+  const malformed = await privilegedWriteDiagnostic(new Response('<html>PRIVATE</html>', { status: 502 }), {});
+  assert.deepEqual(malformed.categories, ['BODY_NOT_JSON', 'HTTP_SERVER_ERROR']);
+  assert.doesNotMatch(JSON.stringify([oversized, malformed]), /PRIVATE/);
+});

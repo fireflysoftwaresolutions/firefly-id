@@ -59,6 +59,58 @@ export function assertionProperties(post, enrolledCredential) {
     signedByEnrolledKey: verify('sha256', Buffer.concat([authenticatorData, createHash('sha256').update(clientData).digest()]), publicKey, signature) };
 }
 
+export async function privilegedWriteDiagnostic(response, { operation, clientId, body } = {}) {
+  const clients = new Set(['account', 'account-console', 'admin-cli', 'broker', 'realm-management', 'security-admin-console', CLIENT]);
+  const operations = new Set(['CLIENT_UPDATE', 'REQUIRED_ACTION_UPDATE', 'REALM_UPDATE']);
+  const controls = Object.fromEntries(['enabled', 'standardFlowEnabled', 'directAccessGrantsEnabled', 'implicitFlowEnabled',
+    'serviceAccountsEnabled', 'publicClient', 'bearerOnly', 'authorizationServicesEnabled']
+    .filter(key => typeof body?.[key] === 'boolean').map(key => [key, body[key]]));
+  const status = Number.isInteger(response?.status) && response.status >= 100 && response.status <= 599 ? response.status : null;
+  const categories = new Set();
+  const finish = () => ({ status, operation: operations.has(operation) ? operation : 'OTHER',
+    client: clients.has(clientId) ? clientId : 'OTHER', controls, categories: [...categories].sort() });
+  if (status === 401) categories.add('HTTP_UNAUTHORIZED');
+  if (status === 403) categories.add('HTTP_FORBIDDEN');
+  if (status === 404) categories.add('HTTP_NOT_FOUND');
+  if (status === 409) categories.add('HTTP_CONFLICT');
+  if (status >= 500) categories.add('HTTP_SERVER_ERROR');
+  let content;
+  try {
+    const reader = response.body.getReader();
+    const chunks = []; let size = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read(); if (done) break;
+        size += value.byteLength;
+        if (size > 16384) { await reader.cancel(); categories.add('BODY_TOO_LARGE'); return finish(); }
+        chunks.push(value);
+      }
+    } finally { reader.releaseLock(); }
+    content = Buffer.concat(chunks).toString('utf8');
+  } catch { categories.add('BODY_UNREADABLE'); return finish(); }
+  let parsed;
+  try { parsed = JSON.parse(content); } catch { categories.add('BODY_NOT_JSON'); return finish(); }
+  const knownErrors = new Map([['invalid_input', 'INVALID_INPUT'], ['invalid_request', 'INVALID_REQUEST'],
+    ['invalid_client_metadata', 'CLIENT_METADATA'], ['invalid_client', 'INVALID_CLIENT'], ['access_denied', 'ACCESS_DENIED'],
+    ['unknown_error', 'SERVER_UNKNOWN_ERROR'], ['unauthorized_client', 'UNAUTHORIZED_CLIENT'],
+    ['Not supported to change client type', 'CLIENT_TYPE'],
+    ['Cannot change property of client as it is not allowed by the specified client type.', 'CLIENT_TYPE']]);
+  const messages = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? [parsed.error, parsed.errorMessage, parsed.error_description].filter(value => typeof value === 'string') : [];
+  let classified = false;
+  for (const message of messages) {
+    if (knownErrors.has(message)) { categories.add(knownErrors.get(message)); classified = true; }
+    if (/(?:Root URL|Base URL|redirect URI|post-logout redirect URI|Admin URL|JWKS URL).*(?:not a valid|illegal scheme|fragment)/i.test(message)) {
+      categories.add('URL_VALIDATION'); classified = true;
+    }
+    if (/CIBA Backchannel|CIBA ping mode/.test(message)) { categories.add('CIBA_VALIDATION'); classified = true; }
+    if (/ACR|ACR-LOA/.test(message)) { categories.add('ACR_VALIDATION'); classified = true; }
+    if (/PKCE|Proof Key for Code Exchange/.test(message)) { categories.add('PKCE_POLICY'); classified = true; }
+  }
+  if (!classified) categories.add('UNCLASSIFIED');
+  return finish();
+}
+
 /** Hosted synthetic qualification only; all mutations are fenced to a newly created realm owned by this invocation. */
 export async function qualifyPrivilegedAdministration({ browser, origin, callback, request, adminToken, pending, passed, stage }) {
   assert.ok(process.env.GITHUB_ACTIONS === 'true' && process.env.RUNNER_OS === 'Linux'
@@ -86,7 +138,14 @@ export async function qualifyPrivilegedAdministration({ browser, origin, callbac
     return response.json();
   }
   async function write(suffix, body) {
-    assert.equal((await administer(suffix, 'PUT', body)).status, 204, 'Owned fixture update refused');
+    const response = await administer(suffix, 'PUT', body);
+    if (response.status !== 204) {
+      const error = new Error('Owned fixture update refused');
+      error.privilegedWrite = await privilegedWriteDiagnostic(response, { body, clientId: body?.clientId,
+        operation: suffix.startsWith('clients/') ? 'CLIENT_UPDATE'
+          : suffix.startsWith('authentication/required-actions/') ? 'REQUIRED_ACTION_UPDATE' : 'REALM_UPDATE' });
+      throw error;
+    }
   }
   async function newContext() {
     const context = await browser.newContext(); contexts.add(context); return context;

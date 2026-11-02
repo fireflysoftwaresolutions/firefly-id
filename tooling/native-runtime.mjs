@@ -30,6 +30,8 @@ const privateProofs = new Map();
 const accountAssertions = new Map();
 const transportFaults = process.env.FIREFLY_NATIVE_TRANSPORT_FAULTS === 'true';
 const authorityExpiry = process.env.FIREFLY_NATIVE_AUTHORITY_EXPIRY === 'true';
+const privilegedOnly = process.env.FIREFLY_NATIVE_PRIVILEGED_ONLY === 'true';
+assert.ok(!(privilegedOnly && authorityExpiry), 'Privileged-only and authority-expiry lanes are mutually exclusive');
 assert.ok(!authorityExpiry || transportFaults, 'Authority expiry requires the owned real transport relay');
 const fontEvidence = [];
 let phase = 'owned-native-runtime-ready';
@@ -731,7 +733,7 @@ try {
   await new Promise((ok, fail) => server.listen(8448, '127.0.0.1', ok).once('error', fail));
   stage('owned-chromium-launch');
   browser = await chromium.launch();
-  for (const profile of credentials.profiles) {
+  for (const profile of privilegedOnly ? [] : credentials.profiles) {
     activePopulation = profile.kind;
     if (authorityExpiry) { await expiredNativeAuthority(profile); continue; }
     const previousSession = await browser.newContext();
@@ -924,10 +926,11 @@ try {
     privilegedEvidence,
     failures: failedGates, expiryEvidence, accountInventory: accountEvidence, sessionEvidence, pinProtection: lastPinProtection,
     ...(failedGates.length ? { pinGuards: pinDiagnostics() } : {}),
-    pending: [...(transportFaults ? [] : ['true simultaneous native execution requests', 'post-commit network response-loss injection', 'natural server ceremony expiry and swapped private attestation references']),
+    pending: [...(transportFaults || privilegedOnly ? [] : ['true simultaneous native execution requests', 'post-commit network response-loss injection', 'natural server ceremony expiry and swapped private attestation references']),
       'support PIN BPO/case/delegation owner acceptance', 'production/regulatory approval'],
-    coverage: authorityExpiry ? 'authority-expiry-only' : 'native-lifecycle',
-    notCoveredByThisRun: authorityExpiry ? ['ordinary native lifecycle and PIN (separate execution)'] : ['authority expiry (separate opt-in execution)'],
+    coverage: privilegedOnly ? 'privileged-webauthn-only' : authorityExpiry ? 'authority-expiry-only' : 'native-lifecycle',
+    notCoveredByThisRun: privilegedOnly ? ['ordinary native lifecycle and PIN', 'authority expiry', 'exact offline candidate import and retained master cutover']
+      : authorityExpiry ? ['ordinary native lifecycle and PIN (separate execution)', 'privileged WebAuthn (separate execution)'] : ['authority expiry (separate opt-in execution)'],
     scope: 'Owned synthetic HTTPS native Keycloak/Core PostgreSQL/actual generated-SDK Domain acceptance only.' }, null, 2));
   if (failedGates.length) process.exitCode = 1;
 } catch (error) {
@@ -972,6 +975,7 @@ try {
   }
   await writeFile(`${output}/summary.json`, JSON.stringify({ status: 'FAILED', passed: results, failures: failedGates, lastCompleted: phase,
     privilegedEvidence,
+    privilegedWrite: error?.privilegedWrite,
     currentStage, errorKind: allowedNames.has(error?.name) ? error.name : 'Error', sourceFrames: frames,
     networkCauseCode: allowedNetworkCodes.has(error?.cause?.code) ? error.cause.code : 'unclassified',
     lastHttpStatus, lastNativeSubmission, inventory, lastAccountInventory, accountInventory: accountEvidence, sessionEvidence,
