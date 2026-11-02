@@ -58,3 +58,5 @@
 ## Execution record
 
 The existing design and this continuation are authorized by the user's request; no new production capability or institutional decision is inferred. Task 1 produces the receipt consumed by Tasks 2 and 3. Task 2 changes no product scope; Task 3 must not claim unexecuted scenarios. All tasks preserve the global constraints. Delivery receipts belong in draft PR #1 so recording the final run does not change the checked source.
+
+Initial hosted run `41386933260` at `d2ad51ea820d1e0ecc83f59e44dfa6e43f0838ed` compiled both native service and fixture, passed 115 Java tests, verified production adapter exclusion, and seeded all eleven historical tables. It failed in `ADDITIVE_MIGRATION` before publishing route-admission results. The initial bounded diagnostics did not identify the failed substep; add specific safe failure stages and process/readiness evidence before attributing a root cause or changing behavior. Preserve that failed receipt. The other nine source workflows passed, including Pages publication and exact comparison of 81 public files and 32 unchanged reviewed SVGs; those results do not qualify the failed support runtime.

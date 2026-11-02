@@ -123,3 +123,62 @@ class SupportRetainedQualificationTest(unittest.TestCase):
                            'category': 'CANNOT_FIND_SYMBOL'}], result['compiler_locations'])
         self.assertEqual(['23505'], result['sqlstates'])
         self.assertNotIn('never-export', str(result))
+
+    def test_known_startup_failures_are_classified_without_messages(self):
+        fixture = self.fixture()
+        raw = ('liquibase.exception.ValidationFailedException: secret-never-export\n'
+               'liquibase checksum was changed password-never-export\n'
+               'Failed to start server in production mode token-never-export\n'
+               'java.lang.OutOfMemoryError: private-never-export\n')
+        diagnostics = fixture.bounded_diagnostics(raw)
+        self.assertEqual(['LIQUIBASE_VALIDATION_FAILED', 'LIQUIBASE_CHECKSUM_MISMATCH',
+                          'KEYCLOAK_STARTUP_FAILED', 'JAVA_OUT_OF_MEMORY'], diagnostics.get('runtime_categories'))
+        self.assertNotIn('never-export', str(diagnostics))
+
+    def test_python_failure_reports_only_own_source_and_fixed_category(self):
+        fixture = self.fixture()
+        owned = fixture.Fixture('17-2')
+        self.assertTrue(hasattr(owned, 'exception_diagnostic'), 'Bounded Python failure classification is missing')
+        with patch.object(owned, 'metadata', return_value={'Config': {'Labels': {}}}):
+            try:
+                owned.owned('container', owned.db)
+            except RuntimeError as error:
+                diagnostic = owned.exception_diagnostic(error)
+        self.assertEqual('OWNERSHIP_INVALID', diagnostic['category'])
+        self.assertTrue(any(row['function'] == 'owned' and row['line'] > 0 for row in diagnostic['python_frames']))
+        self.assertEqual({'tooling/support_retained_qualification.py'}, {row['file'] for row in diagnostic['python_frames']})
+        self.assertNotIn('/Users/', str(diagnostic))
+
+    def test_route_probe_records_exact_failed_probe_and_http_status(self):
+        fixture = self.fixture()
+        owned = fixture.Fixture('17-2')
+        response = SimpleNamespace(close=lambda: None)
+        with patch.object(owned, 'owned', return_value={'NetworkSettings': {'Networks': {owned.network: {'IPAddress': '172.19.0.2'}}}}), \
+                patch.object(owned.http, 'open', return_value=response):
+            with self.assertRaises(RuntimeError):
+                owned.reject_unauthorized_routes()
+        self.assertEqual('ROUTE_PROBE_MISSING_SECRET', owned.receipt.get('boundary'))
+        self.assertEqual({'probe': 'MISSING_SECRET', 'status': 200}, owned.receipt.get('route_probe'))
+
+    def test_process_state_never_exports_raw_docker_metadata(self):
+        fixture = self.fixture()
+        owned = fixture.Fixture('17-2')
+        self.assertTrue(hasattr(owned, 'process_diagnostic'), 'Bounded process state classification is missing')
+        metadata = {'State': {'Status': 'exited', 'Running': False, 'OOMKilled': True, 'ExitCode': 137,
+                              'Error': 'credential-never-export'}, 'Config': {'Env': ['secret-never-export']}}
+        with patch.object(owned, 'owned', return_value=metadata):
+            self.assertEqual({'status': 'exited', 'running': False, 'oom_killed': True, 'exit_code': 137},
+                             owned.process_diagnostic(owned.server))
+
+    def test_readiness_timeout_preserves_last_probe_error_and_boundary(self):
+        fixture = self.fixture()
+        owned = fixture.Fixture('17-2')
+        owned.receipt['boundary'] = 'BOOT_READINESS'
+        def unavailable():
+            raise fixture.urllib.error.URLError('secret-never-export')
+        with patch.object(fixture.time, 'monotonic', side_effect=[0, 0, 2]), patch.object(fixture.time, 'sleep'):
+            with self.assertRaises(RuntimeError):
+                owned.wait(unavailable, seconds=1)
+        self.assertEqual('BOOT_READINESS', owned.receipt['boundary'])
+        self.assertEqual('HTTP_TRANSPORT', owned.receipt.get('last_probe', {}).get('category'))
+        self.assertNotIn('never-export', str(owned.receipt))

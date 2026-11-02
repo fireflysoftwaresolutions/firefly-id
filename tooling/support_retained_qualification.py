@@ -3,6 +3,7 @@
 No CLI targets are accepted. Raw Docker/HTTP/SQL output stays private in this
 attempt; the only published artifact is an allowlisted status/count receipt.
 """
+from enum import Enum
 import hashlib
 import ipaddress
 import json
@@ -26,6 +27,30 @@ CHANGESET = 'firefly-native-support-evidence-2'
 TABLES = ('ff_native_state', 'ff_native_ceremony', 'ff_native_attestation', 'ff_native_execution',
           'ff_native_audit', 'ff_native_issued_challenge', 'ff_native_support_proof', 'ff_native_totp_replay',
           'user_entity', 'credential', 'user_attribute')
+
+
+class FailureCategory(str, Enum):
+    COMMAND_FAILED = 'COMMAND_FAILED'
+    COMMAND_TIMEOUT = 'COMMAND_TIMEOUT'
+    IMAGE_BUILD_FAILED = 'IMAGE_BUILD_FAILED'
+    METADATA_INVALID = 'METADATA_INVALID'
+    OWNERSHIP_INVALID = 'OWNERSHIP_INVALID'
+    TOPOLOGY_INVALID = 'TOPOLOGY_INVALID'
+    READINESS_TIMEOUT = 'READINESS_TIMEOUT'
+    HTTP_TRANSPORT = 'HTTP_TRANSPORT'
+    HTTP_STATUS_UNEXPECTED = 'HTTP_STATUS_UNEXPECTED'
+    DATABASE_IDENTITY_CHANGED = 'DATABASE_IDENTITY_CHANGED'
+    RETAINED_VALUES_CHANGED = 'RETAINED_VALUES_CHANGED'
+    LIQUIBASE_HISTORY_CHANGED = 'LIQUIBASE_HISTORY_CHANGED'
+    MIGRATION_NOT_APPLIED = 'MIGRATION_NOT_APPLIED'
+    NONCE_FENCE_NOT_INSTALLED = 'NONCE_FENCE_NOT_INSTALLED'
+    UNEXPECTED_EXCEPTION = 'UNEXPECTED_EXCEPTION'
+
+
+class QualificationFailure(RuntimeError):
+    def __init__(self, category):
+        self.category = category
+        super().__init__(category.value)
 
 
 def admit():
@@ -59,7 +84,21 @@ def bounded_diagnostics(raw):
     states = sorted(set(re.findall(r'(?:ERROR:\s+|SQLState:\s*|SQLSTATE[=: ]+)([A-Z0-9]{5})(?=[:\s]|$)', raw))
                     & {'23505', '23502', '23514', '42501', '42P01', '42703', '42601', '55P03', '57014', 'FQ001'})
     frames = re.findall(r'(?m)^\s+at (io\.firefly\.id\.nativeauth\.(?:Native|SupportQualification)[A-Za-z0-9_$]+\.[A-Za-z0-9_$<>]+\((?:Native|SupportQualification)[A-Za-z0-9_$]+\.java:\d+\))', raw)
-    return {'compiler_locations': locations[:12], 'sqlstates': states[:8], 'source_frames': frames[:8]}
+    signatures = [
+        ('LIQUIBASE_VALIDATION_FAILED', 'liquibase.exception.ValidationFailedException'),
+        ('LIQUIBASE_CHECKSUM_MISMATCH', 'checksum'),
+        ('LIQUIBASE_MIGRATION_FAILED', 'liquibase.exception.MigrationFailedException'),
+        ('LIQUIBASE_DATABASE_ERROR', 'liquibase.exception.DatabaseException'),
+        ('KEYCLOAK_STARTUP_FAILED', 'Failed to start server'),
+        ('KEYCLOAK_DATABASE_UPDATE_FAILED', 'Failed to update database'),
+        ('HIBERNATE_SCHEMA_FAILED', 'SchemaManagementException'),
+        ('DATABASE_CONNECTION_FAILED', 'Unable to acquire JDBC connection'),
+        ('JAVA_OUT_OF_MEMORY', 'java.lang.OutOfMemoryError'),
+    ]
+    runtime = [category for category, pattern in signatures if pattern in raw and
+               (category != 'LIQUIBASE_CHECKSUM_MISMATCH' or 'liquibase' in raw.lower())]
+    return {'compiler_locations': locations[:12], 'sqlstates': states[:8], 'source_frames': frames[:8],
+            'runtime_categories': runtime}
 
 
 def historical_jar(original, target):
@@ -105,11 +144,13 @@ class Fixture:
     def command(self, args, *, input=None, timeout=30):
         try:
             result = subprocess.run(args, input=input, capture_output=True, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            raise RuntimeError('Owned operation deadline exceeded') from None
+        except subprocess.TimeoutExpired as error:
+            self.failure((error.stdout or b'') + b'\n' + (error.stderr or b''))
+            raise QualificationFailure(FailureCategory.COMMAND_TIMEOUT) from None
         if result.returncode:
             self.failure(result.stdout + b'\n' + result.stderr)
-            raise RuntimeError('Owned operation failed')
+            self.receipt['command_failure'] = {'exit_code': int(result.returncode)}
+            raise QualificationFailure(FailureCategory.COMMAND_FAILED)
         return result.stdout
 
     def docker(self, *args, **kwargs):
@@ -127,31 +168,64 @@ class Fixture:
             existing[key] = (existing.get(key, []) + [value for value in values if value not in existing.get(key, [])])[:12]
 
 
+    def exception_diagnostic(self, error):
+        if isinstance(error, QualificationFailure):
+            category = error.category.value
+        elif isinstance(error, urllib.error.HTTPError):
+            category = FailureCategory.HTTP_STATUS_UNEXPECTED.value
+        elif isinstance(error, (urllib.error.URLError, TimeoutError, ConnectionError)):
+            category = FailureCategory.HTTP_TRANSPORT.value
+        elif isinstance(error, (KeyError, IndexError, ValueError, TypeError)):
+            category = FailureCategory.METADATA_INVALID.value
+        else:
+            category = FailureCategory.UNEXPECTED_EXCEPTION.value
+        frames = [{'file': 'tooling/support_retained_qualification.py', 'function': frame.name, 'line': frame.lineno}
+                  for frame in traceback.extract_tb(error.__traceback__)
+                  if Path(frame.filename).resolve() == Path(__file__).resolve() and re.fullmatch('[A-Za-z_][A-Za-z0-9_]*', frame.name)]
+        result = {'category': category, 'python_frames': frames[-8:]}
+        if isinstance(error, urllib.error.HTTPError):
+            result['http_status'] = int(error.code) if 100 <= error.code <= 599 else 0
+        return result
+
+    def process_diagnostic(self, container):
+        state = self.owned('container', container).get('State', {})
+        status = state.get('Status')
+        code = state.get('ExitCode')
+        return {'status': status if status in {'created', 'running', 'paused', 'restarting', 'removing', 'exited', 'dead'} else 'UNKNOWN',
+                'running': state.get('Running') is True, 'oom_killed': state.get('OOMKilled') is True,
+                'exit_code': code if isinstance(code, int) and not isinstance(code, bool) else None}
+
     def topology(self, require_server=False):
         network = self.owned('network', self.network)
         expected = {self.db, self.server} if require_server else {self.db}
         peers = {value.get('Name') for value in network.get('Containers', {}).values()}
         if network.get('Internal') is not True or peers != expected:
-            raise RuntimeError('Exact owned internal peers required')
+            raise QualificationFailure(FailureCategory.TOPOLOGY_INVALID)
         for name in expected:
             metadata = self.owned('container', name)
             if set(metadata.get('NetworkSettings', {}).get('Networks', {})) != {self.network}:
-                raise RuntimeError('Additional container network refused')
+                raise QualificationFailure(FailureCategory.TOPOLOGY_INVALID)
             if metadata.get('HostConfig', {}).get('PortBindings') or any(metadata.get('NetworkSettings', {}).get('Ports', {}).values()):
-                raise RuntimeError('Published fixture ports refused')
+                raise QualificationFailure(FailureCategory.TOPOLOGY_INVALID)
         return network
 
     def metadata(self, kind, name):
-        return json.loads(self.docker(kind, 'inspect', name))[0]
+        try:
+            value = json.loads(self.docker(kind, 'inspect', name))[0]
+            if not isinstance(value, dict):
+                raise ValueError()
+            return value
+        except (ValueError, TypeError, IndexError):
+            raise QualificationFailure(FailureCategory.METADATA_INVALID) from None
 
     def owned(self, kind, name):
         allowed = {'container': {self.db, self.server, self.prefix + '-production-inspect'}, 'network': {self.network}}
         if name not in allowed.get(kind, set()):
-            raise RuntimeError('Unowned target refused')
+            raise QualificationFailure(FailureCategory.OWNERSHIP_INVALID)
         value = self.metadata(kind, name)
         labels = value.get('Config', {}).get('Labels', {}) if kind == 'container' else value.get('Labels', {})
         if labels.get(LABEL) != self.run:
-            raise RuntimeError('Owned runtime label mismatch')
+            raise QualificationFailure(FailureCategory.OWNERSHIP_INVALID)
         return value
 
     def private(self, name, data):
@@ -172,16 +246,16 @@ class Fixture:
             try:
                 if probe():
                     return
-            except Exception:
-                pass
+            except Exception as error:
+                self.receipt['last_probe'] = self.exception_diagnostic(error)
             time.sleep(1)
-        raise RuntimeError('Owned readiness deadline exceeded')
+        raise QualificationFailure(FailureCategory.READINESS_TIMEOUT)
 
     def call(self, operation):
         metadata = self.owned('container', self.server)
         self.topology(require_server=True)
         if metadata['HostConfig'].get('PortBindings'):
-            raise RuntimeError('Published fixture ports refused')
+            raise QualificationFailure(FailureCategory.TOPOLOGY_INVALID)
         address = ipaddress.ip_address(metadata['NetworkSettings']['Networks'][self.network]['IPAddress'])
         if address.version != 4 or not address.is_private or address.is_loopback:
             raise RuntimeError('Private owned bridge required')
@@ -220,7 +294,7 @@ class Fixture:
                                     stdout=log, stderr=subprocess.STDOUT, timeout=360)
         if result.returncode:
             self.failure(path.read_bytes())
-            raise RuntimeError('Owned image build failed')
+            raise QualificationFailure(FailureCategory.IMAGE_BUILD_FAILED)
 
     def fixture_image(self, phase, native):
         context = self.directory / phase
@@ -239,22 +313,38 @@ class Fixture:
         return tag
 
     def boot(self, image, phase):
+        self.receipt['boot_phase'] = phase
+        self.receipt['readiness'] = {'http_status': None, 'healthy': False}
+        self.receipt.pop('last_probe', None)
+        self.receipt['boundary'] = 'BOOT_TOPOLOGY_BEFORE_START'
         self.topology(require_server=False)
+        self.receipt['boundary'] = 'BOOT_ENVIRONMENT_WRITE'
         environment = self.private(phase + '.env', ('KC_DB=postgres\nKC_DB_URL=jdbc:postgresql://' + self.db + ':5432/support_fixture\n'
             'KC_DB_USERNAME=support_fixture\nKC_DB_PASSWORD=' + self.password + '\nKC_HTTP_ENABLED=true\nKC_HOSTNAME=http://localhost\n'
             'JAVA_OPTS_KC_HEAP=-Xms128m -Xmx768m\nFIREFLY_SUPPORT_QUALIFICATION=owned-github-hosted-only\n'
             'FIREFLY_SUPPORT_QUALIFICATION_RUN=' + self.run + '\nFIREFLY_SUPPORT_QUALIFICATION_SECRET=' + self.secret + '\n'
             'FIREFLY_SUPPORT_QUALIFICATION_PHASE=' + phase + '\nFIREFLY_SUPPORT_PIN_ACTIVE_KEY=fixture\nFIREFLY_SUPPORT_PIN_KEYS_DIR=/fixture-keys\n').encode())
+        self.receipt['boundary'] = 'BOOT_CONTAINER_START'
         self.docker('run', '--detach', '--name', self.server, '--hostname', self.server, '--label', LABEL + '=' + self.run,
                     '--network', self.network, '--env-file', str(environment), '--volume', str(self.directory / 'keys') + ':/fixture-keys:ro', image, timeout=60)
         self.server_running = True
+        self.receipt['boundary'] = 'BOOT_TOPOLOGY_AFTER_START'
         self.topology(require_server=True)
         def ready():
             metadata = self.owned('container', self.server)
             address = metadata['NetworkSettings']['Networks'][self.network]['IPAddress']
-            with self.http.open('http://' + address + ':9000/health/ready', timeout=2) as response:
-                return json.loads(response.read(16384)).get('status') == 'UP'
+            try:
+                with self.http.open('http://' + address + ':9000/health/ready', timeout=2) as response:
+                    status = int(response.status)
+                    healthy = json.loads(response.read(16384)).get('status') == 'UP'
+                    self.receipt['readiness'] = {'http_status': status, 'healthy': healthy}
+                    return healthy
+            except urllib.error.HTTPError as error:
+                self.receipt['readiness'] = {'http_status': int(error.code), 'healthy': False}
+                raise
+        self.receipt['boundary'] = 'BOOT_READINESS'
         self.wait(ready, 120)
+        self.receipt['boundary'] = 'BOOT_DATABASE_IDENTITY'
         self.check_database_identity()
 
     def check_database_identity(self):
@@ -264,22 +354,27 @@ class Fixture:
         if self.database_identity is None:
             self.database_identity = identity
         elif self.database_identity != identity:
-            raise RuntimeError('Retained database storage identity changed')
+            raise QualificationFailure(FailureCategory.DATABASE_IDENTITY_CHANGED)
 
     def reject_unauthorized_routes(self):
         metadata = self.owned('container', self.server)
         address = metadata['NetworkSettings']['Networks'][self.network]['IPAddress']
-        for realm, secret in [('master', None), ('master', 'incorrect-fixture-secret'),
-                              ('support-retained-fixture', self.secret)]:
+        for probe, realm, secret in [('MISSING_SECRET', 'master', None), ('WRONG_SECRET', 'master', 'incorrect-fixture-secret'),
+                                     ('WRONG_REALM', 'support-retained-fixture', self.secret)]:
+            self.receipt['boundary'] = 'ROUTE_PROBE_' + probe
             headers = {} if secret is None else {'X-Fixture-Secret': secret}
             request = urllib.request.Request('http://' + address + ':8080/realms/' + realm + '/support-qualification/admission',
                                              data=b'', headers=headers, method='POST')
             try:
-                self.http.open(request, timeout=5)
+                response = self.http.open(request, timeout=5)
+                status = int(getattr(response, 'status', 200))
+                response.close()
+                self.receipt['route_probe'] = {'probe': probe, 'status': status}
             except urllib.error.HTTPError as failure:
+                self.receipt['route_probe'] = {'probe': probe, 'status': int(failure.code)}
                 if failure.code == 404:
                     continue
-            raise RuntimeError('Unauthorized fixture route was not refused')
+            raise QualificationFailure(FailureCategory.HTTP_STATUS_UNEXPECTED)
         self.receipt['route_admission'] = {'missing_secret_refused': True, 'wrong_secret_refused': True, 'other_realm_refused': True}
 
     def stop_server(self):
@@ -386,12 +481,21 @@ INSERT INTO ff_native_totp_replay (id,expires_at) VALUES ('retained-replay',123)
         self.receipt['phase'] = 'ADDITIVE_MIGRATION'
         self.boot(current_image, 'current')
         self.reject_unauthorized_routes()
-        if self.snapshot() != self.retained or self.history() != self.old_history:
-            raise RuntimeError('Original retained state or historical Liquibase history changed')
+        self.receipt['boundary'] = 'MIGRATION_COMPARE_ORIGINAL_VALUES'
+        migrated = self.snapshot()
+        if migrated != self.retained:
+            self.receipt['changed_tables'] = [table for table in TABLES if migrated[table] != self.retained[table]]
+            raise QualificationFailure(FailureCategory.RETAINED_VALUES_CHANGED)
+        self.receipt['boundary'] = 'MIGRATION_COMPARE_LIQUIBASE_HISTORY'
+        if self.history() != self.old_history:
+            raise QualificationFailure(FailureCategory.LIQUIBASE_HISTORY_CHANGED)
+        self.receipt['boundary'] = 'MIGRATION_CHECK_ADDITIVE_CHANGESET'
         if self.sql("SELECT count(*) FROM databasechangelog WHERE id='firefly-native-support-evidence-2';") != '1':
-            raise RuntimeError('Current additive migration not applied once')
+            raise QualificationFailure(FailureCategory.MIGRATION_NOT_APPLIED)
+        self.receipt['boundary'] = 'MIGRATION_CHECK_NONCE_CONSTRAINT'
         if self.sql("SELECT count(*) FROM pg_constraint WHERE conname='ff_native_support_nonce_once';") != '1':
-            raise RuntimeError('Current nonce fence not installed')
+            raise QualificationFailure(FailureCategory.NONCE_FENCE_NOT_INSTALLED)
+        self.receipt['boundary'] = 'MIGRATION_RETAINED_AUDIT_APPEND_ONLY'
         self.sql("DO $$ BEGIN BEGIN UPDATE ff_native_audit SET event_type='REWRITE' WHERE id='retained-audit'; RAISE EXCEPTION 'Audit update unexpectedly admitted'; EXCEPTION WHEN insufficient_privilege THEN NULL; END; BEGIN DELETE FROM ff_native_audit WHERE id='retained-audit'; RAISE EXCEPTION 'Audit deletion unexpectedly admitted'; EXCEPTION WHEN insufficient_privilege THEN NULL; END; END $$;")
         self.receipt['migration'] = {'original_tables_preserved': len(TABLES), 'historical_checksums_preserved': True,
                                      'additive_changeset_applied_once': True, 'original_columns_preserved': True,
@@ -419,15 +523,18 @@ def main():
     fixture = Fixture(run)
     try:
         fixture.run_all()
-    except Exception:
+    except Exception as error:
+        fixture.receipt['python_failure'] = fixture.exception_diagnostic(error)
+        fixture.receipt['failure_category'] = fixture.receipt['python_failure']['category']
         fixture.failure(traceback.format_exc())
         for container in (fixture.server, fixture.db):
             try:
-                fixture.owned('container', container)
+                role = 'identity' if container == fixture.server else 'database'
+                fixture.receipt.setdefault('process_states', {})[role] = fixture.process_diagnostic(container)
                 fixture.failure(fixture.docker('logs', '--tail', '160', container))
-            except Exception:
-                pass
-        fixture.receipt['failure_category'] = 'BOUNDED_OWNED_QUALIFICATION_FAILURE'
+            except Exception as diagnostic_error:
+                fixture.receipt.setdefault('process_states', {})[role] = {
+                    'metadata_available': False, 'diagnostic': fixture.exception_diagnostic(diagnostic_error)}
         fixture.receipt['failed_state_retained_on_runner'] = True
     finally:
         # Never upload env files, SQL snapshots, raw logs, credentials, keys or Docker metadata.
