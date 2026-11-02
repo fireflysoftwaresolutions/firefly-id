@@ -124,6 +124,21 @@ class MasterTransitionTest(unittest.TestCase):
         effective['components'][kind][0]['config']['kc.user.profile.config'] = [json.dumps(configuration)]
         with self.assertRaises(ValueError): module.verify_effective(candidate, effective)
 
+    def test_readback_preserves_master_profile_required_field_policy_variant(self):
+        module = self.module(); document = source(); kind = module.profile.USER_PROFILE_PROVIDER
+        configuration = copy.deepcopy(module.profile.DEFAULT_USER_PROFILE)
+        document['components'][kind] = [{'id': 'profile', 'providerId': 'declarative-user-profile',
+                                         'config': {'kc.user.profile.config': [json.dumps(configuration)]}}]
+        candidate = module.profile.build_profile(document, realm='master', origin='https://id.example.test', acknowledge_master=True)
+        effective = copy.deepcopy(candidate)
+        for attribute in configuration['attributes']: attribute.pop('required', None)
+        effective['components'][kind][0]['config']['kc.user.profile.config'] = [json.dumps(configuration)]
+        with self.assertRaises(ValueError): module.verify_effective(candidate, effective)
+        module.profile.reviewed_native_components(effective['components'], realm='master')
+        relaxed_candidate = module.profile.build_profile({**document, 'components': effective['components']},
+            realm='master', origin='https://id.example.test', acknowledge_master=True)
+        module.verify_effective(relaxed_candidate, copy.deepcopy(relaxed_candidate))
+
     def test_retained_snapshot_requires_same_credentials_ids_roles_and_original_audit_rows(self):
         module = self.module()
         before = {'users': ['u'], 'credentials': ['c'], 'roles': ['r'], 'events': ['e'], 'adminEvents': ['a']}

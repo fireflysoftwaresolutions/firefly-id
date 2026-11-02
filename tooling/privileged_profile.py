@@ -93,7 +93,42 @@ DEFAULT_USER_PROFILE = {
 }
 
 
-def reviewed_native_components(components):
+def native_user_profile_configuration(component, *, realm=None):
+    require(component.get('providerId') == 'declarative-user-profile'
+            and component.get('providerType', USER_PROFILE_PROVIDER) == USER_PROFILE_PROVIDER,
+            'Only the native declarative user-profile provider is supported')
+    config = component.get('config', {})
+    require(isinstance(config, dict), 'Native user-profile configuration object required')
+    if not config:
+        return copy.deepcopy(DEFAULT_USER_PROFILE)
+    require(set(config) == {'kc.user.profile.config'} and isinstance(config['kc.user.profile.config'], list)
+            and len(config['kc.user.profile.config']) == 1 and isinstance(config['kc.user.profile.config'][0], str),
+            'Custom user-profile component settings require explicit review')
+    configured = parse_document(config['kc.user.profile.config'][0])
+    for attribute in configured.get('attributes', []):
+        # UPAttribute serializes the primitive false and ApplianceBootstrap clears optional required fields.
+        if attribute.get('multivalued') is False:
+            del attribute['multivalued']
+        if attribute.get('required', False) is None:
+            del attribute['required']
+        for mapping, key in ((attribute.get('permissions', {}), 'view'), (attribute.get('permissions', {}), 'edit'),
+                             (attribute.get('required', {}), 'roles')):
+            if key in mapping:
+                values = mapping[key]
+                require(isinstance(values, list) and all(isinstance(value, str) for value in values)
+                        and len(set(values)) == len(values), 'Duplicate or invalid user-profile role set refused')
+                mapping[key] = sorted(values)
+    master = copy.deepcopy(DEFAULT_USER_PROFILE)
+    # ApplianceBootstrap.createMasterRealm removes required from email/firstName/lastName in the native master only.
+    for attribute in master['attributes']:
+        if attribute['name'] != 'username':
+            attribute.pop('required', None)
+    require(configured == DEFAULT_USER_PROFILE or (realm == 'master' and configured == master),
+            'Custom declarative user-profile configuration requires explicit review')
+    return configured
+
+
+def reviewed_native_components(components, *, realm=None):
     require(isinstance(components, dict) and set(components) <= {'org.keycloak.keys.KeyProvider', USER_PROFILE_PROVIDER},
             'Only reviewed native signing-key and default user-profile components are supported')
     for entries in components.values():
@@ -103,22 +138,7 @@ def reviewed_native_components(components):
     profiles = components.get(USER_PROFILE_PROVIDER, [])
     require(len(profiles) <= 1, 'Duplicate user-profile components refused')
     for component in profiles:
-        require(component.get('providerId') == 'declarative-user-profile'
-                and component.get('providerType', USER_PROFILE_PROVIDER) == USER_PROFILE_PROVIDER,
-                'Only the native declarative user-profile provider is supported')
-        config = component.get('config', {})
-        require(isinstance(config, dict), 'Native user-profile configuration object required')
-        if not config:
-            continue
-        require(set(config) == {'kc.user.profile.config'} and isinstance(config['kc.user.profile.config'], list)
-                and len(config['kc.user.profile.config']) == 1 and isinstance(config['kc.user.profile.config'][0], str),
-                'Custom user-profile component settings require explicit review')
-        configured = parse_document(config['kc.user.profile.config'][0])
-        # The native UPAttribute serializer writes the primitive default even when absent from the bundled JSON.
-        for attribute in configured.get('attributes', []):
-            if attribute.get('multivalued') is False:
-                del attribute['multivalued']
-        require(configured == DEFAULT_USER_PROFILE, 'Custom declarative user-profile configuration requires explicit review')
+        native_user_profile_configuration(component, realm=realm)
 
 
 def existing_flows(document):
@@ -218,7 +238,7 @@ def prerequisites(document, realm, origin, admin_origin=None):
     require(not document.get('clientPolicies', {}).get('policies') and not document.get('clientProfiles', {}).get('profiles'),
             'Custom client policy/profile execution requires separate review')
     components = document.get('components', {})
-    reviewed_native_components(components)
+    reviewed_native_components(components, realm=realm)
     attributes = document.get('attributes', {})
     require(isinstance(attributes, dict) and set(attributes) <= {'firefly.privileged-administration'},
             'Realm extension attributes require explicit review')

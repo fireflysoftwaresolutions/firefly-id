@@ -124,12 +124,12 @@ def verify_effective(candidate, effective, retirement_window=None):
         require(canonical(candidate.get(key)) == canonical(effective.get(key)), 'Preserved realm setting differs: ' + key)
     # Signing private-key values may be redacted by the admin partial-export endpoint.
     def components(document):
-        profile.reviewed_native_components(document.get('components', {}))
+        profile.reviewed_native_components(document.get('components', {}), realm=document.get('realm'))
         result = json.loads(json.dumps(document.get('components', {})))
         for component in result.get('org.keycloak.keys.KeyProvider', []):
             component.get('config', {}).pop('privateKey', None)
         for component in result.get(profile.USER_PROFILE_PROVIDER, []):
-            component['config'] = {'kc.user.profile.config': profile.DEFAULT_USER_PROFILE}
+            component['config'] = {'kc.user.profile.config': profile.native_user_profile_configuration(component, realm=document.get('realm'))}
         return canonical(result)
     require(components(candidate) == components(effective), 'Signing component inventory differs')
     expected = profile.controls(profile.origin_host('https://' + candidate['webAuthnPolicyRpId']))
@@ -489,7 +489,7 @@ def review_components():
         else:
             native.setdefault(kind, []).append(component)
     try:
-        profile.reviewed_native_components(native)
+        profile.reviewed_native_components(native, realm='master')
     except (ValueError, TypeError, KeyError) as failure:
         PROFILE_DIAGNOSTIC = profile_diagnostic({'components': native}, failure)
         raise

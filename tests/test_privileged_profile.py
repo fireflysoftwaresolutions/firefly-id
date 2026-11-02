@@ -223,6 +223,21 @@ class PrivilegedProfileTest(unittest.TestCase):
         document['components'][provider][0]['config']['kc.user.profile.config'] = [json.dumps(default)]
         with self.assertRaises(ValueError): self.candidate(document)
 
+    def test_native_master_profile_relaxes_only_builtin_required_fields_and_normalizes_role_sets(self):
+        import json
+        kind = self.module.USER_PROFILE_PROVIDER
+        configuration = copy.deepcopy(self.module.DEFAULT_USER_PROFILE)
+        for attribute in configuration['attributes']:
+            if attribute['name'] != 'username': attribute.pop('required', None)
+            attribute['permissions']['view'].reverse(); attribute['permissions']['edit'].reverse()
+        component = {'providerId': 'declarative-user-profile', 'config': {'kc.user.profile.config': [json.dumps(configuration)]}}
+        document = source(); document['components'][kind] = [component]
+        self.assertEqual(self.candidate(document)['components'], document['components'])
+        with self.assertRaises(ValueError): self.module.reviewed_native_components(document['components'], realm='workforce')
+        configuration['attributes'][0]['permissions']['view'].append('admin')
+        component['config']['kc.user.profile.config'] = [json.dumps(configuration)]
+        with self.assertRaises(ValueError): self.candidate(document)
+
     def test_nonstandard_json_numbers_are_refused(self):
         for number in ('NaN', 'Infinity', '-Infinity'):
             with self.subTest(number=number), self.assertRaises(ValueError):
